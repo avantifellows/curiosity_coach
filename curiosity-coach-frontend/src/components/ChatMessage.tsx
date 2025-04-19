@@ -1,5 +1,4 @@
 import React from 'react';
-import { Box, Paper, Typography } from '@mui/material';
 import { Message } from '../types';
 
 interface ChatMessageProps {
@@ -10,30 +9,16 @@ const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
   const isUser = message.is_user;
   
   return (
-    <Box
-      sx={{
-        display: 'flex',
-        justifyContent: isUser ? 'flex-end' : 'flex-start',
-        mb: 2,
-      }}
-    >
-      <Paper
-        elevation={1}
-        sx={{
-          p: 2,
-          maxWidth: '75%',
-          backgroundColor: isUser ? '#e3f2fd' : '#f5f5f5',
-          borderRadius: 2,
-        }}
-      >
-        <Typography variant="body1">{message.content}</Typography>
+    <div className={`mb-4 flex ${isUser ? 'justify-end' : 'justify-start'}`}>
+      <div className={isUser ? 'chat-bubble-user' : 'chat-bubble-bot'}>
+        <p className="whitespace-pre-wrap break-words">{message.content}</p>
         {message.timestamp && (
-          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1, textAlign: 'right' }}>
+          <p className="text-xs opacity-70 text-right mt-1">
             {new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-          </Typography>
+          </p>
         )}
-      </Paper>
-    </Box>
+      </div>
+    </div>
   );
 };
 

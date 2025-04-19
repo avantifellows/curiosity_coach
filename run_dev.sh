@@ -31,7 +31,10 @@ trap cleanup INT TERM
 # Start the backend server in the background
 echo "Starting backend server..."
 cd backend
-./run.sh &
+# Activate virtual environment and run the Flask app directly
+source venv/bin/activate
+export FLASK_ENV=development
+python app.py &
 BACKEND_PID=$!
 echo "Backend started with PID: $BACKEND_PID"
 

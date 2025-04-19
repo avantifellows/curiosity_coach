@@ -1,13 +1,62 @@
-body {
-  margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
-    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
-    sans-serif;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Custom base styles */
+@layer base {
+  body {
+    @apply bg-gray-50 text-gray-900 min-h-screen font-sans;
+  }
+  
+  h1 {
+    @apply text-2xl font-bold;
+  }
+  
+  h2 {
+    @apply text-xl font-semibold;
+  }
+  
+  input, textarea {
+    @apply border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent;
+  }
 }
 
-code {
-  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
-    monospace;
+/* Custom component styles */
+@layer components {
+  .btn {
+    @apply px-4 py-2 rounded font-medium focus:outline-none focus:ring-2 focus:ring-opacity-50 transition-colors;
+  }
+  
+  .btn-primary {
+    @apply btn bg-primary text-white hover:bg-primary-dark focus:ring-primary;
+  }
+  
+  .btn-secondary {
+    @apply btn bg-secondary text-white hover:bg-secondary-dark focus:ring-secondary;
+  }
+  
+  .card {
+    @apply bg-white rounded-lg shadow-md p-4;
+  }
+  
+  .chat-bubble {
+    @apply max-w-[75%] p-3 rounded-lg;
+  }
+  
+  .chat-bubble-user {
+    @apply chat-bubble bg-primary-dark text-white ml-auto;
+  }
+  
+  .chat-bubble-bot {
+    @apply chat-bubble bg-gray-lightest text-gray-darkest;
+  }
+}
+
+/* Custom utility styles */
+@layer utilities {
+  .text-shadow {
+    text-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  }
 }
