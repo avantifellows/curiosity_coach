@@ -126,7 +126,7 @@ npm install
 ./run_dev.sh
 ```
 
-This script starts both the backend and frontend development servers.
+This script starts both the backend and frontend development servers. Use `Ctrl+C` to gracefully stop both servers.
 
 #### Option 2: Run Backend and Frontend Separately
 
@@ -146,7 +146,18 @@ cd curiosity-coach-frontend
 npm start
 ```
 
-### 5. Access the Application
+### 5. Stopping the Servers
+
+If you need to forcefully stop the servers at any time:
+
+```bash
+# From project root
+./kill_servers.sh
+```
+
+This script kills both the frontend and backend processes.
+
+### 6. Access the Application
 
 - Frontend: http://localhost:3000
 - Backend API: http://localhost:5000
