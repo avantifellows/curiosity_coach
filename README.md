@@ -1,50 +1,79 @@
-# Curiosity Coach Chat App
+# Curiosity Coach
 
-A simple chatbot application built with Gradio and backed by a PostgreSQL database. The app features user authentication via phone number and persistent chat history.
+A modern chatbot application with a React frontend and Flask backend, using PostgreSQL for data storage and AWS SQS for message processing.
+
+## Architecture
+
+The application follows a modern, scalable architecture:
+
+- **Frontend**: React application with TypeScript and Material UI
+- **Backend**: Flask RESTful API 
+- **Database**: PostgreSQL for message and user storage
+- **Queue**: AWS SQS for message processing
+- **Processing**: AWS Lambda for message processing (simulated during development)
 
 ## Features
 
-- User login with phone number
-- Chat interface with message history
-- PostgreSQL database for storing users and messages
-- Dummy LLM response system (to be replaced with a real LLM later)
-
-## Setup
-
-### Installation
-
-You can use either `pip` with requirements.txt or `uv` with pyproject.toml:
-
-#### Using pip:
-```
-pip install -r requirements.txt
-```
-
-#### Using uv (recommended for faster installation):
-```
-# Install uv if you don't have it
-pip install uv
-
-# Install dependencies with uv
-uv pip install .
-```
-
-### Database Setup
-
-1. Set up PostgreSQL database:
-   - Create a database named `curiosity_coach`
-   - Copy `.env.example` to `.env` and update with your database credentials
-
-2. Run the application:
-   ```
-   python app.py
-   ```
-
-3. Open the app in your browser (typically at http://127.0.0.1:7860)
+- User authentication with phone number
+- Real-time chat interface with message history
+- PostgreSQL database for persistent storage
+- Message queue integration for scalable processing
+- Responsive Material UI design
 
 ## Project Structure
 
-- `app.py` - Main Gradio application
-- `database.py` - Database connection and interaction functions
-- `model.py` - Dummy LLM implementation
-- `schema.sql` - Database schema
+```
+curiosity-coach/
+├── backend/               # Flask backend API
+│   ├── app.py             # Main Flask application
+│   ├── database.py        # Database interaction module
+│   ├── queue_service.py   # AWS SQS integration
+│   └── requirements.txt   # Python dependencies
+│
+└── curiosity-coach-frontend/  # React frontend
+    ├── public/            # Static assets
+    ├── src/               # Source code
+    │   ├── components/    # React components
+    │   ├── context/       # React context providers
+    │   ├── services/      # API services
+    │   └── types/         # TypeScript type definitions
+    └── package.json       # Node.js dependencies
+```
+
+## Setup
+
+### Prerequisites
+
+- Node.js 14+ and npm
+- Python 3.8+
+- PostgreSQL database
+- AWS account (optional for development)
+
+### Running the Application
+
+1. Frontend development:
+   ```
+   cd curiosity-coach-frontend
+   npm start
+   ```
+
+2. Backend development:
+   ```
+   cd backend
+   python app.py
+   ```
+
+3. Both together:
+   ```
+   cd curiosity-coach-frontend
+   npm run dev
+   ```
+
+## Documentation
+
+- [Frontend Documentation](./curiosity-coach-frontend/README.md)
+- [Backend Documentation](./backend/README.md)
+
+## License
+
+This project is licensed under the GNU General Public License v3.0 - see the [LICENSE](./LICENSE) file for details. 
