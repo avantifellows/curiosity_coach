@@ -1,12 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Box, TextField, Button, Paper, Typography, Container, CircularProgress, IconButton, Tooltip } from '@mui/material';
-import SendIcon from '@mui/icons-material/Send';
-import LogoutIcon from '@mui/icons-material/Logout';
-import ChatMessage from './ChatMessage';
+import { CircularProgress } from '@mui/material';
 import { useAuth } from '../context/AuthContext';
 import { sendMessage, getChatHistory } from '../services/api';
 import { Message } from '../types';
+import ChatMessage from './ChatMessage';
 import { useNavigate } from 'react-router-dom';
+import { LogoutOutlined, Send } from '@mui/icons-material';
 
 const ChatInterface: React.FC = () => {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -95,101 +94,90 @@ const ChatInterface: React.FC = () => {
 
   if (authLoading) {
     return (
-      <Container maxWidth="md">
-        <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
+      <div className="flex justify-center items-center min-h-screen">
+        <div className="flex flex-col items-center">
           <CircularProgress />
-          <Typography variant="body1" sx={{ ml: 2 }}>
-            Loading chat...
-          </Typography>
-        </Box>
-      </Container>
+          <p className="mt-4 text-gray-600">Loading chat...</p>
+        </div>
+      </div>
     );
   }
 
   return (
-    <Container maxWidth="md">
-      <Box sx={{ display: 'flex', flexDirection: 'column', height: '80vh', mt: 3 }}>
-        <Paper elevation={3} sx={{ p: 2, mb: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <Box>
-            <Typography variant="h5" component="h1">
-              Chat with Curiosity Coach
-            </Typography>
-            <Typography variant="subtitle1" color="text.secondary">
-              {user ? `Logged in as: ${user.phone_number}` : 'Please log in'}
-            </Typography>
-          </Box>
-          <Tooltip title="Logout">
-            <IconButton 
-              color="primary" 
-              onClick={handleLogout}
-              aria-label="logout"
-            >
-              <LogoutIcon />
-            </IconButton>
-          </Tooltip>
-        </Paper>
+    <div className="flex flex-col h-screen bg-gray-50">
+      {/* Header */}
+      <header className="bg-white shadow-sm">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 flex justify-between items-center">
+          <div>
+            <h1 className="text-xl font-bold text-gray-900">Curiosity Coach</h1>
+            {user && (
+              <p className="text-sm text-gray-500">
+                Logged in as: {user.phone_number}
+              </p>
+            )}
+          </div>
+          <button 
+            onClick={handleLogout}
+            className="p-2 rounded-full hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-primary"
+            aria-label="Logout"
+          >
+            <LogoutOutlined className="text-gray-600" />
+          </button>
+        </div>
+      </header>
 
+      {/* Main content */}
+      <main className="flex-1 overflow-hidden p-4 sm:p-6 md:p-8 flex flex-col max-w-7xl mx-auto w-full">
         {/* Chat messages */}
-        <Paper 
-          elevation={2} 
-          sx={{ 
-            p: 2, 
-            mb: 2, 
-            flexGrow: 1, 
-            overflow: 'auto',
-            display: 'flex',
-            flexDirection: 'column'
-          }}
-        >
+        <div className="flex-1 overflow-y-auto mb-4 card min-h-0 p-4">
           {loading && messages.length === 0 ? (
-            <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}>
+            <div className="flex justify-center items-center h-full">
               <CircularProgress />
-            </Box>
+            </div>
           ) : messages.length === 0 ? (
-            <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}>
-              <Typography variant="body1" color="text.secondary">
-                No messages yet. Start a conversation!
-              </Typography>
-            </Box>
+            <div className="flex justify-center items-center h-full">
+              <p className="text-gray-500">No messages yet. Start a conversation!</p>
+            </div>
           ) : (
-            messages.map((message, index) => (
-              <ChatMessage key={index} message={message} />
-            ))
+            <div className="space-y-2">
+              {messages.map((message, index) => (
+                <ChatMessage key={index} message={message} />
+              ))}
+              <div ref={messagesEndRef} />
+            </div>
           )}
-          <div ref={messagesEndRef} />
-        </Paper>
+        </div>
 
         {/* Message input */}
-        <Paper elevation={2} sx={{ p: 2 }}>
+        <div className="card mt-auto p-4">
           {error && (
-            <Typography color="error" variant="body2" sx={{ mb: 2 }}>
-              {error}
-            </Typography>
+            <div className="bg-red-50 border-l-4 border-red-500 p-4 mb-4 text-red-700">
+              <p>{error}</p>
+            </div>
           )}
           
-          <Box component="form" onSubmit={handleSendMessage} sx={{ display: 'flex' }}>
-            <TextField
-              fullWidth
+          <form onSubmit={handleSendMessage} className="flex items-center">
+            <input
+              type="text"
               placeholder="Type your message..."
-              variant="outlined"
               value={newMessage}
               onChange={(e) => setNewMessage(e.target.value)}
               disabled={!user || loading}
-              sx={{ mr: 1 }}
+              className="flex-1 mr-3 focus:ring-primary focus:border-primary rounded-full py-2 px-4"
             />
-            <Button
+            <button
               type="submit"
-              variant="contained"
-              color="primary"
-              endIcon={loading ? <CircularProgress size={20} color="inherit" /> : <SendIcon />}
               disabled={!user || loading || !newMessage.trim()}
+              className={`btn-primary rounded-full p-3 flex items-center justify-center ${
+                !user || loading || !newMessage.trim() ? 'opacity-50 cursor-not-allowed' : ''
+              }`}
             >
-              Send
-            </Button>
-          </Box>
-        </Paper>
-      </Box>
-    </Container>
+              {loading ? <CircularProgress size={24} /> : <Send />}
+            </button>
+          </form>
+        </div>
+      </main>
+    </div>
   );
 };
 
