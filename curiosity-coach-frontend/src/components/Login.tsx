@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Box, Button, TextField, Typography, Paper, Container, Alert } from '@mui/material';
+import { Box, Button, TextField, Typography, Paper, Container, Alert, CircularProgress } from '@mui/material';
 import { loginUser } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
@@ -8,7 +8,7 @@ const Login: React.FC = () => {
   const [phoneNumber, setPhoneNumber] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const { login } = useAuth();
+  const { login, isLoading: authLoading } = useAuth();
   const navigate = useNavigate();
 
   const validatePhoneNumber = (phone: string): boolean => {
@@ -42,6 +42,19 @@ const Login: React.FC = () => {
     }
   };
 
+  if (authLoading) {
+    return (
+      <Container maxWidth="sm">
+        <Box sx={{ mt: 8, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '50vh' }}>
+          <CircularProgress />
+          <Typography variant="body1" sx={{ mt: 2 }}>
+            Checking authentication status...
+          </Typography>
+        </Box>
+      </Container>
+    );
+  }
+
   return (
     <Container maxWidth="sm">
       <Box sx={{ mt: 8, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
@@ -69,6 +82,7 @@ const Login: React.FC = () => {
               onChange={(e) => setPhoneNumber(e.target.value)}
               placeholder="Enter your 10-15 digit phone number"
               inputProps={{ inputMode: 'numeric', pattern: '[0-9]*' }}
+              disabled={isLoading}
             />
             <Button
               type="submit"
@@ -78,7 +92,14 @@ const Login: React.FC = () => {
               disabled={isLoading}
               sx={{ mt: 3, mb: 2 }}
             >
-              {isLoading ? 'Logging in...' : 'Login'}
+              {isLoading ? (
+                <>
+                  <CircularProgress size={24} sx={{ mr: 1 }} color="inherit" />
+                  Logging in...
+                </>
+              ) : (
+                'Login'
+              )}
             </Button>
           </Box>
         </Paper>

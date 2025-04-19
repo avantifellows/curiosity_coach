@@ -40,34 +40,123 @@ curiosity-coach/
     └── package.json       # Node.js dependencies
 ```
 
-## Setup
+## Setup and Running Instructions
 
 ### Prerequisites
 
 - Node.js 14+ and npm
 - Python 3.8+
-- PostgreSQL database
+- PostgreSQL 14+
 - AWS account (optional for development)
 
-### Running the Application
+### 1. PostgreSQL Setup
 
-1. Frontend development:
-   ```
-   cd curiosity-coach-frontend
-   npm start
-   ```
+#### Starting PostgreSQL Server (macOS)
 
-2. Backend development:
-   ```
-   cd backend
-   python app.py
-   ```
+**Using Homebrew:**
+```bash
+# Start PostgreSQL
+brew services start postgresql@14
 
-3. Both together:
-   ```
-   cd curiosity-coach-frontend
-   npm run dev
-   ```
+# Check status
+brew services list | grep postgres
+```
+
+**Using PostgreSQL.app:**
+1. Open PostgreSQL.app from Applications folder
+2. Click "Start" button
+
+**Troubleshooting PostgreSQL:**
+
+If you see a port conflict with AirPlay Receiver on port 5000:
+1. Go to System Settings → Sharing
+2. Turn off "AirPlay Receiver"
+
+If PostgreSQL requires a password:
+```bash
+export PGPASSWORD=yourpassword
+```
+
+#### Create the Database
+```bash
+# Connect to PostgreSQL
+psql -U postgres
+
+# Create database
+CREATE DATABASE curiosity_coach;
+
+# Exit psql
+\q
+```
+
+### 2. Backend Setup
+
+```bash
+# Navigate to backend directory
+cd backend
+
+# Create and activate virtual environment
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Create .env.local file
+cp .env.example .env.local
+# Edit .env.local with your PostgreSQL credentials
+```
+
+### 3. Frontend Setup
+
+```bash
+# Navigate to frontend directory
+cd curiosity-coach-frontend
+
+# Install dependencies
+npm install
+```
+
+### 4. Running the Application
+
+#### Option 1: Run Both Frontend and Backend Together
+
+```bash
+# From project root
+./run_dev.sh
+```
+
+This script starts both the backend and frontend development servers.
+
+#### Option 2: Run Backend and Frontend Separately
+
+**Terminal 1 - Backend:**
+```bash
+cd backend
+./run.sh
+# Or manually:
+source venv/bin/activate
+export FLASK_ENV=development
+python app.py
+```
+
+**Terminal 2 - Frontend:**
+```bash
+cd curiosity-coach-frontend
+npm start
+```
+
+### 5. Access the Application
+
+- Frontend: http://localhost:3000
+- Backend API: http://localhost:5000
+- API Health Check: http://localhost:5000/api/health
+
+### Common Issues and Solutions
+
+- **Port 5000 already in use:** Change the port in backend/.env.local (PORT=5001) and update the proxy in curiosity-coach-frontend/package.json
+- **Database connection error:** Ensure PostgreSQL is running and credentials are correct
+- **Module not found errors:** Verify all dependencies are installed properly
 
 ## Documentation
 
