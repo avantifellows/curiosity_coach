@@ -1,22 +1,27 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Box, TextField, Button, Paper, Typography, Container, CircularProgress } from '@mui/material';
+import { Box, TextField, Button, Paper, Typography, Container, CircularProgress, IconButton, Tooltip } from '@mui/material';
 import SendIcon from '@mui/icons-material/Send';
+import LogoutIcon from '@mui/icons-material/Logout';
 import ChatMessage from './ChatMessage';
 import { useAuth } from '../context/AuthContext';
 import { sendMessage, getChatHistory } from '../services/api';
 import { Message } from '../types';
+import { useNavigate } from 'react-router-dom';
 
 const ChatInterface: React.FC = () => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const { user } = useAuth();
+  const { user, isLoading: authLoading, logout } = useAuth();
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const navigate = useNavigate();
 
   // Fetch chat history when component mounts
   useEffect(() => {
     const fetchChatHistory = async () => {
+      if (!user) return; // Don't fetch if user is not available
+      
       try {
         setLoading(true);
         const response = await getChatHistory();
@@ -29,10 +34,10 @@ const ChatInterface: React.FC = () => {
       }
     };
 
-    if (user) {
+    if (user && !authLoading) {
       fetchChatHistory();
     }
-  }, [user]);
+  }, [user, authLoading]);
 
   // Scroll to bottom when messages change
   useEffect(() => {
@@ -83,16 +88,45 @@ const ChatInterface: React.FC = () => {
     }
   };
 
+  const handleLogout = () => {
+    logout();
+    navigate('/');
+  };
+
+  if (authLoading) {
+    return (
+      <Container maxWidth="md">
+        <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
+          <CircularProgress />
+          <Typography variant="body1" sx={{ ml: 2 }}>
+            Loading chat...
+          </Typography>
+        </Box>
+      </Container>
+    );
+  }
+
   return (
     <Container maxWidth="md">
       <Box sx={{ display: 'flex', flexDirection: 'column', height: '80vh', mt: 3 }}>
-        <Paper elevation={3} sx={{ p: 2, mb: 2 }}>
-          <Typography variant="h5" component="h1">
-            Chat with Curiosity Coach
-          </Typography>
-          <Typography variant="subtitle1" color="text.secondary">
-            {user ? `Logged in as: ${user.phone_number}` : 'Please log in'}
-          </Typography>
+        <Paper elevation={3} sx={{ p: 2, mb: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Box>
+            <Typography variant="h5" component="h1">
+              Chat with Curiosity Coach
+            </Typography>
+            <Typography variant="subtitle1" color="text.secondary">
+              {user ? `Logged in as: ${user.phone_number}` : 'Please log in'}
+            </Typography>
+          </Box>
+          <Tooltip title="Logout">
+            <IconButton 
+              color="primary" 
+              onClick={handleLogout}
+              aria-label="logout"
+            >
+              <LogoutIcon />
+            </IconButton>
+          </Tooltip>
         </Paper>
 
         {/* Chat messages */}
@@ -147,7 +181,7 @@ const ChatInterface: React.FC = () => {
               type="submit"
               variant="contained"
               color="primary"
-              endIcon={<SendIcon />}
+              endIcon={loading ? <CircularProgress size={20} color="inherit" /> : <SendIcon />}
               disabled={!user || loading || !newMessage.trim()}
             >
               Send
