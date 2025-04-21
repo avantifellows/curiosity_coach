@@ -3,10 +3,10 @@ Checking database...
 Starting FastAPI server...
 INFO:     Will watch for changes in these directories: ['/Users/pritamps/curiosity_coach/curiosity_coach/backend']
 INFO:     Uvicorn running on http://0.0.0.0:5000 (Press CTRL+C to quit)
-INFO:     Started reloader process [78345] using WatchFiles
+INFO:     Started reloader process [90245] using WatchFiles
 Queue URL: https://sqs.ap-south-1.amazonaws.com/111766607077/curiosity-coach-queue
 Mock mode: False
 Database schema initialized successfully!
 Database initialized successfully!
 Received phone number: 9740769616
-INFO:     Stopping reloader process [78345]
+INFO:     Stopping reloader process [90245]
