@@ -1,8 +1,71 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap')
+layer(base);
 
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import 'tailwindcss';
+
+@theme {
+  --color-primary-light: #4dabf5;
+  --color-primary: #1976d2;
+  --color-primary-dark: #1565c0;
+
+  --color-secondary-light: #ff4081;
+  --color-secondary: #f50057;
+  --color-secondary-dark: #c51162;
+
+  --color-gray-lightest: #f5f5f5;
+  --color-gray-light: #e0e0e0;
+  --color-gray: #9e9e9e;
+  --color-gray-dark: #616161;
+  --color-gray-darkest: #212121;
+
+  --font-sans: Inter, system-ui, sans-serif;
+}
+
+/*
+  The default border color has changed to `currentcolor` in Tailwind CSS v4,
+  so we've added these compatibility styles to make sure everything still
+  looks the same as it did with Tailwind CSS v3.
+
+  If we ever want to remove these styles, we need to add an explicit border
+  color utility to any element that depends on these defaults.
+*/
+@layer base {
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: var(--color-gray-200, currentcolor);
+  }
+}
+
+/* Custom component styles */
+@utility btn {
+  @apply px-4 py-2 rounded-sm font-medium focus:outline-hidden focus:ring-2 focus:ring-opacity-50 transition-colors;
+}
+@utility btn-primary {
+  @apply btn bg-primary text-white hover:bg-primary-dark focus:ring-primary;
+}
+@utility btn-secondary {
+  @apply btn bg-secondary text-white hover:bg-secondary-dark focus:ring-secondary;
+}
+@utility card {
+  @apply bg-white rounded-lg shadow-md p-4;
+}
+@utility chat-bubble {
+  @apply max-w-[75%] p-3 rounded-lg;
+}
+@utility chat-bubble-user {
+  @apply chat-bubble bg-primary-dark text-white ml-auto;
+}
+@utility chat-bubble-bot {
+  @apply chat-bubble bg-gray-lightest text-gray-darkest;
+}
+
+/* Custom utility styles */
+@utility text-shadow {
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
 
 /* Custom base styles */
 @layer base {
@@ -19,44 +82,6 @@
   }
   
   input, textarea {
-    @apply border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent;
-  }
-}
-
-/* Custom component styles */
-@layer components {
-  .btn {
-    @apply px-4 py-2 rounded font-medium focus:outline-none focus:ring-2 focus:ring-opacity-50 transition-colors;
-  }
-  
-  .btn-primary {
-    @apply btn bg-primary text-white hover:bg-primary-dark focus:ring-primary;
-  }
-  
-  .btn-secondary {
-    @apply btn bg-secondary text-white hover:bg-secondary-dark focus:ring-secondary;
-  }
-  
-  .card {
-    @apply bg-white rounded-lg shadow-md p-4;
-  }
-  
-  .chat-bubble {
-    @apply max-w-[75%] p-3 rounded-lg;
-  }
-  
-  .chat-bubble-user {
-    @apply chat-bubble bg-primary-dark text-white ml-auto;
-  }
-  
-  .chat-bubble-bot {
-    @apply chat-bubble bg-gray-lightest text-gray-darkest;
-  }
-}
-
-/* Custom utility styles */
-@layer utilities {
-  .text-shadow {
-    text-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    @apply border border-gray-300 rounded-sm px-3 py-2 focus:outline-hidden focus:ring-2 focus:ring-primary focus:border-transparent;
   }
 }

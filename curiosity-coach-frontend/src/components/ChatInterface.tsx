@@ -106,7 +106,7 @@ const ChatInterface: React.FC = () => {
   return (
     <div className="flex flex-col h-screen bg-gray-50">
       {/* Header */}
-      <header className="bg-white shadow-sm">
+      <header className="bg-white shadow-xs">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 flex justify-between items-center">
           <div>
             <h1 className="text-xl font-bold text-gray-900">Curiosity Coach</h1>
@@ -118,7 +118,7 @@ const ChatInterface: React.FC = () => {
           </div>
           <button 
             onClick={handleLogout}
-            className="p-2 rounded-full hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-primary"
+            className="p-2 rounded-full hover:bg-gray-100 focus:outline-hidden focus:ring-2 focus:ring-primary"
             aria-label="Logout"
           >
             <LogoutOutlined className="text-gray-600" />
