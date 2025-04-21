@@ -28,15 +28,21 @@ cleanup() {
 # Set up trap to catch interruptions (Ctrl+C) and call cleanup
 trap cleanup INT TERM
 
-# Start the backend server in the background
+# Start the backend server in the background with output redirected to terminal
 echo "Starting backend server..."
 cd backend
 # Activate virtual environment and run the Flask app directly
 source venv/bin/activate
 export FLASK_ENV=development
-python app.py &
+
+# Start the Flask app with output redirected to both the console and a log file
+python app.py >backend.log 2>&1 &
 BACKEND_PID=$!
 echo "Backend started with PID: $BACKEND_PID"
+
+# Show backend logs in real-time
+tail -f backend.log &
+TAIL_PID=$!
 
 # Give the backend a moment to start
 sleep 2
@@ -50,10 +56,13 @@ echo "Frontend started with PID: $FRONTEND_PID"
 
 echo "Both servers are now running."
 echo "Press Ctrl+C to stop both servers."
+echo "Backend logs will be shown below."
+echo "-------------------------------"
 
 # Wait for either process to exit
 wait $FRONTEND_PID $BACKEND_PID
 
 # If we get here, one of the processes exited on its own
 echo "One of the servers has stopped. Shutting down all servers..."
+kill $TAIL_PID 2>/dev/null
 cleanup 

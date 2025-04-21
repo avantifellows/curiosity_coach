@@ -9,7 +9,8 @@ env_file = '.env.local' if os.getenv('FLASK_ENV') == 'development' else '.env'
 load_dotenv(env_file)
 
 # Check if we should use mock mode (for local development)
-MOCK_MODE = os.getenv('FLASK_ENV') == 'development' or os.getenv('AWS_ACCESS_KEY_ID') == 'dummy'
+# MOCK_MODE = os.getenv('FLASK_ENV') == 'development' or os.getenv('AWS_ACCESS_KEY_ID') == 'dummy'
+MOCK_MODE = False
 
 class QueueService:
     """Service for interacting with SQS queue, with fallback for local development"""
@@ -18,9 +19,19 @@ class QueueService:
         """Initialize SQS client and queue URL, with fallback for local development"""
         self.queue_url = os.getenv('SQS_QUEUE_URL')
         self.mock_mode = MOCK_MODE
+        print(f"Queue URL: {self.queue_url}")
+        print(f"Mock mode: {self.mock_mode}")
         
         if not self.mock_mode:
             try:
+                session = boto3.Session(profile_name=os.getenv('AWS_PROFILE', 'curiosity-coach'))
+                self.sqs = session.client('sqs', region_name=os.getenv('AWS_REGION'))
+                # Test the connection
+                self.sqs.list_queues()
+            except Exception as e:
+                print(f"AWS SQS connection failed: {e}")
+                print("Falling back to mock mode")
+                self.mock_mode = True
                 self.sqs = boto3.client(
                     'sqs',
                     region_name=os.getenv('AWS_REGION', 'us-west-2'),

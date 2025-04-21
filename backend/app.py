@@ -8,7 +8,7 @@ from queue_service import queue_service
 from dotenv import load_dotenv
 
 # Load the appropriate environment file
-env_file = '.env.local' if os.getenv('FLASK_ENV') == 'development' else '.env'
+env_file = '.env.local' # if os.getenv('FLASK_ENV') == 'development' else '.env'
 load_dotenv(env_file)
 
 app = Flask(__name__)
@@ -41,7 +41,7 @@ def login():
     data = request.json
     phone_number = data.get('phone_number')
     print(f"Received phone number: {phone_number}")
-    
+
     if not phone_number or not validate_phone_number(phone_number):
         return jsonify({
             'success': False,
