@@ -103,7 +103,7 @@ db.sqlite3-journal
 # Flask stuff:
 instance/
 .webassets-cache
-
+backend/backend.log
 # Scrapy stuff:
 .scrapy
 
