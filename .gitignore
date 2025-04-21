@@ -4,3 +4,5 @@
 aws_cli_perms.json
 curiosity_coach_iam_user.json
 aws_policy.json
+
+venv/
