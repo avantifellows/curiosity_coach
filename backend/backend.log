@@ -1,19 +1,12 @@
+Loading environment variables from .env.local
+Checking database...
+Starting FastAPI server...
+INFO:     Will watch for changes in these directories: ['/Users/pritamps/curiosity_coach/curiosity_coach/backend']
+INFO:     Uvicorn running on http://0.0.0.0:5000 (Press CTRL+C to quit)
+INFO:     Started reloader process [78345] using WatchFiles
 Queue URL: https://sqs.ap-south-1.amazonaws.com/111766607077/curiosity-coach-queue
-Mock mode: True
-Using mock SQS mode for local development
+Mock mode: False
 Database schema initialized successfully!
 Database initialized successfully!
-Starting Flask server on port 5000...
-Environment: development
- * Serving Flask app 'app'
- * Debug mode: on
-[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
- * Running on all addresses (0.0.0.0)
- * Running on http://127.0.0.1:5000
- * Running on http://192.168.0.108:5000
-[33mPress CTRL+C to quit[0m
- * Restarting with stat
- * Debugger is active!
- * Debugger PIN: 498-356-700
-/opt/homebrew/Cellar/python@3.12/3.12.3/Frameworks/Python.framework/Versions/3.12/lib/python3.12/multiprocessing/resource_tracker.py:254: UserWarning: resource_tracker: There appear to be 1 leaked semaphore objects to clean up at shutdown
-  warnings.warn('resource_tracker: There appear to be %d '
+Received phone number: 9740769616
+INFO:     Stopping reloader process [78345]

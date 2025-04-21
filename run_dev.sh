@@ -3,10 +3,15 @@
 # Track process IDs
 BACKEND_PID=""
 FRONTEND_PID=""
+TAIL_PID=""
 
 # Function to kill processes on exit
 cleanup() {
     echo "Shutting down servers..."
+    if [ -n "$TAIL_PID" ]; then
+        kill $TAIL_PID 2>/dev/null
+    fi
+    
     if [ -n "$FRONTEND_PID" ]; then
         echo "Stopping frontend (PID: $FRONTEND_PID)..."
         kill $FRONTEND_PID 2>/dev/null || kill -9 $FRONTEND_PID 2>/dev/null
@@ -19,7 +24,7 @@ cleanup() {
     
     # Additional cleanup to ensure all related processes are stopped
     pkill -f "node.*react-scripts" 2>/dev/null
-    pkill -f "python.*app.py" 2>/dev/null
+    pkill -f "python.*uvicorn" 2>/dev/null
     
     echo "All servers stopped."
     exit 0
@@ -31,16 +36,18 @@ trap cleanup INT TERM
 # Start the backend server in the background with output redirected to terminal
 echo "Starting backend server..."
 cd backend
-# Activate virtual environment and run the Flask app directly
-source venv/bin/activate
-export FLASK_ENV=development
 
-# Start the Flask app with output redirected to both the console and a log file
-python app.py >backend.log 2>&1 &
+# Clean up any previous log file
+rm -f backend.log
+
+# Start the backend using run.sh but redirect output to backend.log and run in background
+(PYTHONUNBUFFERED=1 ./run.sh > backend.log 2>&1) &
 BACKEND_PID=$!
 echo "Backend started with PID: $BACKEND_PID"
+echo "API Documentation available at: http://localhost:5000/api/docs"
 
 # Show backend logs in real-time
+echo "Displaying backend logs:"
 tail -f backend.log &
 TAIL_PID=$!
 
@@ -64,5 +71,4 @@ wait $FRONTEND_PID $BACKEND_PID
 
 # If we get here, one of the processes exited on its own
 echo "One of the servers has stopped. Shutting down all servers..."
-kill $TAIL_PID 2>/dev/null
 cleanup 
