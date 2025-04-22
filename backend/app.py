@@ -127,6 +127,7 @@ async def send_message(request: MessageRequest, user_id: int = Depends(get_user_
         queue_service.send_message(
             user_id=user_id,
             message_content=content,
+            purpose="chat",
             message_id=saved_message['id']
         )
         

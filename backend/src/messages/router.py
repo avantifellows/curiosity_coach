@@ -1,4 +1,5 @@
 from fastapi import APIRouter, HTTPException, Depends
+import traceback
 from src.messages.schemas import MessageRequest, MessageResponse, ChatHistoryResponse
 from src.messages.service import message_service
 from src.auth.dependencies import get_user_id
@@ -15,10 +16,23 @@ async def send_message(request: MessageRequest, user_id: int = Depends(get_user_
     Requires authentication header: 'Authorization: Bearer <user_id>'
     """
     content = request.content
+    purpose = request.purpose if hasattr(request, 'purpose') else "chat"
+    conversation_id = request.conversation_id if hasattr(request, 'conversation_id') else None
+    
+    print(f"Processing message for user_id: {user_id}")
+    print(f"Request data: {request}")
     
     try:
         # Send message and get response
-        saved_message, response_message = await message_service.send_message(user_id, content)
+        saved_message, response_message = await message_service.send_message(
+            user_id=user_id, 
+            content=content,
+            purpose=purpose,
+            conversation_id=conversation_id
+        )
+        
+        print(f"Message saved successfully: {saved_message}")
+        print(f"Response generated: {response_message}")
         
         return {
             'success': True,
@@ -26,7 +40,9 @@ async def send_message(request: MessageRequest, user_id: int = Depends(get_user_
             'response': response_message
         }
     except Exception as e:
+        error_details = traceback.format_exc()
         print(f"Error sending message: {e}")
+        print(f"Error details: {error_details}")
         raise HTTPException(status_code=500, detail=f"Error sending message: {str(e)}")
 
 @router.get("/history", response_model=ChatHistoryResponse)

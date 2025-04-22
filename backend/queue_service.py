@@ -3,6 +3,7 @@ import json
 import boto3
 from dotenv import load_dotenv
 import time
+import uuid
 
 # Load environment variables
 env_file = '.env.local' if os.getenv('APP_ENV') == 'development' else '.env'
@@ -49,7 +50,7 @@ class QueueService:
             print("Using mock SQS mode for local development")
             self.mock_messages = []
             
-    def send_message(self, user_id, message_content, message_id=None):
+    def send_message(self, user_id, message_content, message_id=None, purpose="chat", conversation_id=None):
         """
         Send a message to the SQS queue (or mock storage in local development)
         
@@ -57,14 +58,24 @@ class QueueService:
             user_id (int): ID of the user sending the message
             message_content (str): Content of the message
             message_id (int, optional): ID of the message in the database
+            purpose (str, optional): Purpose of the message (chat, test_generation, doubt_solver)
+            conversation_id (str, optional): ID of the conversation this message belongs to
             
         Returns:
             dict: Response from SQS or mock response
         """
+        # Generate a conversation ID if none is provided
+        if not conversation_id:
+            conversation_id = f"conv_{uuid.uuid4().hex[:8]}"
+            
+        # Match the format expected by Lambda
         message_body = {
-            'user_id': user_id,
+            'user_id': str(user_id),
+            'message_id': str(message_id) if message_id else f"msg_{uuid.uuid4().hex[:8]}",
+            'purpose': purpose,
+            'conversation_id': conversation_id,
+            # Include content for backward compatibility with existing code
             'content': message_content,
-            'message_id': message_id,
             'timestamp': time.time()
         }
         

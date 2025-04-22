@@ -1,18 +1,20 @@
 import time
 from src.models import save_message, get_message_count, get_chat_history
-from src.queue_service import queue_service
+from queue_service import queue_service
 
 class MessageService:
     """Service for handling message operations."""
     
     @staticmethod
-    async def send_message(user_id: int, content: str):
+    async def send_message(user_id: int, content: str, purpose: str = "chat", conversation_id: str = None):
         """
         Send a new message and get a response.
         
         Args:
             user_id (int): The ID of the user sending the message
             content (str): The content of the message
+            purpose (str, optional): Purpose of the message (chat, test_generation, doubt_solver)
+            conversation_id (str, optional): ID of the conversation this message belongs to
             
         Returns:
             tuple: A tuple containing the saved message and the response message
@@ -24,7 +26,9 @@ class MessageService:
         queue_service.send_message(
             user_id=user_id,
             message_content=content,
-            message_id=saved_message['id']
+            message_id=saved_message['id'],
+            purpose=purpose,
+            conversation_id=conversation_id
         )
         
         # Simulate a response from Lambda

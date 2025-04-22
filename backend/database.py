@@ -97,10 +97,11 @@ def get_chat_history(user_id, limit=50):
                 SELECT content, is_user, timestamp 
                 FROM messages 
                 WHERE user_id = %s 
-                ORDER BY timestamp ASC 
+                ORDER BY timestamp DESC 
                 LIMIT %s
                 """,
                 (user_id, limit)
             )
             messages = cursor.fetchall()
-            return [dict(msg) for msg in messages] 
+            # Reverse the order to maintain chronological display (oldest first)
+            return [dict(msg) for msg in reversed(messages)] 
