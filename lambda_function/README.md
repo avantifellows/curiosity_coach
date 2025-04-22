@@ -134,3 +134,71 @@ To modify the Lambda behavior:
 - Edit the model parameters in `lambda_function.py` for different purposes
 - Implement the `call_llm_api()` function to use your specific LLM service
 - Implement database functions to work with your database system 
+
+## Local Testing with LocalStack
+
+You can test the Lambda function locally using [LocalStack](https://localstack.cloud/), which provides a mock AWS environment running in Docker.
+
+### Prerequisites for Local Testing
+
+- Docker and Docker Compose
+- Python 3.9+
+- uv or pip
+
+### Running the Local Test
+
+1. Use the provided script to run a full test:
+
+```bash
+# Make the script executable
+chmod +x run_local_test.sh
+
+# Run the local test
+./run_local_test.sh
+```
+
+This script will:
+- Start LocalStack in a Docker container
+- Create a mock SQS queue
+- Deploy the Lambda function to LocalStack
+- Send test messages to the queue
+- Monitor the execution
+
+### Test Components
+
+The local testing setup includes:
+
+- `docker-compose.yml`: Configuration for LocalStack
+- `test_local.py`: Script to test the Lambda function with LocalStack
+- `mock_db.py`: A simple file-based mock database
+- `lambda_function_local.py`: Modified Lambda function for local testing
+- `run_local_test.sh`: Script to run the entire test workflow
+
+### Manual Testing
+
+You can also test individual components:
+
+1. Start LocalStack:
+```bash
+docker-compose up -d
+```
+
+2. Run the local test script with custom parameters:
+```bash
+python test_local.py --messages 5 --monitor 20
+```
+
+3. Test the Lambda function directly without SQS:
+```bash
+python lambda_function_local.py
+```
+
+4. View the mock database:
+```bash
+cat mock_db.json
+```
+
+5. Stop LocalStack when done:
+```bash
+docker-compose down
+``` 
