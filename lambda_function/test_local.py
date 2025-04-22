@@ -17,6 +17,7 @@ import boto3
 import subprocess
 import argparse
 from pathlib import Path
+import shutil
 
 # Constants
 DEFAULT_QUEUE_NAME = "local-test-queue"
@@ -31,9 +32,31 @@ def create_lambda_zip():
     package_dir = Path("./package")
     package_dir.mkdir(exist_ok=True)
     
-    # Install dependencies
+    # Install dependencies using uv
     print("Installing dependencies...")
-    subprocess.run(["uv", "pip", "install", "--no-cache", "-t", str(package_dir), "--system", "."], check=True)
+    
+    # uv doesn't support the -t flag like pip - use a different approach
+    venv_dir = Path("./temp_venv")
+    if venv_dir.exists():
+        shutil.rmtree(venv_dir)
+    
+    # Create a temporary virtual environment
+    subprocess.run(["uv", "venv", str(venv_dir)], check=True)
+    
+    # Install packages into the virtual environment
+    venv_uv = venv_dir / "bin" / "uv"
+    subprocess.run([str(venv_uv), "pip", "install", "--no-cache", "--system", "."], check=True)
+    
+    # Find the site-packages directory in the venv
+    python_version = subprocess.run(
+        [str(venv_dir / "bin" / "python"), "-c", "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')"],
+        capture_output=True, text=True, check=True
+    ).stdout.strip()
+    
+    site_packages = venv_dir / "lib" / f"python{python_version}" / "site-packages"
+    
+    # Copy packages from site-packages to the package directory
+    subprocess.run(["cp", "-r", f"{site_packages}/.", str(package_dir)], check=True)
     
     # Copy Lambda code
     lambda_file = Path("lambda_function.py")
@@ -49,6 +72,9 @@ def create_lambda_zip():
     os.chdir(package_dir)
     subprocess.run(["zip", "-r", "../lambda_deployment_package.zip", "."], check=True)
     os.chdir("..")
+    
+    # Clean up the temporary virtual environment
+    shutil.rmtree(venv_dir)
     
     return zip_path.absolute()
 

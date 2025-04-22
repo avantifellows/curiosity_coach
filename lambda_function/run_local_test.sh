@@ -32,18 +32,24 @@ else
     done
 fi
 
+# Ensure uv is installed
+if ! command -v uv &> /dev/null; then
+    echo "uv is not installed. Installing..."
+    curl -LsSf https://astral.sh/uv/install.sh | sh
+fi
+
 # Create and activate virtual environment if needed
 if [ ! -d ".venv" ]; then
-    echo "Creating virtual environment..."
-    python -m venv .venv
+    echo "Creating virtual environment using uv..."
+    uv venv
 fi
 
 # Activate virtual environment
 source .venv/bin/activate
 
 # Install dependencies
-echo "Installing dependencies..."
-pip install boto3 requests
+echo "Installing dependencies using uv..."
+uv pip install boto3 requests
 
 # Clear any previous test data
 if [ -f "mock_db.json" ]; then

@@ -24,50 +24,45 @@ echo "Deploying Lambda function: $LAMBDA_NAME"
 echo "Region: $AWS_REGION"
 echo "Python version: $PYTHON_VERSION"
 
-# Ensure uv is installed
-if ! command -v uv &> /dev/null; then
-    echo "uv is not installed. Installing..."
-    curl -LsSf https://astral.sh/uv/install.sh | sh
+# Check if Docker is running
+if ! docker info > /dev/null 2>&1; then
+    echo "Error: Docker is not running. Please start Docker and try again."
+    exit 1
 fi
 
-# Create a temporary directory for packaging
-TEMP_DIR=$(mktemp -d)
-echo "Using temporary directory: $TEMP_DIR"
+# Create a directory for the deployment package
+LAMBDA_DIR="$PWD/.lambda_package"
+mkdir -p "$LAMBDA_DIR"
 
 # Clean up on exit
 cleanup() {
-    echo "Cleaning up temporary directory..."
-    rm -rf "$TEMP_DIR"
+    echo "Cleaning up..."
+    rm -rf "$LAMBDA_DIR"
 }
 trap cleanup EXIT
 
-# Install dependencies using uv
-echo "Installing dependencies using uv..."
-# uv doesn't support the -t flag like pip does
-# Instead, create a venv, install packages, then copy from the venv's site-packages
-UV_VENV="$TEMP_DIR/venv"
-uv venv "$UV_VENV"
-UV_PYTHON="$UV_VENV/bin/python"
-UV_SITE_PACKAGES="$UV_VENV/lib/python${PYTHON_VERSION}/site-packages"
+# Build the Lambda image
+echo "Building Lambda image with Docker..."
+IMAGE_NAME="curiosity-coach-lambda:latest"
+docker build -t "$IMAGE_NAME" .
 
-# Install the current package and dependencies
-"$UV_VENV/bin/uv" pip install --no-cache --system .
+# Create a container from the image
+CONTAINER_ID=$(docker create "$IMAGE_NAME")
 
-# Copy site-packages contents to the temp dir
-mkdir -p "$TEMP_DIR/package"
-cp -r "$UV_SITE_PACKAGES"/* "$TEMP_DIR/package/"
+# Copy the Lambda package from the container
+echo "Extracting Lambda package..."
+docker cp "$CONTAINER_ID:/var/task" "$LAMBDA_DIR"
 
-# Copy Lambda function code
-echo "Copying Lambda function code..."
-cp lambda_function.py "$TEMP_DIR/package/"
-cp __init__.py "$TEMP_DIR/package/"
+# Remove the container
+docker rm -f "$CONTAINER_ID" > /dev/null
 
 # Create deployment package
 echo "Creating deployment package..."
-cd "$TEMP_DIR/package"
-zip -r ../lambda_deployment_package.zip .
+cd "$LAMBDA_DIR/task"
+zip -r ../../lambda_deployment_package.zip .
 cd -
-mv "$TEMP_DIR/lambda_deployment_package.zip" .
+
+echo "Lambda deployment package created: lambda_deployment_package.zip"
 
 # Check if Lambda function exists
 if aws lambda get-function --function-name "$LAMBDA_NAME" --region "$AWS_REGION" &> /dev/null; then

@@ -18,18 +18,19 @@ The SQS message structure expected by this Lambda function is:
 ## Components
 
 - `lambda_function.py`: Main Lambda handler function
-- `pyproject.toml`: Project configuration and dependencies
+- `requirements.txt`: Dependencies required for the Lambda function
 - `test_lambda_function.py`: Unit tests for the Lambda function
-- `deploy.sh`: Deployment script using uv for package management
-- `.env.example`: Template for environment variables
-- `.env`: Environment variables for deployment (not checked into version control)
+- `Dockerfile`: Docker configuration for building the Lambda package
+- `docker-deploy.sh`: Deploy the Lambda using Docker (recommended method)
+- `zip-deploy.sh`: Deploy the Lambda as a zip archive directly with uv
 
 ## Prerequisites
 
 - AWS Account
 - AWS CLI configured
 - Python 3.9+
-- uv (will be auto-installed if not available)
+- Docker (for Docker-based deployment)
+- uv (for zip-based deployment - will be auto-installed if not available)
 
 ## Environment Setup
 
@@ -55,72 +56,85 @@ The SQS message structure expected by this Lambda function is:
    SQS_BATCH_SIZE=10                     # Number of messages to process in batch
    ```
 
-## Local Development
-
-### Setting Up with uv
-
-[uv](https://github.com/astral-sh/uv) is a modern Python package installer and resolver that's significantly faster than pip.
-
-```bash
-# Install uv if you don't have it
-curl -LsSf https://astral.sh/uv/install.sh | sh
-
-# Create a virtual environment and install dependencies
-uv venv
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-uv pip install -e .
-```
-
-### Running Tests
-
-```bash
-python -m unittest test_lambda_function.py
-```
-
 ## Deployment
 
-The included `deploy.sh` script handles packaging and deploying the Lambda function using uv:
+### Step 1: Set Up IAM Role
+
+Before deploying the Lambda function, you need to create an IAM role with the proper permissions and trust relationship:
 
 ```bash
-# Make the script executable if needed
-chmod +x deploy.sh
+# Make the script executable
+chmod +x create-iam-role.sh
 
-# Run the deployment script
-./deploy.sh
+# Run the IAM role creation script
+./create-iam-role.sh
 ```
 
-The script will:
-1. Load configuration from your `.env` file
-2. Install dependencies using uv
-3. Package the Lambda function and dependencies
-4. Create or update the Lambda function in AWS
-5. Set up an SQS trigger if specified in the `.env` file
-6. Configure any specified aliases
+This script will:
+1. Create the IAM role if it doesn't exist or update the existing one
+2. Set up the correct trust relationship to allow Lambda to assume the role
+3. Attach necessary policies for Lambda to access CloudWatch Logs and SQS
 
-## CI/CD Integration
+### Step 2: Deploy the Lambda Function
 
-For CI/CD pipelines, you can:
+### Option 1: Docker-Based Deployment (Recommended)
 
-1. Store environment variables in your CI/CD system's secrets management
-2. Create the `.env` file dynamically during the build process:
-   ```yaml
-   # Example GitHub Actions step
-   - name: Create .env file
-     run: |
-       echo "AWS_REGION=${{ secrets.AWS_REGION }}" > .env
-       echo "AWS_ACCOUNT_ID=${{ secrets.AWS_ACCOUNT_ID }}" >> .env
-       echo "LAMBDA_NAME=${{ secrets.LAMBDA_NAME }}" >> .env
-       # Add other environment variables as needed
-   ```
+The recommended way to deploy the Lambda function is using Docker following the [official uv AWS Lambda guide](https://docs.astral.sh/uv/guides/integration/aws-lambda/):
 
-3. Run the deployment script as part of your pipeline:
-   ```yaml
-   - name: Deploy Lambda function
-     run: |
-       cd lambda_function
-       chmod +x deploy.sh
-       ./deploy.sh
-   ```
+```bash
+# Make the script executable
+chmod +x docker-deploy.sh
+
+# Run the Docker-based deployment
+./docker-deploy.sh
+```
+
+This approach:
+1. Uses the official AWS Lambda Python base image
+2. Installs dependencies with uv directly to the Lambda task root
+3. Creates a proper deployment structure following AWS best practices
+4. Works consistently across different operating systems
+
+### Option 2: Zip-Based Deployment
+
+You can also deploy as a zip archive following the AWS Lambda guide approach:
+
+```bash
+# Make the script executable
+chmod +x zip-deploy.sh
+
+# Run the zip deployment script
+./zip-deploy.sh
+```
+
+This method:
+1. Uses uv to install dependencies directly
+2. Sets the correct platform target for AWS Lambda compatibility
+3. Creates a zip archive with dependencies and function code
+4. Is useful for simpler deployments or if Docker isn't available
+
+## Local Testing with LocalStack
+
+You can test the Lambda function locally using [LocalStack](https://localstack.cloud/), which provides a mock AWS environment running in Docker.
+
+### Running the Local Test
+
+1. Use the provided script to run a full test:
+
+```bash
+# Make the script executable
+chmod +x run_local_test.sh
+
+# Run the local test
+./run_local_test.sh
+```
+
+This script will:
+- Start LocalStack in a Docker container
+- Create a mock SQS queue
+- Deploy the Lambda function to LocalStack
+- Send test messages to the queue
+- Monitor the execution
 
 ## Implementation Notes
 
@@ -133,7 +147,7 @@ For CI/CD pipelines, you can:
 To modify the Lambda behavior:
 - Edit the model parameters in `lambda_function.py` for different purposes
 - Implement the `call_llm_api()` function to use your specific LLM service
-- Implement database functions to work with your database system 
+- Implement database functions to work with your database system
 
 ## Local Testing with LocalStack
 
