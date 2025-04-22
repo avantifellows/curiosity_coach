@@ -1,0 +1,32 @@
+# Environment files
+.env
+
+# Python virtual environments
+.venv/
+venv/
+env/
+
+# Deployment artifacts
+lambda_deployment_package.zip
+package/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+
+# Editor specific files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS specific files
+.DS_Store
+Thumbs.db 
