@@ -6,7 +6,7 @@ import os
 import re
 import time
 from typing import Optional, List, Dict, Any, Union
-from database import init_db, get_or_create_user, save_message, get_chat_history, get_message_count
+from src.database import init_db, get_or_create_user, save_message, get_chat_history, get_message_count
 from queue_service import queue_service
 from dotenv import load_dotenv
 
