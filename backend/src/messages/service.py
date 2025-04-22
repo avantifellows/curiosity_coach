@@ -1,6 +1,6 @@
 import time
 from src.models import save_message, get_message_count, get_chat_history
-from queue_service import queue_service
+from src.queue import queue_service
 
 class MessageService:
     """Service for handling message operations."""

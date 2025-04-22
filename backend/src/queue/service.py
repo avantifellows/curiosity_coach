@@ -1,16 +1,12 @@
 import os
 import json
 import boto3
-from dotenv import load_dotenv
 import time
 import uuid
-
-# Load environment variables
-env_file = '.env.local' if os.getenv('APP_ENV') == 'development' else '.env'
-load_dotenv(env_file)
+from src.config.settings import settings
 
 # Check if we should use mock mode (for local development)
-# MOCK_MODE = os.getenv('APP_ENV') == 'development' or os.getenv('AWS_ACCESS_KEY_ID') == 'dummy'
+# MOCK_MODE = settings.APP_ENV == 'development' or not settings.AWS_ACCESS_KEY_ID
 MOCK_MODE = False
 
 class QueueService:
@@ -18,15 +14,15 @@ class QueueService:
     
     def __init__(self):
         """Initialize SQS client and queue URL, with fallback for local development"""
-        self.queue_url = os.getenv('SQS_QUEUE_URL')
+        self.queue_url = settings.SQS_QUEUE_URL
         self.mock_mode = MOCK_MODE
         print(f"Queue URL: {self.queue_url}")
         print(f"Mock mode: {self.mock_mode}")
         
         if not self.mock_mode:
             try:
-                session = boto3.Session(profile_name=os.getenv('AWS_PROFILE', 'curiosity-coach'))
-                self.sqs = session.client('sqs', region_name=os.getenv('AWS_REGION'))
+                session = boto3.Session(profile_name=settings.AWS_PROFILE)
+                self.sqs = session.client('sqs', region_name=settings.AWS_REGION)
                 # Test the connection
                 self.sqs.list_queues()
             except Exception as e:
@@ -35,9 +31,9 @@ class QueueService:
                 self.mock_mode = True
                 self.sqs = boto3.client(
                     'sqs',
-                    region_name=os.getenv('AWS_REGION', 'us-west-2'),
-                    aws_access_key_id=os.getenv('AWS_ACCESS_KEY_ID'),
-                    aws_secret_access_key=os.getenv('AWS_SECRET_ACCESS_KEY')
+                    region_name=settings.AWS_REGION,
+                    aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
+                    aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY
                 )
                 # Test the connection
                 self.sqs.list_queues()
