@@ -140,10 +140,6 @@ This script starts both the backend and frontend development servers. Use `Ctrl+
 ```bash
 cd backend
 ./run.sh
-# Or manually:
-source venv/bin/activate
-export FLASK_ENV=development
-python app.py
 ```
 
 **Terminal 2 - Frontend:**

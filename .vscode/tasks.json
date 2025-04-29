@@ -1,0 +1,59 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Start frontend",
+      "type": "shell",
+      "command": "npm start",
+      "options": {
+        "cwd": "${workspaceFolder}/curiosity-coach-frontend"
+      },
+      "isBackground": true,
+      "presentation": {
+        "group": "servers",
+        "panel": "new"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Start Backend",
+      "type": "shell",
+      "command": "./run.sh",
+      "options": {
+        "cwd": "${workspaceFolder}/backend"
+      },
+      "isBackground": true,
+      "presentation": {
+        "group": "servers",
+        "panel": "new"
+      },
+      "problemMatcher": [
+        "$python"
+      ]
+    },
+    {
+      "label": "Open Terminal",
+      "type": "shell",
+      "command": "zsh",
+      "isBackground": false,
+      "presentation": {
+        "group": "servers",
+        "panel": "new"
+      }
+    },
+    {
+      "label": "Start All Servers",
+      "dependsOrder": "parallel",
+      "dependsOn": [
+        "Start frontend",
+        "Start Backend",
+        "Open Terminal"
+      ],
+      "group": {
+        "kind": "build",
+        "isDefault": false
+      },
+      "problemMatcher": []
+    }
+  ]
+} 

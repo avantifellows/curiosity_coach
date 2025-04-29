@@ -21,14 +21,6 @@ class QueueService:
         
         if not self.mock_mode:
             try:
-                session = boto3.Session(profile_name=settings.AWS_PROFILE)
-                self.sqs = session.client('sqs', region_name=settings.AWS_REGION)
-                # Test the connection
-                self.sqs.list_queues()
-            except Exception as e:
-                print(f"AWS SQS connection failed: {e}")
-                print("Falling back to mock mode")
-                self.mock_mode = True
                 self.sqs = boto3.client(
                     'sqs',
                     region_name=settings.AWS_REGION,
