@@ -1,0 +1,27 @@
+{
+  "cognitive_intent": [
+    "Concept Clarification",
+    "Causal Exploration",
+    "Comparison Seeking",
+    "Hypothetical Reasoning",
+    "Application Inquiry",
+    "Depth Expansion"
+  ],
+  "exploratory_intent": [
+    "Open-ended Exploration",
+    "Topic Hopping",
+    "Curiosity about Systems/Structures"
+  ],
+  "metacognitive_intent": [
+    "Learning How to Learn",
+    "Interest Reflection"
+  ],
+  "emotional_identity_intent": [
+    "Identity Exploration",
+    "Validation Seeking",
+    "Inspiration Seeking"
+  ],
+  "recursive_intent": [
+    "Curiosity about Curiosity"
+  ]
+} 

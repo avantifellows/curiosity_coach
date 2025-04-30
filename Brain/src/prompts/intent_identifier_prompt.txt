@@ -9,11 +9,7 @@ IMPORTANT: You must return ONLY a valid JSON object with the following exact str
         "related_topics": ["list of related topics or subtopics"]
     },
     "intents": {
-        "cognitive_intent": "one of: Concept Clarification, Causal Exploration, Comparison Seeking, Hypothetical Reasoning, Application Inquiry, Depth Expansion, or null",
-        "exploratory_intent": "one of: Open-ended Exploration, Topic Hopping, Curiosity about Systems/Structures, or null",
-        "metacognitive_intent": "one of: Learning How to Learn, Interest Reflection, or null",
-        "emotional_identity_intent": "one of: Identity Exploration, Validation Seeking, Inspiration Seeking, or null",
-        "recursive_intent": "one of: Curiosity about Curiosity, or null"
+        {{INTENT_DEFINITIONS}}
     }
 }
 

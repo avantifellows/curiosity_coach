@@ -1,6 +1,6 @@
 import json
 import os
-from typing import Dict, Any
+from typing import Dict, Any, Tuple
 from groq import Groq
 from dotenv import load_dotenv
 from src.services.llm_service import LLMService
@@ -9,9 +9,10 @@ from src.utils.logger import logger
 # Load environment variables
 load_dotenv()
 
-# Read the intent identifier prompt from the text file
-with open(os.path.join(os.path.dirname(__file__), "..", "prompts", "intent_identifier_prompt.txt"), "r") as f:
-    intent_identifier_prompt = f.read()
+# Define paths relative to this file's location
+_PROMPT_DIR = os.path.join(os.path.dirname(__file__), "..", "prompts")
+_INTENT_TEMPLATE_PATH = os.path.join(_PROMPT_DIR, "intent_identifier_prompt.txt")
+_INTENT_CONFIG_PATH = os.path.join(_PROMPT_DIR, "intent_config.json")
 
 class IntentIdentificationError(Exception):
     """Custom exception for intent identification errors"""
@@ -62,29 +63,61 @@ def _validate_intent_response(response: Dict[str, Any]) -> None:
     
     logger.debug("Intent response validation successful")
 
-def identify_intent(query: str) -> Dict[str, Any]:
+def identify_intent(query: str) -> Tuple[Dict[str, Any], str]:
     """
     Identifies the intent and subject behind a user's query using the LLM prompt.
-    
+    Also returns the exact prompt used for this identification.
+
     Args:
         query (str): The user's query to analyze
-        
+
     Returns:
-        Dict[str, Any]: A dictionary containing the query, subject, and identified intents
-        
+        Tuple[Dict[str, Any], str]: A tuple containing:
+            - A dictionary with the query, subject, and identified intents.
+            - The formatted prompt string sent to the LLM.
+
     Raises:
         IntentIdentificationError: If the intent identification fails
     """
+    formatted_prompt = "" # Initialize to ensure it's always defined
     try:
         logger.info(f"Identifying intent for query: {query}")
+        
+        # Load intent configuration
+        logger.debug(f"Loading intent config from: {_INTENT_CONFIG_PATH}")
+        try:
+            with open(_INTENT_CONFIG_PATH, "r") as f:
+                intent_config = json.load(f)
+        except Exception as e:
+            logger.error(f"Failed to load intent config: {e}", exc_info=True)
+            raise IntentIdentificationError(f"Failed to load intent config: {e}")
+            
+        # Format intent definitions for the prompt
+        intent_definitions = []
+        for intent_key, possible_values in intent_config.items():
+            values_str = ", ".join([f'"{val}"' for val in possible_values])
+            definition = f'"{intent_key}": "one of: {values_str}, or null"'
+            intent_definitions.append(definition)
+        intent_definitions_str = ",\n        ".join(intent_definitions)
+        logger.debug("Formatted intent definitions")
+
+        # Read the intent identifier prompt template
+        logger.debug(f"Loading intent prompt template from: {_INTENT_TEMPLATE_PATH}")
+        try:
+            with open(_INTENT_TEMPLATE_PATH, "r") as f:
+                intent_identifier_prompt_template = f.read()
+        except Exception as e:
+            logger.error(f"Failed to load intent prompt template: {e}", exc_info=True)
+            raise IntentIdentificationError(f"Failed to load intent prompt template: {e}")
+
+        # Format the complete prompt
+        formatted_prompt = intent_identifier_prompt_template.replace("{{INTENT_DEFINITIONS}}", intent_definitions_str)
+        formatted_prompt = formatted_prompt.replace("{{INSERT_QUERY_HERE}}", query)
+        logger.debug("Formatted complete prompt for intent identification")
         
         # Initialize LLM service
         logger.debug("Initializing LLM service for intent identification")
         llm_service = LLMService()
-        
-        # Format the prompt with the query
-        formatted_prompt = intent_identifier_prompt.replace("{{INSERT_QUERY_HERE}}", query)
-        logger.debug("Formatted prompt for intent identification")
         
         # Prepare messages for the LLM
         messages = [
@@ -99,6 +132,8 @@ def identify_intent(query: str) -> Dict[str, Any]:
         try:
             logger.debug("Parsing LLM response as JSON")
             intent_data = json.loads(response_text)
+            # Add the original query to the response data, as the prompt requests it
+            intent_data["query"] = query 
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse LLM response as JSON. Raw response: {response_text}")
             logger.error(f"JSON parsing error: {str(e)}")
@@ -108,8 +143,14 @@ def identify_intent(query: str) -> Dict[str, Any]:
         _validate_intent_response(intent_data)
         
         logger.info("Successfully identified intent")
-        return intent_data
+        return intent_data, formatted_prompt # Return both intent data and the prompt
         
+    except IntentIdentificationError: # Re-raise specific errors
+        raise
     except Exception as e:
-        logger.error(f"Failed to identify intent: {str(e)}", exc_info=True)
+        # Include the potentially generated prompt in the error message if available
+        error_msg = f"Failed to identify intent: {str(e)}"
+        if formatted_prompt:
+            error_msg += f"\nPrompt used:\n{formatted_prompt}"
+        logger.error(error_msg, exc_info=True)
         raise IntentIdentificationError(f"Failed to identify intent: {str(e)}")
