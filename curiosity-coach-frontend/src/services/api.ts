@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { LoginResponse, Message, ChatHistory } from '../types';
+import { LoginResponse, Message, ChatHistory, SendMessageResponse } from '../types';
 
 const API = axios.create({
   baseURL: '/api',
@@ -27,9 +27,9 @@ export const loginUser = async (phoneNumber: string): Promise<LoginResponse> => 
   }
 };
 
-export const sendMessage = async (content: string): Promise<Message> => {
+export const sendMessage = async (content: string): Promise<SendMessageResponse> => {
   try {
-    const response = await API.post('/messages', { content });
+    const response = await API.post<SendMessageResponse>('/messages', { content });
     return response.data;
   } catch (error: any) {
     throw new Error(error.response?.data?.message || 'Failed to send message');

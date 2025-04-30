@@ -10,4 +10,5 @@ pydantic-settings==2.9.1
 urllib3==1.26.20
 passlib[bcrypt]
 python-jose[cryptography]
-alembic 
+alembic
+httpx 

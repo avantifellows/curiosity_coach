@@ -1,0 +1,108 @@
+digraph UserFlow {
+  rankdir=TB;
+  node [shape=box, style=rounded];
+  edge [fontsize=10];
+
+  // General comment: This diagram outlines the primary user interaction flow
+  // for the Curiosity Coach application, involving React frontend, FastAPI backend,
+  // and an asynchronous Brain service for response generation.
+  // Frontend uses polling (setInterval) to check for new messages.
+
+  subgraph cluster_frontend {
+    label = "Frontend (React @ /curiosity-coach-frontend)";
+    style = filled;
+    color = lightgrey;
+    node [style=filled, color=white];
+
+    Start [label="User visits /"];
+    LoginPage [label="Display Login Page
+(curiosity-coach-frontend/src/components/Login.tsx)"];
+    ChatPage [label="Display Chat Interface
+(curiosity-coach-frontend/src/components/ChatInterface.tsx)
+Protected by AuthContext (src/context/AuthContext.tsx)"];
+    UserLogsIn [label="User Logs In
+(enters phone, submits)"];
+    UserSendsMsg [label="User Sends Message
+(types, submits)"];
+    DisplayChatHistory [label="Display/Update Chat History
+(Initial Load + User Msgs + Polling Updates via fetchChatHistory)"];
+    UserLogsOut [label="User Clicks Logout"];
+  }
+
+  subgraph cluster_backend {
+    label = "Backend (FastAPI @ /backend)";
+    style = filled;
+    color = lightblue;
+    node [style=filled, color=white];
+
+    HandleLogin [label="POST /api/auth/login
+(backend/src/auth/router.py)
+Handle Login & Verify/Create User (auth_service.login)"];
+    HandleGetHistory [label="GET /api/messages/history
+(backend/src/messages/router.py)
+Get History from DB (Auth Req: get_user_id)"];
+    HandlePostMessage [label="POST /api/messages
+(backend/src/messages/router.py)
+Store User Message & Trigger Async via message_service.send_message (Auth Req)"];
+    HandleBrainResponse [label="POST /api/messages/internal/brain_response
+(backend/src/messages/router.py)
+INTERNAL: Brain Service Callback
+Stores AI Response in DB (models.save_message)"];
+  }
+
+  subgraph cluster_brain {
+      // Location: /Brain
+      // Purpose: Handles asynchronous generation of AI responses.
+      // Interaction: Consumes tasks (likely from a queue), processes them (e.g., LLM interaction),
+      //              and calls back to the backend's internal endpoint.
+      label = "Brain Service (Async @ /Brain)";
+      style = filled;
+      color = lightcoral;
+      node [style=filled, color=white];
+
+      ConsumeTask [label="Consume Task from Queue
+(Implementation details TBD - e.g., Celery, Redis Queue)"];
+      ProcessMessage [label="Generate AI Response
+(e.g., Interaction with OpenAI or other LLM)"];
+      SendResponseToBackend [label="Send Response to Backend
+(HTTP POST to /api/messages/internal/brain_response)"];
+  }
+
+  // ====================
+  // Flow Connections
+  // ====================
+
+  // Start and Login Flow
+  Start -> LoginPage;
+  LoginPage -> UserLogsIn;
+  UserLogsIn -> HandleLogin [label="API Call (services/api.ts -> loginUser)", color=blue];
+  HandleLogin -> ChatPage [label="Auth OK (AuthContext.login), Navigate to /chat", style=bold];
+
+  // Chat Loading Flow (Initial + Polling)
+  // ChatInterface.tsx useEffect calls fetchChatHistory
+  ChatPage -> HandleGetHistory [label="API Call (services/api.ts -> getChatHistory, on load + polling)", color=blue, style=bold];
+  HandleGetHistory -> DisplayChatHistory [label="Render/Update History (setState)"];
+
+  // Message Send Flow
+  // User interacts with the already loaded chat history display
+  DisplayChatHistory -> UserSendsMsg;
+  // ChatInterface.tsx handleSendMessage calls sendMessage
+  UserSendsMsg -> HandlePostMessage [label="API Call (services/api.ts -> sendMessage)", color=blue];
+  // The user's message is added to DisplayChatHistory immediately via frontend state update (optimistic UI)
+  UserSendsMsg -> DisplayChatHistory [label="Optimistic Update (setState)", style=dotted];
+  HandlePostMessage -> ConsumeTask [style=dashed, label="Enqueue Task (via message_service)"]; // Triggers Brain
+
+  // Async Response Generation Flow
+  ConsumeTask -> ProcessMessage;
+  ProcessMessage -> SendResponseToBackend;
+  SendResponseToBackend -> HandleBrainResponse [label="Internal API Call", color=purple]; // Brain calls Backend
+
+  // Backend storing the AI response allows the next poll from ChatPage -> HandleGetHistory to pick it up.
+  HandleBrainResponse -> DisplayChatHistory [label="AI Msg Fetched by Next Poll (fetchChatHistory)", style=dashed];
+
+  // Logout Flow
+  // ChatInterface.tsx handleLogout calls AuthContext.logout
+  ChatPage -> UserLogsOut;
+  UserLogsOut -> LoginPage [label="Clear Auth (AuthContext.logout), Navigate to /", style=bold];
+
+} 

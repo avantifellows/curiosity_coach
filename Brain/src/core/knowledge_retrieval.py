@@ -28,6 +28,11 @@ def retrieve_knowledge(main_topic: str, related_topics: List[str]) -> Tuple[str,
     Raises:
         KnowledgeRetrievalError: If the knowledge retrieval fails.
     """
+    # If no main topic is provided, skip knowledge retrieval
+    if not main_topic:
+        logger.info("No main topic provided, skipping knowledge retrieval.")
+        return "", ""  # Return empty context and empty prompt
+
     formatted_prompt = "" # Initialize to ensure it's always defined
     try:
         logger.info(f"Retrieving knowledge for main topic: {main_topic}")

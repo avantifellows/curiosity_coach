@@ -10,7 +10,6 @@
       },
       "isBackground": true,
       "presentation": {
-        "group": "servers",
         "panel": "new"
       },
       "problemMatcher": []
@@ -24,7 +23,6 @@
       },
       "isBackground": true,
       "presentation": {
-        "group": "servers",
         "panel": "new"
       },
       "problemMatcher": [
@@ -32,12 +30,24 @@
       ]
     },
     {
+      "label": "Start Brain",
+      "type": "shell",
+      "command": "cd Brain && source venv/bin/activate && pip install -r requirements.txt && uvicorn src.main:app --reload --port 6000",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "isBackground": true,
+      "presentation": {
+        "panel": "new"
+      },
+      "problemMatcher": []
+    },
+    {
       "label": "Open Terminal",
       "type": "shell",
       "command": "zsh",
       "isBackground": false,
       "presentation": {
-        "group": "servers",
         "panel": "new"
       }
     },
@@ -47,6 +57,7 @@
       "dependsOn": [
         "Start frontend",
         "Start Backend",
+        "Start Brain",
         "Open Terminal"
       ],
       "group": {

@@ -1,6 +1,7 @@
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, field_validator, ConfigDict
 import re
-from typing import Optional, Dict, Any
+from typing import Optional
+from datetime import datetime
 
 class PhoneNumberRequest(BaseModel):
     phone_number: str
@@ -12,7 +13,14 @@ class PhoneNumberRequest(BaseModel):
             raise ValueError('Invalid phone number. Please enter a 10-15 digit number.')
         return v
 
+class UserResponse(BaseModel):
+    id: int
+    phone_number: str
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
 class LoginResponse(BaseModel):
     success: bool
     message: str
-    user: Optional[Dict[str, Any]] = None 
+    user: Optional[UserResponse] = None 

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { CircularProgress } from '@mui/material';
 import { useAuth } from '../context/AuthContext';
 import { sendMessage, getChatHistory } from '../services/api';
@@ -15,28 +15,78 @@ const ChatInterface: React.FC = () => {
   const { user, isLoading: authLoading, logout } = useAuth();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
+  
+  // Store the ID of the last message received to avoid duplicates
+  const lastMessageTimestamp = useRef<string | null>(null); 
 
-  // Fetch chat history when component mounts
-  useEffect(() => {
-    const fetchChatHistory = async () => {
-      if (!user) return; // Don't fetch if user is not available
-      
-      try {
-        setLoading(true);
-        const response = await getChatHistory();
-        setMessages(response.messages || []);
-      } catch (err: any) {
-        setError('Failed to load chat history. Please try again later.');
-        console.error(err);
-      } finally {
-        setLoading(false);
-      }
-    };
+  // Refactored function to fetch chat history
+  const fetchChatHistory = useCallback(async () => {
+    if (!user) return; // Don't fetch if user is not available
 
-    if (user && !authLoading) {
-      fetchChatHistory();
+    try {
+      // setLoading(true); // Optionally remove or keep loader for polling updates
+      const response = await getChatHistory();
+      // Ensure we only work with messages that have a timestamp
+      const fetchedMessages = (response.messages || []).filter((m): m is Message & { timestamp: string } => typeof m.timestamp === 'string'); 
+
+      // Merge new messages, avoiding duplicates based on ID
+      setMessages((prevMessages) => {
+        // Use a Set of existing IDs for quick lookup
+        const existingIds = new Set(prevMessages.map(m => m.id).filter(id => id !== undefined));
+        // Filter out duplicates based on ID and ensure timestamp exists
+        const newMessages = fetchedMessages.filter(m => m.id !== undefined && !existingIds.has(m.id)); 
+        // Log updated to reflect ID check
+        console.log('[HISTORY FETCH] Prev count:', prevMessages.length, 'Fetched count:', fetchedMessages.length, 'New messages (by ID) count:', newMessages.length); 
+        if (newMessages.length === 0) return prevMessages; // No new messages to add
+
+        // Sort messages by timestamp just in case
+        const allMessages = [...prevMessages, ...newMessages].sort(
+          (a, b) => {
+            // Add checks for timestamp existence during sort comparison
+            const timeA = a.timestamp ? new Date(a.timestamp).getTime() : 0; 
+            const timeB = b.timestamp ? new Date(b.timestamp).getTime() : 0;
+            return timeA - timeB;
+          }
+        );
+        // Update the ref for the last known timestamp
+        if (allMessages.length > 0) {
+            // Ensure the last message has a timestamp before assigning
+            const lastTimestamp = allMessages[allMessages.length - 1].timestamp;
+            if (lastTimestamp) { 
+                lastMessageTimestamp.current = lastTimestamp;
+            }
+        }
+        console.log('[HISTORY FETCH] Merged state length:', allMessages.length);
+        return allMessages;
+      });
+
+    } catch (err: any) {
+      setError('Failed to load chat history. Polling may be interrupted.');
+      console.error('Fetch history error:', err);
+    } finally {
+      // setLoading(false); // Optionally remove or keep loader
     }
-  }, [user, authLoading]);
+  }, [user]); // Depends on user
+
+  // Fetch initial chat history when component mounts
+  useEffect(() => {
+    if (user && !authLoading) {
+      setLoading(true); // Show loader only for initial load
+      fetchChatHistory().finally(() => setLoading(false));
+    }
+  }, [user, authLoading, fetchChatHistory]);
+  
+  // Set up polling for new messages
+  useEffect(() => {
+    if (!user) return; // Only poll if user is logged in
+
+    const intervalId = setInterval(() => {
+      fetchChatHistory();
+    }, 5000); // Poll every 5 seconds
+
+    // Clear interval on component unmount
+    return () => clearInterval(intervalId); 
+  }, [user, fetchChatHistory]); // Re-run if user or fetch function changes
 
   // Scroll to bottom when messages change
   useEffect(() => {
@@ -48,42 +98,44 @@ const ChatInterface: React.FC = () => {
     
     if (!newMessage.trim() || !user) return;
     
-    // Optimistically add message to UI
-    const userMessage: Message = {
-      content: newMessage.trim(),
-      is_user: true,
-      timestamp: new Date().toISOString(),
-    };
-    
-    setMessages((prev) => [...prev, userMessage]);
-    setNewMessage('');
+    const contentToSend = newMessage.trim();
+    setNewMessage(''); // Clear input immediately
     setError(null);
-    
+    setLoading(true); // Show loading indicator while sending
+
     try {
-      // Send message to backend
-      await sendMessage(userMessage.content);
+      // Send message to backend and get the saved message back
+      const response = await sendMessage(contentToSend); 
       
-      // In a real app, you would wait for the response message from the backend
-      // For now, we'll simulate a response after a short delay
-      setLoading(true);
-      
-      // This is placeholder - in reality, you would listen for the response from your message queue
-      setTimeout(async () => {
-        try {
-          // Refetch chat history to get the response
-          const history = await getChatHistory();
-          setMessages(history.messages || []);
-        } catch (err) {
-          setError('Failed to receive response. Please try again.');
-          console.error(err);
-        } finally {
-          setLoading(false);
-        }
-      }, 1000);
+      // Check if the response contains the message object with an ID
+      if (response.success && response.message && response.message.id) {
+        const savedMessage: Message = response.message;
+        
+        // Add the message returned from the backend to the state
+        setMessages((prev) => {
+          // Optional: Double-check if this ID already exists before adding
+          // (Might be redundant if fetchHistory is quick, but safe)
+          const exists = prev.some(m => m.id === savedMessage.id);
+          if (exists) {
+             console.warn('[SEND MSG] Message already exists in state:', savedMessage.id);
+             return prev;
+          }
+          console.log('[SEND MSG SUCCESS] Adding message from backend:', savedMessage);
+          return [...prev, savedMessage];
+        });
+      } else {
+         // Handle cases where the backend response might not be as expected
+         console.error('Send message API response missing message data:', response);
+         setError('Failed to confirm message sent. It might appear after a refresh.');
+         // Optionally, revert UI or keep the optimistic message (if we had one)
+      }
       
     } catch (err: any) {
       setError('Failed to send message. Please try again.');
-      console.error(err);
+      // Consider reverting optimistic update if we were using one
+      console.error('Send message error:', err);
+    } finally {
+       setLoading(false); // Stop loading indicator after send attempt
     }
   };
 

@@ -45,12 +45,12 @@ def create_app() -> FastAPI:
     app.include_router(health_router)
     
     # Initialize the database
-    try:
-        init_db()
-        print("Database initialized successfully!")
-    except Exception as e:
-        print(f"Error initializing database: {e}")
-        print("Please ensure PostgreSQL is running and the database credentials are correct.")
+    # try:
+    #     init_db()
+    #     print("Database initialized successfully!")
+    # except Exception as e:
+    #     print(f"Error initializing database: {e}")
+    #     print("Please ensure PostgreSQL is running and the database credentials are correct.")
     
     return app
 
