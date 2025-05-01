@@ -8,12 +8,18 @@ import time
 import uuid
 import httpx # Added for callback
 from typing import Optional
+import os
+from dotenv import load_dotenv # Added import
 
 from src.process_query_entrypoint import process_query
 from src.utils.logger import logger
 
-# TODO: Move this to settings/environment variable
-BACKEND_CALLBACK_URL = "http://localhost:5000/api/messages/internal/brain_response"
+# Load environment variables from .env file
+load_dotenv() # Added call
+
+BACKEND_CALLBACK_BASE_URL = os.getenv("BACKEND_CALLBACK_BASE_URL", "http://localhost:5000")
+BACKEND_CALLBACK_ROUTE = os.getenv("BACKEND_CALLBACK_ROUTE", "/api/messages/internal/brain_response")
+BACKEND_CALLBACK_URL = f"{BACKEND_CALLBACK_BASE_URL}{BACKEND_CALLBACK_ROUTE}"
 
 app = FastAPI()
 
