@@ -418,14 +418,15 @@ resource "aws_lambda_function" "backend_lambda" {
 
   depends_on = [
     aws_iam_role_policy_attachment.backend_lambda_policy_basic_execution,
-    aws_iam_role_policy_attachment.backend_lambda_policy_vpc_access, # Added VPC access policy
-    aws_iam_role_policy_attachment.backend_lambda_policy_sqs_send, # <<< Ensure SQS policy is attached
-    null_resource.backend_docker_build_push, # Ensure lambda is updated after new image push
-    aws_db_instance.rds_instance,            # Ensure RDS is available before Lambda starts
-    aws_sqs_queue.app_queue,                 # <<< Ensure SQS Queue from brain.tf is available
-    aws_security_group.lambda_sg,            # Ensure Lambda SG exists
-    # data.external.backend_dotenv_prod      # Ensure .env read happens after update and before lambda creation # <<< REMOVED
-    data.external.backend_dotenv_prod      # <<< Ensure lambda waits for the data source to read the env file
+    aws_iam_role_policy_attachment.backend_lambda_policy_vpc_access,
+    aws_iam_role_policy_attachment.backend_lambda_policy_sqs_send,
+    null_resource.backend_docker_build_push,
+    aws_db_instance.rds_instance,
+    aws_sqs_queue.app_queue,
+    aws_security_group.lambda_sg,
+    data.external.backend_dotenv_prod,
+    aws_security_group.sqs_vpce_sg,
+    aws_security_group.sts_vpce_sg
   ]
 }
 
@@ -527,8 +528,7 @@ resource "aws_vpc_endpoint" "sqs_endpoint" {
   subnet_ids = local.public_subnet_ids
 
   security_group_ids = [
-    # aws_security_group.lambda_sg.id # Allow Lambda SG to access the endpoint <<< REMOVED
-    aws_security_group.sqs_vpce_sg.id # Use the dedicated SG for the endpoint <<< ADDED
+    aws_security_group.sqs_vpce_sg.id
   ]
 
   private_dns_enabled = true # Allows using standard SQS DNS names
@@ -537,6 +537,48 @@ resource "aws_vpc_endpoint" "sqs_endpoint" {
 
   depends_on = [
     aws_security_group.lambda_sg,
-    aws_security_group.sqs_vpce_sg # Add dependency on the new SG <<< ADDED
+    aws_security_group.sqs_vpce_sg
+  ]
+}
+
+# --- STS VPC Endpoint Security Group ---
+resource "aws_security_group" "sts_vpce_sg" {
+  name        = "${local.backend_prefix}-sts-vpce-sg"
+  description = "Allow inbound HTTPS from Lambda SG to STS VPC Endpoint"
+  vpc_id      = data.aws_vpc.selected.id
+
+  ingress {
+    description     = "Allow HTTPS from Lambda"
+    from_port       = 443
+    to_port         = 443
+    protocol        = "tcp"
+    security_groups = [aws_security_group.lambda_sg.id] # Allow from Lambda SG
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = merge(local.backend_tags, { Name = "${local.backend_prefix}-sts-vpce-sg" })
+}
+
+# --- STS VPC Endpoint ---
+resource "aws_vpc_endpoint" "sts_endpoint" {
+  vpc_id              = data.aws_vpc.selected.id
+  service_name        = "com.amazonaws.${data.aws_region.current.name}.sts"
+  vpc_endpoint_type   = "Interface"
+
+  subnet_ids          = local.public_subnet_ids
+  security_group_ids  = [aws_security_group.sts_vpce_sg.id]
+  private_dns_enabled = true
+
+  tags = merge(local.backend_tags, { Name = "${local.backend_prefix}-sts-vpce" })
+
+  depends_on = [
+    aws_security_group.lambda_sg,
+    aws_security_group.sts_vpce_sg
   ]
 }
