@@ -51,7 +51,7 @@ jobs:
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           # ECR repository name based on Terraform config (default: curiosity-coach-brain-dev-repo)
-          ECR_REPOSITORY: curiosity-coach-brain-dev-repo # Adjust if you override the default in Terraform variables
+          ECR_REPOSITORY: curiosity-coach-brain-ecr # Adjust if you override the default in Terraform variables
           IMAGE_TAG: ${{ github.sha }}
         working-directory: ./Brain # Set working directory to Brain
         run: |
