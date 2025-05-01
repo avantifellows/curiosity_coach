@@ -120,6 +120,26 @@ resource "aws_iam_role_policy_attachment" "backend_lambda_policy_vpc_access" {
 # --- TODO: Add specific IAM policies if backend needs access to other AWS services (e.g., S3, Secrets Manager) ---
 # Note: Standard DB connection doesn't typically require extra IAM policies unless using IAM DB Auth.
 
+# Define policy for SQS SendMessage
+data "aws_iam_policy_document" "backend_lambda_sqs_send_policy_doc" {
+  statement {
+    actions   = ["sqs:SendMessage"]
+    resources = [aws_sqs_queue.app_queue.arn] # Reference the queue ARN from brain.tf
+    effect    = "Allow"
+  }
+}
+
+resource "aws_iam_policy" "backend_lambda_sqs_send_policy" {
+  name        = "${local.backend_lambda_func_name}-sqs-send-policy"
+  description = "Allow backend lambda to send messages to the SQS queue"
+  policy      = data.aws_iam_policy_document.backend_lambda_sqs_send_policy_doc.json
+}
+
+# Attach the new SQS policy
+resource "aws_iam_role_policy_attachment" "backend_lambda_policy_sqs_send" {
+  role       = aws_iam_role.backend_lambda_exec_role.name
+  policy_arn = aws_iam_policy.backend_lambda_sqs_send_policy.arn
+}
 
 # --- Docker Build & Push for Backend ---
 resource "null_resource" "backend_docker_build_push" {
@@ -399,6 +419,7 @@ resource "aws_lambda_function" "backend_lambda" {
   depends_on = [
     aws_iam_role_policy_attachment.backend_lambda_policy_basic_execution,
     aws_iam_role_policy_attachment.backend_lambda_policy_vpc_access, # Added VPC access policy
+    aws_iam_role_policy_attachment.backend_lambda_policy_sqs_send, # <<< Ensure SQS policy is attached
     null_resource.backend_docker_build_push, # Ensure lambda is updated after new image push
     aws_db_instance.rds_instance,            # Ensure RDS is available before Lambda starts
     aws_sqs_queue.app_queue,                 # <<< Ensure SQS Queue from brain.tf is available
@@ -472,3 +493,20 @@ output "rds_database_password" {
 # --- TODOs & Next Steps ---
 # 1. Review Security Groups: **Crucially**, restrict `aws_security_group.rds_sg` ingress `cidr_blocks = ["0.0.0.0/0"]` in production. Only allow necessary IPs (e.g., specific developer IPs, Bastion host SG). The Lambda access via its SG is already configured more securely.
 # 2. CORS Origins: Update `
+
+# --- SQS VPC Endpoint ---
+resource "aws_vpc_endpoint" "sqs_endpoint" {
+  vpc_id            = data.aws_vpc.selected.id
+  service_name      = "com.amazonaws.${data.aws_region.current.name}.sqs"
+  vpc_endpoint_type = "Interface"
+
+  subnet_ids = local.public_subnet_ids
+
+  security_group_ids = [
+    aws_security_group.lambda_sg.id # Allow Lambda SG to access the endpoint
+  ]
+
+  private_dns_enabled = true # Allows using standard SQS DNS names
+
+  tags = merge(local.backend_tags, { Name = "${local.backend_prefix}-sqs-vpce" })
+}

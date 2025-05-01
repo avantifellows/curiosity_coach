@@ -27,8 +27,10 @@ async def send_message(request: MessageRequest, user_id: int = Depends(get_user_
     print(f"Processing message for user_id: {user_id}")
     print(f"Request data: {request}")
     
+    print(f"Router: Entering send_message try block for user_id: {user_id}") # Log try block entry
     try:
         # Save message and trigger async processing (service function doesn't block)
+        print(f"Router: Calling message_service.send_message with user_id={user_id}, content='{content}', purpose='{purpose}', conversation_id={conversation_id}") # Log before service call
         saved_message = await message_service.send_message(
             user_id=user_id,
             content=content,
@@ -37,9 +39,10 @@ async def send_message(request: MessageRequest, user_id: int = Depends(get_user_
             db=db
         )
         
-        print(f"Message saved successfully: {saved_message}")
+        print(f"Router: Received saved_message from service: {saved_message}") # Log service response
         # Note: Response generation is now handled asynchronously.
         
+        print(f"Router: Successfully processed message for user_id: {user_id}. Returning success response.") # Log success exit
         return {
             'success': True,
             'message': MessageData(**saved_message) # Ensure it fits the schema
@@ -47,8 +50,8 @@ async def send_message(request: MessageRequest, user_id: int = Depends(get_user_
         }
     except Exception as e:
         error_details = traceback.format_exc()
-        print(f"Error sending message: {e}")
-        print(f"Error details: {error_details}")
+        print(f"Router: Error in send_message for user_id: {user_id}. Error: {e}") # Log exception
+        print(f"Router: Error traceback: {error_details}")
         raise HTTPException(status_code=500, detail=f"Error sending message: {str(e)}")
 
 @router.get("/history", response_model=ChatHistoryResponse)

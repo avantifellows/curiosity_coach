@@ -79,6 +79,8 @@ class QueueService:
             'timestamp': time.time()
         }
 
+        print("INSIDE QUEUE SERVICE SEND MESSAGE")
+        print("local mode", self.local_mode)
         if self.local_mode:
             if not self.local_brain_url: # Check the value from settings
                  # This check is somewhat redundant now due to the LOCAL_MODE definition, but safe to keep
@@ -115,11 +117,14 @@ class QueueService:
                  return {"error": f"Unexpected error: {str(e)}"}
 
         else: # SQS Mode
+            print("I AM IN SQS MODE")
             if not self.queue_url or not self.sqs:
-                print("SQS Queue URL not configured or SQS client failed initialization. Cannot send message.")
+                print("SQS Error: Queue URL not configured or SQS client failed initialization. Cannot send message.") # Enhanced log
                 # Optionally, return a specific error structure
                 return {"error": "SQS not configured or unavailable"}
 
+            print(f"SQS Mode: Attempting to send message to queue: {self.queue_url}") # Log before try
+            print(f"SQS Mode: Message Body: {json.dumps(message_body)}") # Log message body
             try:
                 response = self.sqs.send_message(
                     QueueUrl=self.queue_url,
@@ -131,10 +136,12 @@ class QueueService:
                         }
                     }
                 )
-                print(f"Message sent to SQS successfully: {response.get('MessageId')}")
+                print(f"SQS Mode: Message sent successfully. MessageId: {response.get('MessageId')}") # Log success + ID
                 return response
             except Exception as e:
-                print(f"Error sending message to SQS: {e}")
+                # Capture more details about the exception
+                error_type = type(e).__name__
+                print(f"SQS Error: Failed sending message to {self.queue_url}. Error Type: {error_type}, Details: {e}") # Enhanced log
                 # Consider what to return on failure
                 return {"error": f"SQS send failed: {str(e)}"}
 

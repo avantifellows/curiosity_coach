@@ -33,15 +33,24 @@ class MessageService:
         # Now awaiting the call to ensure it completes before proceeding (if necessary)
         # or at least doesn't raise a warning.
         
-        await queue_service.send_message(
+        print(f"MessageService: Calling queue_service.send_message with: user_id={user_id}, message_id={saved_message['id']}, purpose={purpose}, conversation_id={conversation_id}") # Log before call
+        queue_response = await queue_service.send_message(
             user_id=user_id,
             message_content=content,
             message_id=saved_message['id'],
             purpose=purpose,
             conversation_id=conversation_id
         )
+        print(f"MessageService: Response from queue_service.send_message: {queue_response}") # Log after call
+
+        # Check if the queue service reported an error
+        if isinstance(queue_response, dict) and queue_response.get('error'):
+            print(f"MessageService: Warning - Queue service reported an error: {queue_response['error']}. Proceeding as message is saved.")
+            # Decide if you want to raise an exception here or just log the warning
+            # For now, we log and proceed, as the user message *is* saved.
 
         # Return only the user's saved message
+        print(f"MessageService: Returning saved message: {saved_message}") # Log return
         return saved_message
     
     @staticmethod
