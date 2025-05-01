@@ -168,8 +168,8 @@ resource "aws_lambda_function" "app_lambda" {
 
   # Removed source_code_hash as image_uri with digest handles updates for container images
 
-  timeout     = 30 # Adjust as needed
-  memory_size = 512 # Adjust as needed
+  timeout     = 300 # Adjust as needed
+  memory_size = 2048 # Adjust as needed
 
   # Optional: Define environment variables for the Lambda function
   environment {

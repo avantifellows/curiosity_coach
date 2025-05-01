@@ -366,8 +366,8 @@ resource "aws_lambda_function" "backend_lambda" {
   # Use the specific image digest from the data source
   image_uri = "${aws_ecr_repository.backend_repo.repository_url}@${data.aws_ecr_image.latest_backend_image.image_digest}"
 
-  timeout     = 30  # Adjust as needed
-  memory_size = 512 # Adjust based on backend needs
+  timeout     = 300 # Adjust as needed
+  memory_size = 2048 # Adjust based on backend needs
 
   environment {
     variables = merge(
@@ -412,15 +412,6 @@ resource "aws_lambda_function" "backend_lambda" {
 resource "aws_lambda_function_url" "backend_lambda_url" {
   function_name      = aws_lambda_function.backend_lambda.function_name
   authorization_type = "NONE" # Public access
-
-  cors {
-    allow_credentials = true
-    allow_origins     = ["*"] # IMPORTANT: Restrict this in production!
-    allow_methods     = ["*"]
-    allow_headers     = ["*"]
-    expose_headers    = ["keep-alive", "date"]
-    max_age           = 86400
-  }
 
   depends_on = [aws_lambda_function.backend_lambda]
 }
