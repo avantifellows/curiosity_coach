@@ -66,6 +66,14 @@ jobs:
         run: |
           aws lambda update-function-code --function-name $LAMBDA_FUNCTION_NAME --image-uri ${{ steps.build-image.outputs.image }}
 
+      - name: Wait for Lambda function update to complete
+        env:
+          LAMBDA_FUNCTION_NAME: ${{ steps.find_lambda.outputs.function_name }}
+        run: |
+          echo "Waiting for function update to complete for $LAMBDA_FUNCTION_NAME..."
+          aws lambda wait function-updated --function-name $LAMBDA_FUNCTION_NAME --region ap-south-1
+          echo "Function update completed."
+
       - name: Find Backend Lambda Function Name
         id: find_backend_lambda
         run: |
