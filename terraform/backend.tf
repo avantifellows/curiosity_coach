@@ -274,8 +274,6 @@ resource "aws_db_subnet_group" "rds_subnet_group" {
 # --- RDS Password ---
 resource "random_password" "db_password" {
   length           = 16
-  special          = true
-  override_special = "!#$%&*()-_=+[]{}<>:?"
 }
 
 # --- RDS Database Instance ---
