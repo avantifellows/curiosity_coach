@@ -1,6 +1,6 @@
 import json
 import os
-from typing import Dict, Any, Tuple
+from typing import Dict, Any, Tuple, Union
 from groq import Groq
 from dotenv import load_dotenv
 from src.services.llm_service import LLMService
@@ -63,27 +63,29 @@ def _validate_intent_response(response: Dict[str, Any]) -> None:
     
     logger.debug("Intent response validation successful")
 
-def identify_intent(query: str) -> Tuple[Dict[str, Any], str]:
+def identify_intent(query: str, get_prompt_template_only: bool = False) -> Union[Tuple[Dict[str, Any], str], str]:
     """
-    Identifies the intent and subject behind a user's query using the LLM prompt.
-    Also returns the exact prompt used for this identification.
+    Identifies the intent and subject behind a user's query using the LLM prompt,
+    or returns the formatted prompt template itself.
 
     Args:
-        query (str): The user's query to analyze
+        query (str): The user's query to analyze. Required even if get_prompt_template_only is True for compatibility, but not used in that case.
+        get_prompt_template_only (bool): If True, returns only the formatted prompt template
+                                         without substituting the query and without calling the LLM.
 
     Returns:
-        Tuple[Dict[str, Any], str]: A tuple containing:
-            - A dictionary with the query, subject, and identified intents.
-            - The formatted prompt string sent to the LLM.
+        Union[Tuple[Dict[str, Any], str], str]: 
+            - If get_prompt_template_only is False: A tuple containing the intent data dictionary
+              and the formatted prompt string sent to the LLM.
+            - If get_prompt_template_only is True: The formatted prompt template string.
 
     Raises:
-        IntentIdentificationError: If the intent identification fails
+        IntentIdentificationError: If the intent identification fails (and get_prompt_template_only is False)
+                                   or if loading config/template fails.
     """
     formatted_prompt = "" # Initialize to ensure it's always defined
     try:
-        logger.info(f"Identifying intent for query: {query}")
-        
-        # Load intent configuration
+        # Load intent configuration (needed for both modes)
         logger.debug(f"Loading intent config from: {_INTENT_CONFIG_PATH}")
         try:
             with open(_INTENT_CONFIG_PATH, "r") as f:
@@ -91,8 +93,8 @@ def identify_intent(query: str) -> Tuple[Dict[str, Any], str]:
         except Exception as e:
             logger.error(f"Failed to load intent config: {e}", exc_info=True)
             raise IntentIdentificationError(f"Failed to load intent config: {e}")
-            
-        # Format intent definitions for the prompt
+
+        # Format intent definitions for the prompt (needed for both modes)
         intent_definitions = []
         for intent_key, possible_values in intent_config.items():
             values_str = ", ".join([f'"{val}"' for val in possible_values])
@@ -101,7 +103,7 @@ def identify_intent(query: str) -> Tuple[Dict[str, Any], str]:
         intent_definitions_str = ",\n        ".join(intent_definitions)
         logger.debug("Formatted intent definitions")
 
-        # Read the intent identifier prompt template
+        # Read the intent identifier prompt template (needed for both modes)
         logger.debug(f"Loading intent prompt template from: {_INTENT_TEMPLATE_PATH}")
         try:
             with open(_INTENT_TEMPLATE_PATH, "r") as f:
@@ -110,11 +112,26 @@ def identify_intent(query: str) -> Tuple[Dict[str, Any], str]:
             logger.error(f"Failed to load intent prompt template: {e}", exc_info=True)
             raise IntentIdentificationError(f"Failed to load intent prompt template: {e}")
 
-        # Format the complete prompt
-        formatted_prompt = intent_identifier_prompt_template.replace("{{INTENT_DEFINITIONS}}", intent_definitions_str)
-        formatted_prompt = formatted_prompt.replace("{{INSERT_QUERY_HERE}}", query)
+        # Format the prompt template (partially, without query yet)
+        formatted_prompt_template = intent_identifier_prompt_template.replace("{{INTENT_DEFINITIONS}}", intent_definitions_str)
+        logger.debug("Formatted base prompt template")
+
+        # Return just the template if requested
+        if get_prompt_template_only:
+            logger.info("Returning only the intent identification prompt template.")
+            # Ensure the placeholder is still present
+            if "{{INSERT_QUERY_HERE}}" not in formatted_prompt_template:
+                 logger.warning("Placeholder '{{INSERT_QUERY_HERE}}' not found in the template when returning template only.")
+            return formatted_prompt_template
+
+        # --- Continue with normal intent identification if get_prompt_template_only is False ---
+
+        logger.info(f"Identifying intent for query: {query}")
+
+        # Finish formatting the prompt with the actual query
+        formatted_prompt = formatted_prompt_template.replace("{{INSERT_QUERY_HERE}}", query)
         logger.debug("Formatted complete prompt for intent identification")
-        
+
         # Initialize LLM service
         logger.debug("Initializing LLM service for intent identification")
         llm_service = LLMService()
@@ -150,7 +167,9 @@ def identify_intent(query: str) -> Tuple[Dict[str, Any], str]:
     except Exception as e:
         # Include the potentially generated prompt in the error message if available
         error_msg = f"Failed to identify intent: {str(e)}"
-        if formatted_prompt:
+        if formatted_prompt: # Note: formatted_prompt might be empty if error occurred before it was fully set
             error_msg += f"\nPrompt used:\n{formatted_prompt}"
+        elif get_prompt_template_only and formatted_prompt_template: # Or use the template if that's what was being generated
+             error_msg += f"\nPrompt template being processed:\n{formatted_prompt_template}"
         logger.error(error_msg, exc_info=True)
-        raise IntentIdentificationError(f"Failed to identify intent: {str(e)}")
+        raise IntentIdentificationError(f"Failed to identify intent or load template: {str(e)}")

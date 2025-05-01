@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Curiosity Coach - Rules</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            margin: 20px;
+            background-color: #f4f4f9;
+            color: #333;
+        }
+        .container {
+            max-width: 800px;
+            margin: auto;
+            background: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #5a5a5a;
+            text-align: center;
+        }
+        details {
+            margin-bottom: 15px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            background: #f9f9f9;
+        }
+        summary {
+            padding: 10px;
+            font-weight: bold;
+            cursor: pointer;
+            background: #eee;
+            border-radius: 4px 4px 0 0;
+        }
+        details[open] summary {
+            border-bottom: 1px solid #ddd;
+        }
+        .content {
+            padding: 15px;
+        }
+        pre {
+            background-color: #e9e9e9;
+            padding: 10px;
+            border-radius: 4px;
+            overflow-x: auto; /* Handle long lines */
+            white-space: pre-wrap; /* Wrap text */
+            word-wrap: break-word; /* Break long words */
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Curiosity Coach - Processing Rules</h1>
+
+        <details>
+            <summary>1. Intent Identification</summary>
+            <div class="content">
+                <p>This step identifies the core topic and the user's goal (intent) behind their query. The following prompt template is used (with <code>{{INSERT_QUERY_HERE}}</code> replaced by the actual query):</p>
+                <pre>{{ intent_prompt_template }}</pre>
+            </div>
+        </details>
+
+        <details>
+            <summary>2. Knowledge Retrieval (Placeholder)</summary>
+            <div class="content">
+                <p>Details about the knowledge retrieval process will go here.</p>
+            </div>
+        </details>
+
+        <details>
+            <summary>3. Initial Response Generation (Placeholder)</summary>
+            <div class="content">
+                <p>Details about how the initial response is generated will go here.</p>
+            </div>
+        </details>
+
+        <details>
+            <summary>4. Learning Enhancement (Placeholder)</summary>
+            <div class="content">
+                <p>Details about the learning enhancement process will go here.</p>
+            </div>
+        </details>
+
+    </div>
+</body>
+</html> 
