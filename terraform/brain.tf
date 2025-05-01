@@ -1,16 +1,3 @@
-terraform {
-  required_providers {
-    aws = {
-      source  = "hashicorp/aws"
-      version = "~> 5.96.0"
-    }
-  }
-}
-
-provider "aws" {
-  region = var.aws_region
-}
-
 locals {
   # Derive resource names from the app_name variable if specific names are not provided
   ecr_repo_name      = coalesce(var.ecr_repo_name, "${var.app_name}-repo")
@@ -20,9 +7,6 @@ locals {
     ManagedBy = "Terraform"
   }
 }
-
-data "aws_caller_identity" "current" {}
-data "aws_region" "current" {}
 
 # --- ECR Repository --- 
 resource "aws_ecr_repository" "app_repo" {
@@ -116,7 +100,21 @@ resource "null_resource" "docker_build_push" {
       export AWS_PROFILE=${var.aws_profile}
       
       echo "Logging into ECR for ${aws_ecr_repository.app_repo.name}..."
-      aws ecr get-login-password --region ${var.aws_region} | docker login --username AWS --password-stdin ${data.aws_caller_identity.current.account_id}.dkr.ecr.${var.aws_region}.amazonaws.com
+      # Attempt login and capture output/error
+      login_output=$(aws ecr get-login-password --region ${var.aws_region} | docker login --username AWS --password-stdin ${data.aws_caller_identity.current.account_id}.dkr.ecr.${var.aws_region}.amazonaws.com 2>&1)
+      login_exit_code=$?
+      # Check if login failed
+      if [ $login_exit_code -ne 0 ]; then
+        # Check if the failure was the specific keychain error
+        if echo "$login_output" | grep -q "The specified item already exists in the keychain"; then
+          echo "Docker login skipped: Credentials already exist in keychain."
+        else
+          # If it was a different error, print the error and exit
+          echo "Docker login failed:" >&2
+          echo "$login_output" >&2
+          exit $login_exit_code
+        fi
+      fi
       
       echo "Building Docker image ${aws_ecr_repository.app_repo.repository_url}:${var.docker_image_tag}..."
       docker build --platform linux/amd64 -t ${aws_ecr_repository.app_repo.repository_url}:${var.docker_image_tag} -f ${path.module}/../Brain/Dockerfile ${path.module}/../Brain

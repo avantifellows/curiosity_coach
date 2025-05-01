@@ -1,0 +1,75 @@
+name: Deploy Frontend to AWS S3 and CloudFront
+
+on:
+  push:
+    branches:
+      - main # Or your deployment branch
+  workflow_dispatch: # Allows manual triggering
+  pull_request: # allows PRs to trigger the workflow
+
+permissions:
+  contents: read # Required to check out the code
+
+jobs:
+  deploy:
+    name: Build and Deploy Frontend
+    runs-on: ubuntu-latest
+    # Optional: Specify the environment if you use GitHub Environments
+    # environment: production
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20' # Specify your Node.js version
+          # Cache is now directory-specific
+          # cache: 'npm' 
+
+      - name: Configure AWS Credentials with Access Keys
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ap-south-1
+
+      - name: Install Dependencies
+        working-directory: ./curiosity-coach-frontend
+        run: |
+          npm ci # Faster and more reliable than 'npm install' for CI
+
+      - name: Get Lambda Function URL
+        id: get_lambda_url
+        run: |
+          FUNCTION_NAME=$(aws lambda list-functions --region ap-south-1 --query 'Functions[?contains(FunctionName, `curiosity-coach-backend`)].FunctionName | [0]' --output text)
+          if [ -z "$FUNCTION_NAME" ] || [ "$FUNCTION_NAME" == "None" ]; then
+            echo "Error: Could not find Lambda function containing 'curiosity-coach-backend'"
+            exit 1
+          fi
+          echo "Found Lambda function: $FUNCTION_NAME"
+          FUNCTION_URL=$(aws lambda get-function-url-config --region ap-south-1 --function-name $FUNCTION_NAME --query 'FunctionUrl' --output text)
+          if [ -z "$FUNCTION_URL" ] || [ "$FUNCTION_URL" == "None" ]; then
+            echo "Error: Could not retrieve Function URL for $FUNCTION_NAME. Make sure Function URL is enabled."
+            exit 1
+          fi
+          echo "::set-output name=lambda_url::$FUNCTION_URL"
+          echo "FUNCTION_URL=$FUNCTION_URL" >> $GITHUB_ENV
+
+      - name: Build Frontend Application
+        working-directory: ./curiosity-coach-frontend
+        run: npm run build
+        env:
+          # Use the dynamically fetched Lambda URL
+          REACT_APP_BACKEND_BASE_URL: ${{ env.FUNCTION_URL }}
+
+      - name: Deploy to S3 Bucket
+        run: |
+          aws s3 sync ./curiosity-coach-frontend/build s3://${{ secrets.AWS_S3_BUCKET_NAME }} --delete
+
+      - name: Invalidate CloudFront Cache
+        run: |
+          aws cloudfront create-invalidation \
+            --distribution-id ${{ secrets.AWS_CLOUDFRONT_DISTRIBUTION_ID }} \
+            --paths "/*" # Invalidate everything 

@@ -1,3 +1,15 @@
+variable "project_name" {
+  description = "The overall project name used for resource naming and tagging."
+  type        = string
+  default     = "curiosity-coach" 
+}
+
+variable "environment" {
+  description = "The deployment environment (e.g., dev, staging, prod)."
+  type        = string
+  default     = "dev" # Defaulting to 'dev', change as needed
+}
+
 variable "aws_region" {
   description = "The AWS region to deploy resources in."
   type        = string

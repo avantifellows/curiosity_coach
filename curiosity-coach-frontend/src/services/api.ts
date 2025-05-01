@@ -2,7 +2,7 @@ import axios from 'axios';
 import { LoginResponse, Message, ChatHistory, SendMessageResponse } from '../types';
 
 const API = axios.create({
-  baseURL: '/api',
+  baseURL: process.env.REACT_APP_BACKEND_BASE_URL || '/api',
   headers: {
     'Content-Type': 'application/json',
   },
