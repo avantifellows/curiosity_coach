@@ -1,0 +1,67 @@
+name: Deploy Backend Changes
+
+on:
+  push:
+    branches:
+      - main # Or your default branch
+    paths:
+      - 'backend/**' # Trigger only on changes within the backend directory
+  pull_request:
+    branches:
+      - main # Or your default branch
+    paths:
+      - 'backend/**' # Trigger only on changes within the backend directory
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials with Access Keys
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ap-south-1
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Find Lambda Function Name
+        id: find_lambda
+        run: |
+          # Find the Lambda function containing 'curiosity-coach-backend'
+          # Use the AWS_REGION secret or hardcode if preferred
+          FUNCTION_NAME=$(aws lambda list-functions --region ${{ secrets.AWS_REGION }} --query 'Functions[?contains(FunctionName, `curiosity-coach-backend`)].FunctionName | [0]' --output text | head -n 1)
+          if [ -z "$FUNCTION_NAME" ] || [ "$FUNCTION_NAME" == "None" ]; then
+            echo "Error: Could not find Lambda function containing 'curiosity-coach-backend' in region ${{ secrets.AWS_REGION }}."
+            exit 1
+          fi
+          echo "Found Lambda function: $FUNCTION_NAME"
+          echo "::set-output name=function_name::$FUNCTION_NAME"
+
+      - name: Build, tag, and push image to Amazon ECR
+        id: build-image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          # Hardcoded ECR repository name based on Terraform config
+          ECR_REPOSITORY: curiosity-coach-backend-dev-ecr
+          IMAGE_TAG: ${{ github.sha }}
+        working-directory: ./backend # Set working directory to backend
+        run: |
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+      - name: Update Lambda function code
+        env:
+          # Use the dynamically found function name from the previous step
+          LAMBDA_FUNCTION_NAME: ${{ steps.find_lambda.outputs.function_name }}
+        run: |
+          aws lambda update-function-code --function-name $LAMBDA_FUNCTION_NAME --image-uri ${{ steps.build-image.outputs.image }} 

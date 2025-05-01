@@ -34,13 +34,12 @@ def create_app() -> FastAPI:
     # Enable CORS
     app.add_middleware(
         CORSMiddleware,
-        # Use allow_origins for exact matches like localhost
+        # Use allow_origins for exact matches like localhost and deployed frontend
         allow_origins=[
             "http://localhost:3000", # Common port for local React dev
             "http://localhost:5173", # Common port for local Vite dev
+            "http://curiosity-coach-frontend-dev.s3-website.ap-south-1.amazonaws.com", # Explicitly add S3 origin
         ],
-        # Use allow_origin_regex for pattern matching (e.g., S3 websites in a region)
-        allow_origin_regex=r"^http://[a-zA-Z0-9-]+\.s3-website\.ap-south-1\.amazonaws\.com$",
         allow_credentials=True,
         allow_methods=["*"], # Or specify methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
         allow_headers=["*"], # Or specify headers: ["Content-Type", "Authorization"]
