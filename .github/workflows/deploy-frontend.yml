@@ -82,6 +82,8 @@ jobs:
 
           # Success path
           echo "Successfully retrieved Function URL: $FUNCTION_URL"
+          # Remove trailing slash if it exists
+          FUNCTION_URL=${FUNCTION_URL%/}
           echo "::set-output name=lambda_url::$FUNCTION_URL"
           echo "FUNCTION_URL=$FUNCTION_URL" >> $GITHUB_ENV
 
