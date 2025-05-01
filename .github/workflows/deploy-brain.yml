@@ -7,10 +7,10 @@ on:
     paths:
       - 'Brain/**' # Trigger only on changes within the Brain directory
   pull_request:
-    branches:
-      - main # Or your default branch
-    paths:
-      - 'Brain/**' # Trigger only on changes within the Brain directory
+    # branches:
+    #   - main # Or your default branch
+    # paths:
+    #   - 'Brain/**' # Trigger only on changes within the Brain directory
 
 permissions:
   contents: read

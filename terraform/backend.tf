@@ -495,6 +495,30 @@ output "rds_database_password" {
 # 2. CORS Origins: Update `
 
 # --- SQS VPC Endpoint ---
+resource "aws_security_group" "sqs_vpce_sg" {
+  name        = "${local.backend_prefix}-sqs-vpce-sg"
+  description = "Allow inbound HTTPS from Lambda SG to SQS VPC Endpoint"
+  vpc_id      = data.aws_vpc.selected.id
+
+  ingress {
+    description     = "Allow HTTPS from Lambda"
+    from_port       = 443
+    to_port         = 443
+    protocol        = "tcp"
+    security_groups = [aws_security_group.lambda_sg.id] # Allow from Lambda SG
+  }
+
+  # Egress is typically not needed for interface endpoints unless specific requirements exist
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = merge(local.backend_tags, { Name = "${local.backend_prefix}-sqs-vpce-sg" })
+}
+
 resource "aws_vpc_endpoint" "sqs_endpoint" {
   vpc_id            = data.aws_vpc.selected.id
   service_name      = "com.amazonaws.${data.aws_region.current.name}.sqs"
@@ -503,10 +527,16 @@ resource "aws_vpc_endpoint" "sqs_endpoint" {
   subnet_ids = local.public_subnet_ids
 
   security_group_ids = [
-    aws_security_group.lambda_sg.id # Allow Lambda SG to access the endpoint
+    # aws_security_group.lambda_sg.id # Allow Lambda SG to access the endpoint <<< REMOVED
+    aws_security_group.sqs_vpce_sg.id # Use the dedicated SG for the endpoint <<< ADDED
   ]
 
   private_dns_enabled = true # Allows using standard SQS DNS names
 
   tags = merge(local.backend_tags, { Name = "${local.backend_prefix}-sqs-vpce" })
+
+  depends_on = [
+    aws_security_group.lambda_sg,
+    aws_security_group.sqs_vpce_sg # Add dependency on the new SG <<< ADDED
+  ]
 }

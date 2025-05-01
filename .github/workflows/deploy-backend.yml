@@ -7,10 +7,10 @@ on:
     paths:
       - 'backend/**' # Trigger only on changes within the backend directory
   pull_request:
-    branches:
-      - main # Or your default branch
-    paths:
-      - 'backend/**' # Trigger only on changes within the backend directory
+    # branches:
+    #   - main # Or your default branch
+    # paths:
+    #   - 'backend/**' # Trigger only on changes within the backend directory
 
 permissions:
   contents: read
