@@ -7,6 +7,7 @@ from src.messages.router import router as messages_router
 from src.health.router import router as health_router
 from src.config.settings import settings
 from src.database import init_db
+from mangum import Mangum
 
 # Configure logging to prevent duplicate logs
 logging.getLogger("uvicorn.access").propagate = False
@@ -54,7 +55,8 @@ def create_app() -> FastAPI:
     
     return app
 
-app = create_app()
+_fastapi_app = create_app()
+app = Mangum(_fastapi_app)
 
 # For local development
 if __name__ == '__main__':
@@ -65,7 +67,7 @@ if __name__ == '__main__':
     print(f"Environment: {settings.APP_ENV}")
     print(f"API Documentation: http://localhost:{port}{settings.API_DOCS_URL}")
     
-    uvicorn.run("src.main:app", 
+    uvicorn.run("src.main:_fastapi_app", 
                 host="0.0.0.0", 
                 port=port,
                 log_level="info",

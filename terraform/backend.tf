@@ -30,19 +30,29 @@ provider "aws" {
 data "aws_caller_identity" "current" {}
 data "aws_region" "current" {}
 
-# Fetch default VPC and Subnets for RDS and Lambda placement
-data "aws_vpc" "default" {
-  default = true
+# --- Removed Default VPC/Subnet Data Sources ---
+# data "aws_vpc" "default" {
+#   default = true
+# }
+# data "aws_subnets" "default" {
+#   filter {
+#     name   = "vpc-id"
+#     values = [data.aws_vpc.default.id]
+#   }
+# }
+
+# --- Added Specific VPC Data Source ---
+data "aws_vpc" "selected" {
+  id = "vpc-0a25a54c34b446c2d" # The VPC ID we identified
 }
 
-data "aws_subnets" "default" {
-  filter {
-    name   = "vpc-id"
-    values = [data.aws_vpc.default.id]
-  }
-}
-
+# --- Define the Public Subnet IDs ---
+# Identified public subnets in vpc-0a25a54c34b446c2d
 locals {
+  public_subnet_ids = [
+    "subnet-08bdce0ea3ad1826e", # ap-south-1a
+    "subnet-017c528c08e874a5f"  # ap-south-1b
+  ]
   # Derive resource names consistently
   backend_prefix           = "${var.project_name}-backend-${var.environment}"
   backend_ecr_repo_name    = "${local.backend_prefix}-ecr"
@@ -202,7 +212,7 @@ data "external" "backend_dotenv_prod" {
 resource "aws_security_group" "lambda_sg" {
   name        = "${local.backend_lambda_func_name}-sg"
   description = "Allow all outbound traffic for Lambda, control inbound via other SGs"
-  vpc_id      = data.aws_vpc.default.id
+  vpc_id      = data.aws_vpc.selected.id
 
   egress {
     from_port   = 0
@@ -219,7 +229,7 @@ resource "aws_security_group" "lambda_sg" {
 resource "aws_security_group" "rds_sg" {
   name        = "${local.rds_instance_identifier}-sg"
   description = "Allow access to RDS instance"
-  vpc_id      = data.aws_vpc.default.id
+  vpc_id      = data.aws_vpc.selected.id
 
   # Allow Public Access (temporary, restrict in production)
   ingress {
@@ -252,7 +262,7 @@ resource "aws_security_group" "rds_sg" {
 # --- RDS Subnet Group ---
 resource "aws_db_subnet_group" "rds_subnet_group" {
   name       = "${local.rds_instance_identifier}-subnet-group"
-  subnet_ids = data.aws_subnets.default.ids # Use subnets from the default VPC
+  subnet_ids = local.public_subnet_ids
 
   tags = merge(local.backend_tags, { Name = "${local.rds_instance_identifier}-subnet-group" })
 }
@@ -378,7 +388,7 @@ resource "aws_lambda_function" "backend_lambda" {
 
   # Configure VPC access for the Lambda function
   vpc_config {
-    subnet_ids         = data.aws_subnets.default.ids
+    subnet_ids         = local.public_subnet_ids
     security_group_ids = [aws_security_group.lambda_sg.id]
   }
 
@@ -468,11 +478,4 @@ output "rds_database_password" {
 
 # --- TODOs & Next Steps ---
 # 1. Review Security Groups: **Crucially**, restrict `aws_security_group.rds_sg` ingress `cidr_blocks = ["0.0.0.0/0"]` in production. Only allow necessary IPs (e.g., specific developer IPs, Bastion host SG). The Lambda access via its SG is already configured more securely.
-# 2. CORS Origins: Update `aws_lambda_function_url.cors.allow_origins` from `["*"]` to your specific frontend domain(s) for production.
-# 3. Variables & Providers: Ensure `project_name`, `environment`, `aws_region`, `docker_image_tag`, `aws_profile` are defined correctly and provider configurations are centralized if needed. You will likely need to add the `random` provider to your main Terraform configuration block.
-# 4. Database Schema: This Terraform code creates the RDS instance, but you'll need a separate process (e.g., using Alembic migrations triggered from your application or a setup script) to create tables within the database. Your `backend/schema.sql` might be relevant here. Ensure your application uses the environment variables (DB_HOST, DB_PORT, etc.) for its database connection.
-# 5. Final Snapshot: Change `skip_final_snapshot = true` to `false` for production RDS instances.
-# 6. Run `terraform init -upgrade` (to add the random provider) and `terraform apply`. Remember to handle the sensitive password output securely.
-# 7. Verify Paths: Ensure `../backend/Dockerfile`, `../backend/requirements.txt`, and `../backend/src/.env.prod` paths are correct. Create these files if they don't exist.
-# 8. Dockerfile: Ensure `backend/Dockerfile` correctly installs dependencies (including Mangum) and defines the `CMD` or `ENTRYPOINT` to run the FastAPI app via Mangum.
-# 9. Run `terraform init` and `terraform apply`. 
+# 2. CORS Origins: Update `

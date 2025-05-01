@@ -4,6 +4,7 @@
 
 resource "aws_s3_bucket" "frontend_bucket" {
   bucket = "${var.project_name}-frontend-${var.environment}" # Example: curiosity-coach-frontend-dev
+  force_destroy = true
 
   tags = {
     Name        = "${var.project_name}-frontend-${var.environment}"
@@ -36,6 +37,29 @@ resource "aws_s3_bucket_public_access_block" "frontend_bucket_pab" {
   block_public_policy     = false # Allow public bucket policies for static hosting
   ignore_public_acls      = false
   restrict_public_buckets = false # Allow public access via the website endpoint
+}
+
+# --- Public Access Policy for S3 Website Hosting ---
+
+data "aws_iam_policy_document" "frontend_bucket_website_policy" {
+  statement {
+    sid       = "PublicReadGetObject"
+    actions   = ["s3:GetObject"]
+    resources = ["${aws_s3_bucket.frontend_bucket.arn}/*"] # Policy applies to objects in the bucket
+
+    principals {
+      type        = "*" # Allows anyone
+      identifiers = ["*"]
+    }
+  }
+}
+
+resource "aws_s3_bucket_policy" "frontend_bucket_website_policy" {
+  bucket = aws_s3_bucket.frontend_bucket.id
+  policy = data.aws_iam_policy_document.frontend_bucket_website_policy.json
+
+  # Ensure the policy depends on the public access block being configured
+  depends_on = [aws_s3_bucket_public_access_block.frontend_bucket_pab]
 }
 
 /*
