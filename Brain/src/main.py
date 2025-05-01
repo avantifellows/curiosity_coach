@@ -15,6 +15,8 @@ from dotenv import load_dotenv # Added import
 from src.process_query_entrypoint import process_query
 from src.utils.logger import logger
 from src.core.intent_identifier import identify_intent, IntentIdentificationError # Import identify_intent
+from src.core.knowledge_retrieval import retrieve_knowledge, KnowledgeRetrievalError
+from src.core.learning_enhancement import generate_enhanced_response, LearningEnhancementError # Import learning enhancement
 
 # Load environment variables from .env file
 load_dotenv() # Added call
@@ -149,18 +151,27 @@ async def home(request: Request):
 async def show_rules(request: Request):
     try:
         # Call identify_intent to get only the template
-        # Pass a dummy query as it's required by the function signature but not used when get_prompt_template_only=True
         intent_prompt_template = identify_intent(query="dummy", get_prompt_template_only=True)
+
+        # Call retrieve_knowledge to get only the template
+        # Pass dummy topics as they are required by the signature but not used
+        knowledge_prompt_template = retrieve_knowledge(main_topic="dummy", related_topics=[], get_prompt_template_only=True)
+
+        # Call generate_enhanced_response to get only the template
+        # Pass dummy initial response and context
+        learning_prompt_template = generate_enhanced_response(initial_response="dummy", context_info="dummy", get_prompt_template_only=True)
+
         return templates.TemplateResponse(
             "rules.html",
             {
                 "request": request,
-                "intent_prompt_template": intent_prompt_template
+                "intent_prompt_template": intent_prompt_template,
+                "knowledge_prompt_template": knowledge_prompt_template,
+                "learning_prompt_template": learning_prompt_template # Pass learning template
             }
         )
-    except IntentIdentificationError as e:
-        logger.error(f"Failed to get intent prompt template for /rules page: {e}", exc_info=True)
-        # You might want a more user-friendly error page here
+    except (IntentIdentificationError, KnowledgeRetrievalError, LearningEnhancementError) as e: # Catch both errors
+        logger.error(f"Failed to get prompt template(s) for /rules page: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Could not load rules information.")
     except Exception as e:
         logger.error(f"Unexpected error generating /rules page: {e}", exc_info=True)

@@ -1,5 +1,5 @@
 import os
-from typing import Tuple
+from typing import Tuple, Union
 from src.services.llm_service import LLMService
 from src.utils.logger import logger
 
@@ -13,34 +13,51 @@ class LearningEnhancementError(Exception):
     pass
 
 
-def generate_enhanced_response(initial_response: str, context_info: str) -> Tuple[str, str]:
+def generate_enhanced_response(initial_response: str, context_info: str, get_prompt_template_only: bool = False) -> Tuple[str, str]:
     """
-    Generates a learning-enhanced response based on the initial response and context.
+    Generates a learning-enhanced response based on the initial response and context,
+    or returns the formatted prompt template itself.
 
     Args:
-        initial_response (str): The initial response generated.
-        context_info (str): The retrieved knowledge context.
+        initial_response (str): The initial response generated. Required placeholder if get_prompt_template_only is True.
+        context_info (str): The retrieved knowledge context. Required placeholder if get_prompt_template_only is True.
+        get_prompt_template_only (bool): If True, returns only the formatted prompt template
+                                         without substituting placeholders and without calling the LLM.
 
     Returns:
-        Tuple[str, str]: A tuple containing:
-            - The generated enhanced response string.
-            - The learning prompt used to generate the response.
+        Union[Tuple[str, str], str]:
+            - If get_prompt_template_only is False: A tuple containing the generated enhanced response string
+              and the learning prompt used to generate the response.
+            - If get_prompt_template_only is True: The formatted prompt template string.
 
     Raises:
-        LearningEnhancementError: If the learning enhancement fails.
+        LearningEnhancementError: If the learning enhancement fails (and get_prompt_template_only is False)
+                                   or if loading the template fails.
     """
+    learning_prompt_template_text = "" # Initialize for error reporting
     learning_prompt = "" # Initialize
     try:
-        logger.debug("Generating learning-enhanced response...")
-
-        # Load learning prompt template
+        # Load learning prompt template (needed for both modes)
         logger.debug(f"Loading learning prompt template from: {_LEARNING_PROMPT_PATH}")
         try:
             with open(_LEARNING_PROMPT_PATH, "r") as f:
                 learning_prompt_template = f.read()
+            learning_prompt_template_text = learning_prompt_template # Store for potential return
         except Exception as e:
             logger.error(f"Failed to load learning prompt template: {e}", exc_info=True)
             raise LearningEnhancementError(f"Failed to load learning prompt template: {e}")
+
+        # Return just the template if requested
+        if get_prompt_template_only:
+            logger.info("Returning only the learning enhancement prompt template.")
+            # Check for placeholders
+            if "{original_response}" not in learning_prompt_template_text or "{context_info}" not in learning_prompt_template_text:
+                logger.warning("Placeholders missing in the template when returning learning template only.")
+            return learning_prompt_template_text
+
+        # --- Continue with normal response generation if get_prompt_template_only is False ---
+
+        logger.debug("Generating learning-enhanced response...")
 
         # Format the learning prompt
         learning_prompt = learning_prompt_template.format(
