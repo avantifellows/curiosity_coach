@@ -45,7 +45,7 @@ class MessagePayload(BaseModel):
     timestamp: float # Assuming timestamp is a float epoch time
 
 # Updated dequeue function containing the core logic
-def dequeue(message: MessagePayload):
+def dequeue(message: MessagePayload, background_tasks: BackgroundTasks):
     """
     Processes a message received either from SQS or the /query endpoint.
     """
@@ -72,6 +72,27 @@ def dequeue(message: MessagePayload):
                 # Optionally include original message details if needed for context
                 'original_message': message.model_dump()
             }
+
+            # Prepare and schedule the callback if response was generated
+            if content and 'response' in content:
+                callback_payload = {
+                    "user_id": int(message.user_id), # Ensure correct type
+                    "conversation_id": message.conversation_id,
+                    "original_message_id": int(message.message_id) if message.message_id.isdigit() else None, # Handle non-int IDs if needed
+                    "response_content": content.get('response'),
+                    # Pass other relevant fields from the result back to the backend
+                    "intent": content.get('intent'),
+                    "prompts": content.get('prompts'),
+                    "intermediate_responses": content.get('intermediate_responses'),
+                    "intent_prompt": content.get('intent_prompt')
+                }
+                # Add the callback task to run in the background
+                background_tasks.add_task(perform_backend_callback, callback_payload)
+                logger.info(f"Scheduled backend callback for user_id: {message.user_id}")
+            else:
+                 logger.warning(f"No response generated for chat message, callback not scheduled for user_id: {message.user_id}")
+
+
             return content
         else:
             # Handle other purposes like "test_generation", "doubt_solver", "other"
@@ -114,30 +135,13 @@ async def home(request: Request):
 @app.post("/query")
 async def handle_query(message: MessagePayload, background_tasks: BackgroundTasks):
     # The /query endpoint now directly accepts the full message payload
-    # and passes it to the dequeue function.
+    # and passes it to the dequeue function along with background_tasks.
     try:
-        # Dequeue still runs synchronously, but the callback will be in the background
-        result = dequeue(message)
+        # Dequeue handles processing and schedules the callback if needed.
+        result = dequeue(message, background_tasks) # Pass background_tasks
 
-        # If dequeue processed successfully (was 'chat' and didn't raise error within itself)
-        # Prepare and schedule the callback
-        if message.purpose == "chat" and result and 'response' in result:
-            callback_payload = {
-                "user_id": int(message.user_id), # Ensure correct type
-                "conversation_id": message.conversation_id,
-                "original_message_id": int(message.message_id) if message.message_id.isdigit() else None, # Handle non-int IDs if needed
-                "response_content": result.get('response'),
-                # Pass other relevant fields from the result back to the backend
-                "intent": result.get('intent'),
-                "prompts": result.get('prompts'),
-                "intermediate_responses": result.get('intermediate_responses'),
-                "intent_prompt": result.get('intent_prompt')
-            }
-            # Add the callback task to run in the background
-            background_tasks.add_task(perform_backend_callback, callback_payload)
-            logger.info(f"Scheduled backend callback for user_id: {message.user_id}")
-        else:
-            logger.info(f"No callback performed for purpose: {message.purpose}")
+        # The callback scheduling logic is now inside dequeue.
+        # We just return the immediate result from dequeue.
 
         # Return the immediate result from dequeue (could be success/error/non-chat info)
         # Use JSONResponse to ensure correct content type and structure
