@@ -221,6 +221,10 @@ resource "aws_security_group" "lambda_sg" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
+  lifecycle {
+    create_before_destroy = true
+  }
+
   tags = merge(local.backend_tags, { Name = "${local.backend_lambda_func_name}-sg" })
 }
 
