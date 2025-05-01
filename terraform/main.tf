@@ -143,6 +143,20 @@ data "aws_ecr_image" "latest_app_image" {
   ]
 }
 
+# --- External Data Source for .env.prod ---
+data "external" "dotenv_prod" {
+  program = ["python3", "${path.module}/parse_env.py"]
+
+  # Pass the path to the .env.prod file as JSON input to the script
+  # Also pass the timestamp to ensure the data source is re-evaluated on every apply
+  query = {
+    # Path relative to the terraform directory
+    dotenv_path    = "${path.module}/../Brain/src/.env.prod"
+    # This dummy timestamp ensures the query changes on each run, forcing re-evaluation
+    _rerun_trigger = timestamp()
+  }
+}
+
 # --- Lambda Function (using Docker Image) --- 
 # Note: This assumes the Docker image has been built and pushed to ECR separately.
 # Terraform will use the image URI provided.
@@ -160,11 +174,10 @@ resource "aws_lambda_function" "app_lambda" {
   memory_size = 512 # Adjust as needed
 
   # Optional: Define environment variables for the Lambda function
-  # environment {
-  #   variables = {
-  #     EXAMPLE_VAR = "example_value"
-  #   }
-  # }
+  environment {
+    # Use the parsed variables from the external data source
+    variables = data.external.dotenv_prod.result
+  }
 
   tags = local.tags
 
