@@ -86,6 +86,9 @@ jobs:
           # Use jq to parse the JSON and extract the FunctionUrl
           FUNCTION_URL=$(echo $FUNCTION_URL_CONFIG | jq -r '.FunctionUrl')
 
+          # Remove trailing slash if it exists
+          FUNCTION_URL=${FUNCTION_URL%/}
+
           if [ -z "$FUNCTION_URL" ] || [ "$FUNCTION_URL" == "null" ]; then
              echo "Error: Could not retrieve Function URL for $BACKEND_FUNCTION_NAME. Ensure it has a Function URL configured and the IAM role has permissions for lambda:GetFunctionUrlConfig."
              exit 1
@@ -119,7 +122,12 @@ jobs:
 
           echo "New environment variables JSON: $UPDATED_ENV_VARS"
 
+          # Construct the JSON payload for the --environment argument
+          # Ensure the UPDATED_ENV_VARS JSON is correctly embedded within the {"Variables": ...} structure
+          ENV_PAYLOAD=$(jq -n --argjson vars "$UPDATED_ENV_VARS" '{"Variables": $vars}')
+          echo "Environment payload for AWS CLI: $ENV_PAYLOAD"
+
           # Update the function configuration with the merged environment variables
-          aws lambda update-function-configuration --function-name $BRAIN_LAMBDA_FUNCTION_NAME --region ap-south-1 --environment "Variables=$UPDATED_ENV_VARS"
+          aws lambda update-function-configuration --function-name $BRAIN_LAMBDA_FUNCTION_NAME --region ap-south-1 --environment "$ENV_PAYLOAD"
 
           echo "Lambda environment variables updated successfully." 
