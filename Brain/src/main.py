@@ -7,6 +7,7 @@ import uvicorn
 import time
 import uuid
 import httpx # Added for callback
+import asyncio # Added for synchronous callback execution
 from typing import Optional
 import os
 from dotenv import load_dotenv # Added import
@@ -45,7 +46,7 @@ class MessagePayload(BaseModel):
     timestamp: float # Assuming timestamp is a float epoch time
 
 # Updated dequeue function containing the core logic
-def dequeue(message: MessagePayload, background_tasks: BackgroundTasks):
+def dequeue(message: MessagePayload, background_tasks: Optional[BackgroundTasks] = None):
     """
     Processes a message received either from SQS or the /query endpoint.
     """
@@ -86,9 +87,20 @@ def dequeue(message: MessagePayload, background_tasks: BackgroundTasks):
                     "intermediate_responses": content.get('intermediate_responses'),
                     "intent_prompt": content.get('intent_prompt')
                 }
-                # Add the callback task to run in the background
-                background_tasks.add_task(perform_backend_callback, callback_payload)
-                logger.info(f"Scheduled backend callback for user_id: {message.user_id}")
+                # Schedule callback differently based on context
+                if background_tasks:
+                    # Running in FastAPI context, use background task
+                    background_tasks.add_task(perform_backend_callback, callback_payload)
+                    logger.info(f"Scheduled background callback task for user_id: {message.user_id}")
+                else:
+                    # Running in non-FastAPI context (e.g., SQS Lambda path), run synchronously
+                    logger.info(f"Running callback synchronously for user_id: {message.user_id}")
+                    try:
+                        asyncio.run(perform_backend_callback(callback_payload))
+                    except Exception as cb_exc:
+                        # Log synchronous callback errors, but don't let them fail the main dequeue process necessarily
+                        logger.error(f"Error during synchronous callback execution: {cb_exc}", exc_info=True)
+                        # Depending on requirements, you might want to re-raise or handle differently
             else:
                  logger.warning(f"No response generated for chat message, callback not scheduled for user_id: {message.user_id}")
 
