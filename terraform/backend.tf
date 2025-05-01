@@ -425,8 +425,8 @@ resource "aws_lambda_function" "backend_lambda" {
     aws_sqs_queue.app_queue,
     aws_security_group.lambda_sg,
     data.external.backend_dotenv_prod,
-    aws_security_group.sqs_vpce_sg,
-    aws_security_group.sts_vpce_sg
+    aws_vpc_endpoint.sqs_endpoint,
+    aws_vpc_endpoint.sts_endpoint
   ]
 }
 

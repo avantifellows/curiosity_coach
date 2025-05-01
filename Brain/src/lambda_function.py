@@ -14,7 +14,8 @@ if project_root not in sys.path:
     sys.path.append(project_root)
 
 # Import the FastAPI app and the dequeue function
-from src.main import app, dequeue
+from src.main import app, dequeue, MessagePayload
+from pydantic import ValidationError
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -50,10 +51,26 @@ def lambda_handler(event, context):
                     message_body = json.loads(message_body_str)
                 except json.JSONDecodeError:
                     logger.info(f"Message body for {record.get('messageId')} is not JSON. Passing as string.")
-                    message_body = message_body_str
+                    # If it's not JSON, it can't be parsed into MessagePayload, skip
+                    logger.warning(f"Skipping non-JSON message body for ID {record.get('messageId')}")
+                    failed_messages += 1
+                    continue # Skip to the next record
+
+                # Parse the dictionary into the Pydantic model
+                try:
+                    parsed_message = MessagePayload(**message_body)
+                except ValidationError as ve:
+                    logger.error(f"Validation error parsing message body for ID {record.get('messageId')}: {ve}", exc_info=True)
+                    failed_messages += 1
+                    continue # Skip to the next record
+                except Exception as parse_exc: # Catch other potential parsing errors
+                    logger.error(f"Unexpected error parsing message body for ID {record.get('messageId')}: {parse_exc}", exc_info=True)
+                    failed_messages += 1
+                    continue # Skip to the next record
 
                 logger.info(f"Processing message ID: {record.get('messageId')}")
-                dequeue(message_body)
+                # Pass the parsed Pydantic object to dequeue
+                dequeue(parsed_message)
                 processed_messages += 1
 
             except Exception as e:
