@@ -49,11 +49,23 @@ jobs:
             exit 1
           fi
           echo "Found Lambda function: $FUNCTION_NAME"
-          FUNCTION_URL=$(aws lambda get-function-url-config --region ap-south-1 --function-name $FUNCTION_NAME --query 'FunctionUrl' --output text)
+
+          # Attempt to get Function URL. Handle potential errors immediately.
+          # Use || exit 1 to fail early if the command fails. Pipe stderr to stdout for logging.
+          FUNCTION_URL=$(aws lambda get-function-url-config --region ap-south-1 --function-name "$FUNCTION_NAME" --query 'FunctionUrl' --output text 2>&1) || {
+            echo "Error: Failed to execute get-function-url-config. AWS CLI output was:"
+            echo "$FUNCTION_URL" # This will contain the stderr output because of 2>&1
+            exit 1
+          }
+
+          # Check if the output (which should be the URL if successful) is empty or "None"
           if [ -z "$FUNCTION_URL" ] || [ "$FUNCTION_URL" == "None" ]; then
-            echo "Error: Could not retrieve Function URL for $FUNCTION_NAME. Make sure Function URL is enabled."
+            echo "Error: Could not retrieve Function URL for $FUNCTION_NAME. The function might not have a URL configured. Output was '$FUNCTION_URL'."
             exit 1
           fi
+
+          # Success path
+          echo "Successfully retrieved Function URL."
           echo "::set-output name=lambda_url::$FUNCTION_URL"
           echo "FUNCTION_URL=$FUNCTION_URL" >> $GITHUB_ENV
 
