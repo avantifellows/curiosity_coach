@@ -130,7 +130,7 @@ if [ ! -d "$VENV_PATH" ]; then
     fi
 
     echo "Creating virtual environment using uv..."
-    uv venv
+    uv venv --python=3.9
     # Ensure venv is activated
     source "$VENV_ACTIVATE"
     echo "Installing dependencies from requirements.lock..."
