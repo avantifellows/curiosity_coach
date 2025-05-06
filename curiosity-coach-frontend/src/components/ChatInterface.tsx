@@ -1,6 +1,5 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { CircularProgress } from '@mui/material';
-import { Message } from '../types';
 import ChatMessage from './ChatMessage';
 import ConversationSidebar from './ConversationSidebar';
 import { useChat } from '../context/ChatContext';

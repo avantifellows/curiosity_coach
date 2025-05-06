@@ -1,6 +1,5 @@
 import React from 'react';
 import { useChat } from '../context/ChatContext';
-import { ConversationSummary } from '../types';
 
 const ConversationSidebar: React.FC = () => {
   const {
