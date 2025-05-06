@@ -7,4 +7,9 @@ boto3==1.28.57
 gunicorn==21.2.0
 pydantic==2.11.3
 pydantic-settings==2.9.1
-urllib3==1.26.20 
+urllib3==1.26.20
+passlib[bcrypt]
+python-jose[cryptography]
+alembic
+httpx 
+mangum

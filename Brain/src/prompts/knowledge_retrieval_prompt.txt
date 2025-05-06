@@ -1,0 +1,5 @@
+Please provide detailed, accurate information about the following topic:
+Main Topic: {{MAIN_TOPIC}}
+Related Topics: {{RELATED_TOPICS}}
+
+Focus on providing factual, scientific information that would be relevant to answering questions about this topic. 
