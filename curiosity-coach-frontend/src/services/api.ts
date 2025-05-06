@@ -94,4 +94,14 @@ export const verifyAuthStatus = async (): Promise<User> => {
     // Re-throw the error so the caller (AuthProvider) knows verification failed
     throw new Error(error.response?.data?.detail || 'Session verification failed');
   }
+};
+
+export const updateConversationTitleApi = async (conversationId: number, newTitle: string): Promise<Conversation> => {
+  try {
+    const response = await API.put<Conversation>(`/conversations/${conversationId}/title`, { title: newTitle });
+    return response.data;
+  } catch (error: any) {
+    console.error(`Error updating conversation title for ID ${conversationId}:`, error.response?.data || error.message);
+    throw new Error(error.response?.data?.detail || 'Failed to update conversation title');
+  }
 }; 

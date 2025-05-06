@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, constr
 from datetime import datetime
 from typing import List, Optional
 
@@ -6,6 +6,9 @@ from typing import List, Optional
 
 class ConversationBase(BaseModel):
     title: Optional[str] = "New Chat"
+
+class ConversationTitleUpdate(BaseModel):
+    title: str
 
 class ConversationCreate(ConversationBase):
     pass # No extra fields needed for creation beyond title

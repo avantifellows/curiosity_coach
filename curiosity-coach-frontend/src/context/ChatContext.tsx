@@ -4,7 +4,8 @@ import {
   createConversation,
   getConversationMessages,
   sendMessage,
-  getAiResponseForUserMessage
+  getAiResponseForUserMessage,
+  updateConversationTitleApi
 } from '../services/api';
 import { ConversationSummary, Message, ChatHistory } from '../types';
 import { useAuth } from './AuthContext'; // Assuming AuthContext provides user info
@@ -35,6 +36,11 @@ interface ChatContextState {
   isSavingBrainConfig: boolean;
   saveBrainConfigError: string | null;
   updateBrainConfig: (newConfig: any) => Promise<boolean>; // Returns true on success
+
+  // New state and function for updating Conversation Title
+  isUpdatingConversationTitle: boolean;
+  updateConversationTitleError: string | null;
+  handleUpdateConversationTitle: (conversationId: number, newTitle: string) => Promise<void>;
 }
 
 const ChatContext = createContext<ChatContextState | undefined>(undefined);
@@ -58,6 +64,10 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   // New state for saving brain config
   const [isSavingBrainConfig, setIsSavingBrainConfig] = useState(false);
   const [saveBrainConfigError, setSaveBrainConfigError] = useState<string | null>(null);
+
+  // New state for updating conversation title
+  const [isUpdatingConversationTitle, setIsUpdatingConversationTitle] = useState(false);
+  const [updateConversationTitleError, setUpdateConversationTitleError] = useState<string | null>(null);
 
   const { user } = useAuth(); // Get user from AuthContext to fetch data only when logged in
   const cleanupPollingRef = useRef<(() => void) | null>(null); // Ref to hold the cleanup function
@@ -319,6 +329,42 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   }, [user]); // Removed fetchBrainConfigSchema from deps for now
 
+  // --- Update Conversation Title ---
+  const handleUpdateConversationTitle = useCallback(async (conversationId: number, newTitle: string) => {
+    if (!user) {
+      setUpdateConversationTitleError("User not authenticated.");
+      return;
+    }
+    if (!newTitle.trim()) {
+      setUpdateConversationTitleError("Title cannot be empty.");
+      // Or, revert to original, or let UI handle this (e.g. disable save if empty)
+      return;
+    }
+
+    setIsUpdatingConversationTitle(true);
+    setUpdateConversationTitleError(null);
+
+    try {
+      const updatedConversation = await updateConversationTitleApi(conversationId, newTitle.trim());
+
+      setConversations(prevConvs =>
+        prevConvs.map(conv =>
+          conv.id === conversationId ? { 
+            ...conv, // Spread existing summary fields
+            title: updatedConversation.title, 
+            updated_at: updatedConversation.updated_at 
+          } : conv
+        )
+      );
+
+    } catch (err: any) {
+      console.error("Failed to update conversation title:", err);
+      setUpdateConversationTitleError(err.message || 'An unknown error occurred while updating title');
+    } finally {
+      setIsUpdatingConversationTitle(false);
+    }
+  }, [user]);
+
   // --- Initial Fetch --- 
   useEffect(() => {
     if (user) {
@@ -364,6 +410,10 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     isSavingBrainConfig,
     saveBrainConfigError,
     updateBrainConfig,
+    // New exports for Conversation Title Update
+    isUpdatingConversationTitle,
+    updateConversationTitleError,
+    handleUpdateConversationTitle,
   };
 
   return <ChatContext.Provider value={value}>{children}</ChatContext.Provider>;
