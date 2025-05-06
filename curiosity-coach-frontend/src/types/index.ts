@@ -21,6 +21,12 @@ export interface LoginResponse {
   user?: User;
 }
 
+// Add type for the sendMessage API response
+export interface SendMessageResponse {
+  success: boolean;
+  message: Message; // The actual message object created by the backend
+}
+
 export interface ApiError {
   message: string;
   status?: number;

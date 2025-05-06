@@ -1,64 +1,73 @@
-from src.database import get_connection
+from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime, ForeignKey, Text
+from sqlalchemy.orm import relationship, sessionmaker, Session, declarative_base
+from sqlalchemy.sql import func
+from src.database import Base, get_db # Assuming Base and get_db will be defined in database.py
+from fastapi import Depends
+from typing import Optional
 
-def get_or_create_user(phone_number):
-    """Get a user by phone number or create if not exists."""
-    with get_connection() as conn:
-        with conn.cursor() as cursor:
-            # Try to find the user
-            cursor.execute(
-                "SELECT * FROM users WHERE phone_number = %s",
-                (phone_number,)
-            )
-            user = cursor.fetchone()
-            
-            # If user doesn't exist, create a new one
-            if not user:
-                cursor.execute(
-                    "INSERT INTO users (phone_number) VALUES (%s) RETURNING *",
-                    (phone_number,)
-                )
-                user = cursor.fetchone()
-                conn.commit()
-                
-            return dict(user)
+# SQLAlchemy Models
+class User(Base):
+    __tablename__ = "users"
 
-def save_message(user_id, content, is_user=True):
-    """Save a message to the database."""
-    with get_connection() as conn:
-        with conn.cursor() as cursor:
-            cursor.execute(
-                "INSERT INTO messages (user_id, content, is_user) VALUES (%s, %s, %s) RETURNING *",
-                (user_id, content, is_user)
-            )
-            message = cursor.fetchone()
-            conn.commit()
-            return dict(message)
+    id = Column(Integer, primary_key=True, index=True)
+    phone_number = Column(String(20), unique=True, index=True, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
 
-def get_message_count(user_id):
-    """Get the count of messages sent by a user."""
-    with get_connection() as conn:
-        with conn.cursor() as cursor:
-            cursor.execute(
-                "SELECT COUNT(*) as count FROM messages WHERE user_id = %s AND is_user = true",
-                (user_id,)
-            )
-            result = cursor.fetchone()
-            return result['count']
+    messages = relationship("Message", back_populates="user")
 
-def get_chat_history(user_id, limit=50):
-    """Get chat history for a user."""
-    with get_connection() as conn:
-        with conn.cursor() as cursor:
-            cursor.execute(
-                """
-                SELECT id, content, is_user, timestamp 
-                FROM messages 
-                WHERE user_id = %s 
-                ORDER BY timestamp DESC 
-                LIMIT %s
-                """,
-                (user_id, limit)
-            )
-            messages = cursor.fetchall()
-            # Reverse the order to maintain chronological display (oldest first)
-            return [dict(msg) for msg in reversed(messages)]
+class Message(Base):
+    __tablename__ = "messages"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    content = Column(Text, nullable=False)
+    is_user = Column(Boolean, nullable=False)
+    timestamp = Column(DateTime(timezone=True), server_default=func.now())
+    responds_to_message_id = Column(Integer, ForeignKey("messages.id"), nullable=True)
+
+    user = relationship("User", back_populates="messages")
+
+
+# --- CRUD Helper Functions ---
+
+def get_or_create_user(db: Session, phone_number: str) -> User:
+    """Get a user by phone number or create if not exists using SQLAlchemy."""
+    user = db.query(User).filter(User.phone_number == phone_number).first()
+    if not user:
+        user = User(phone_number=phone_number)
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+    return user
+
+def save_message(db: Session, user_id: int, content: str, is_user: bool = True, responds_to_message_id: Optional[int] = None) -> Message:
+    """Save a message to the database using SQLAlchemy, optionally linking it to a previous message."""
+    message = Message(
+        user_id=user_id,
+        content=content,
+        is_user=is_user,
+        responds_to_message_id=responds_to_message_id
+    )
+    db.add(message)
+    db.commit()
+    db.refresh(message)
+    return message
+
+def get_message_count(db: Session, user_id: int) -> int:
+    """Get the count of messages sent by a user using SQLAlchemy."""
+    count = db.query(func.count(Message.id)).filter(Message.user_id == user_id, Message.is_user == True).scalar()
+    return count if count is not None else 0
+
+def get_chat_history(db: Session, user_id: int, limit: int = 50) -> list[Message]:
+    """Get chat history for a user using SQLAlchemy."""
+    messages = db.query(Message).filter(Message.user_id == user_id).order_by(Message.timestamp.desc()).limit(limit).all()
+    # Messages are fetched in descending order, reverse to get chronological
+    return list(reversed(messages))
+
+def get_ai_response_for_user_message(db: Session, user_message_id: int) -> Optional[Message]:
+    """Get the AI response message that corresponds to a specific user message ID."""
+    ai_response = db.query(Message).filter(
+        Message.responds_to_message_id == user_message_id,
+        Message.is_user == False
+    ).first()
+    return ai_response

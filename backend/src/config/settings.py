@@ -19,11 +19,13 @@ class Settings(BaseSettings):
     DB_USER: str = os.getenv('DB_USER', 'postgres')
     DB_PASSWORD: str = os.getenv('DB_PASSWORD', 'postgres')
     
+    # Local Brain Endpoint (for development)
+    LOCAL_BRAIN_ENDPOINT_URL: str = os.getenv('LOCAL_BRAIN_ENDPOINT_URL', 'http://127.0.0.1:6000')
+    
     # AWS settings
     AWS_ACCESS_KEY_ID: str = os.getenv('AWS_ACCESS_KEY_ID', '')
     AWS_SECRET_ACCESS_KEY: str = os.getenv('AWS_SECRET_ACCESS_KEY', '')
-    AWS_REGION: str = os.getenv('AWS_REGION', 'us-west-2')
-    AWS_PROFILE: str = os.getenv('AWS_PROFILE', 'curiosity-coach')
+    AWS_REGION: str = os.getenv('AWS_REGION', 'ap-south-1')
     SQS_QUEUE_URL: str = os.getenv('SQS_QUEUE_URL', '')
     
     # API settings
