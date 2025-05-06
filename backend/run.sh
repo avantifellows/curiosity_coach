@@ -116,28 +116,50 @@ echo "AWS credentials validated successfully (using Access Keys)."
 # --- End AWS Credential Validation ---
 
 # Set up virtual environment path
-VENV_PATH=".venv"
+VENV_PATH="venv"
 VENV_ACTIVATE="$VENV_PATH/bin/activate"
+REQUIREMENTS_TXT="requirements.txt"
+REQUIREMENTS_LOCK="requirements.lock"
 
-# Check if venv exists, if not create it
-if [ ! -d "$VENV_PATH" ]; then
-    echo "Checking if uv is installed..."
+# Function to check if uv is installed
+check_uv_installed() {
     if ! command -v uv &> /dev/null
     then
         echo "Error: uv command not found."
         echo "Please install uv by following the instructions at: https://github.com/astral-sh/uv"
         exit 1
     fi
+}
 
+# Check if venv exists, if not create it
+if [ ! -d "$VENV_PATH" ]; then
+    echo "Checking if uv is installed..."
+    check_uv_installed
     echo "Creating virtual environment using uv..."
-    uv venv --python=3.9
+    uv venv --python=3.9 "$VENV_PATH" # Explicitly name the venv directory
     # Ensure venv is activated
     source "$VENV_ACTIVATE"
-    echo "Installing dependencies from requirements.lock..."
-    uv pip install -r requirements.lock
+    echo "Compiling dependencies to $REQUIREMENTS_LOCK..."
+    uv pip compile "$REQUIREMENTS_TXT" -o "$REQUIREMENTS_LOCK"
+    echo "Installing dependencies from $REQUIREMENTS_LOCK..."
+    uv pip install -r "$REQUIREMENTS_LOCK"
 else
     # Ensure venv is activated
     source "$VENV_ACTIVATE"
+    # Check if requirements need recompiling
+    if [ "$REQUIREMENTS_TXT" -nt "$REQUIREMENTS_LOCK" ] || [ ! -f "$REQUIREMENTS_LOCK" ]; then
+        echo "$REQUIREMENTS_TXT is newer than $REQUIREMENTS_LOCK or $REQUIREMENTS_LOCK does not exist."
+        echo "Checking if uv is installed..."
+        check_uv_installed
+        echo "Recompiling dependencies to $REQUIREMENTS_LOCK..."
+        uv pip compile "$REQUIREMENTS_TXT" -o "$REQUIREMENTS_LOCK"
+        echo "Installing dependencies from $REQUIREMENTS_LOCK..."
+        uv pip install -r "$REQUIREMENTS_LOCK"
+    else
+        echo "$REQUIREMENTS_LOCK is up to date. Checking installed packages..."
+        # Optionally, add a check here to ensure lock file matches installed packages
+        # uv pip check # This might be too slow for startup
+    fi
 fi
 
 # Verify the virtual environment is active and has uvicorn
@@ -162,20 +184,37 @@ fi
 
 # Define the port
 PORT=5000
+TIMEOUT_SECONDS=10 # Wait up to 10 seconds for the port to free up
 
-# Check if port is in use and kill the process if necessary
+# Check if port is in use and potentially kill the process
 echo "Checking if port $PORT is in use..."
 PID=$(lsof -ti :$PORT)
 
 if [ -n "$PID" ]; then
   echo "Port $PORT is in use by PID(s): $PID. Attempting to kill..."
   kill -9 $PID
-  sleep 1 # Give time for the port to be released
-  echo "Process(es) killed."
+  echo "Waiting up to $TIMEOUT_SECONDS seconds for port $PORT to become free..."
+
+  SECONDS=0
+  while [ $SECONDS -lt $TIMEOUT_SECONDS ]; do
+    if ! lsof -ti :$PORT > /dev/null; then
+      echo "Port $PORT is now free."
+      PID="" # Clear PID to signal success
+      break
+    fi
+    sleep 1
+    SECONDS=$((SECONDS + 1))
+  done
+
+  # Check if the loop finished because the port is free or timed out
+  if [ -n "$PID" ]; then
+      echo "Error: Port $PORT did not become free after $TIMEOUT_SECONDS seconds."
+      exit 1
+  fi
 else
-  echo "Port $PORT is free."
+  echo "Port $PORT is initially free."
 fi
 
 # Run the FastAPI app with uvicorn
 echo "Starting FastAPI server on port $PORT..."
-python -m uvicorn src.main:app --host 0.0.0.0 --port $PORT --reload --log-level info --no-access-log 
+python -m uvicorn src.main:app --host 0.0.0.0 --port $PORT --reload --log-level info --no-access-log
