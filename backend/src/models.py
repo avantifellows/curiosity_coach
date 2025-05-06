@@ -64,6 +64,28 @@ def get_conversation(db: Session, conversation_id: int) -> Optional[Conversation
     """Gets a specific conversation by its ID."""
     return db.query(Conversation).filter(Conversation.id == conversation_id).first()
 
+def update_conversation_title(db: Session, conversation_id: int, new_title: str, user_id: int) -> Optional[Conversation]:
+    """Updates the title of a specific conversation for a user."""
+    conversation = db.query(Conversation).filter(Conversation.id == conversation_id).first()
+
+    if not conversation:
+        return None # Or raise HTTPException(status_code=404, detail="Conversation not found")
+
+    if conversation.user_id != user_id:
+        # Or raise HTTPException(status_code=403, detail="Not authorized to update this conversation")
+        return None # Indicate authorization failure or handle in router
+
+    if not new_title.strip():
+        # Or raise HTTPException(status_code=400, detail="Title cannot be empty")
+        return None # Indicate validation failure or handle in router
+
+    conversation.title = new_title.strip()
+    # conversation.updated_at = func.now() # This is handled by onupdate=func.now() in the model
+    db.add(conversation)
+    db.commit()
+    db.refresh(conversation)
+    return conversation
+
 def list_user_conversations(db: Session, user_id: int, limit: int = 50, offset: int = 0) -> List[Conversation]:
     """Lists conversations for a given user, most recent first."""
     return db.query(Conversation).filter(Conversation.user_id == user_id).order_by(Conversation.updated_at.desc()).offset(offset).limit(limit).all()
