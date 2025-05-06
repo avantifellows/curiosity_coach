@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException, Depends, Body, status
 import traceback
 from sqlalchemy.orm import Session
-from typing import Optional, List # Added List
+from typing import Optional, List, Dict, Any # Added List and Dict
 from src.messages.schemas import MessageRequest, MessageData, ChatHistoryResponse, SendMessageResponse, BrainResponsePayload # Removed unused MessageResponse
 from src.messages.service import message_service
 # Import necessary models and CRUD functions
@@ -11,6 +11,9 @@ from src.models import User, Conversation, Message # Import User for auth, Conve
 from src.auth.dependencies import get_current_user # Changed from get_user_id
 # --- End auth dependency --- 
 from src.database import get_db
+import json
+from datetime import datetime
+import os
 
 router = APIRouter(
     # Prefix remains /api/messages for now, but routes below are more specific
@@ -171,15 +174,47 @@ async def receive_brain_response(payload: BrainResponsePayload, db: Session = De
             print(f"Error: Brain response received for non-existent conversation_id: {payload.conversation_id}")
             raise HTTPException(status_code=404, detail=f"Conversation {payload.conversation_id} not found.")
             
+        # # --- Save BrainResponsePayload to a JSON file ---
+        # brain_responses_dir = "brain_responses"
+        # os.makedirs(brain_responses_dir, exist_ok=True)
+
+        # timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+        # filename = os.path.join(brain_responses_dir, f"brain_response_{payload.conversation_id}_{timestamp}.json")
+
+        # try:
+        #     with open(filename, "w") as f:
+        #         json.dump(payload.dict(), f, indent=4)
+        #     print(f"Saved brain response payload to {filename}")
+        # except Exception as e:
+        #     print(f"Error saving brain response payload to file for conversation {payload.conversation_id}: {e}")
+        #     # Optionally, re-raise or handle this error appropriately if saving is critical
+        #     # For now, we'll just print and continue processing the message
+
+        # Prepare pipeline_data for saving
+        pipeline_data_to_save = None
+        if payload.pipeline_data:
+            pipeline_data_to_save = payload.pipeline_data.copy() # Create a copy to modify
+            pipeline_data_to_save.pop('query', None) # Remove 'query' if it exists
+            pipeline_data_to_save.pop('final_response', None) # Remove 'final_response' if it exists
+
         # Save the AI's response to the database using the new model function signature
         saved_response = models.save_message(
             db=db,
             conversation_id=payload.conversation_id, # Use conversation_id from payload
-            content=payload.response_content,
+            content=payload.llm_response, # Use llm_response from the payload
             is_user=False,
-            responds_to_message_id=payload.original_message_id
+            responds_to_message_id=payload.original_message_id,
         )
         print(f"Saved brain response with ID: {saved_response.id} to conversation ID: {payload.conversation_id}")
+
+        # Now, save the pipeline data to the new table if it exists
+        if pipeline_data_to_save: # This is the filtered data from before
+            models.save_message_pipeline_data(
+                db=db,
+                message_id=saved_response.id, 
+                pipeline_data_dict=pipeline_data_to_save
+            )
+            print(f"Saved pipeline data for message ID: {saved_response.id}")
 
         # --- TODO: Trigger notification to frontend (e.g., via SSE) --- 
         # Signal needs conversation_id and potentially user_id (fetch from conversation object)
@@ -193,4 +228,54 @@ async def receive_brain_response(payload: BrainResponsePayload, db: Session = De
         error_details = traceback.format_exc()
         print(f"Error processing brain response for conversation {payload.conversation_id}: {e}")
         print(f"Error details: {error_details}")
-        raise HTTPException(status_code=500, detail="Error saving brain response") 
+        raise HTTPException(status_code=500, detail="Error saving brain response")
+
+# ---- New Endpoint for AI Response Pipeline Steps ----
+@router.get("/messages/{ai_message_id}/pipeline_steps",
+            response_model=List[Dict[str, Any]], # Assuming steps are a list of dictionaries
+            summary="Get AI response pipeline steps",
+            tags=["messages"])
+async def get_ai_response_pipeline_steps(
+    ai_message_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user) # Ensure user is authenticated
+):
+    """
+    Retrieves the pipeline steps for a given AI message ID.
+    The message must be an AI response and belong to one of the current user's conversations.
+    """
+    # Fetch the AI message to verify existence and ownership
+    ai_message = db.query(models.Message).filter(
+        models.Message.id == ai_message_id,
+        models.Message.is_user == False  # Ensure it's an AI message
+    ).first()
+
+    if not ai_message:
+        raise HTTPException(status_code=404, detail=f"AI message with ID {ai_message_id} not found.")
+
+    # Verify that the conversation belongs to the current user
+    conversation = models.get_conversation(db, ai_message.conversation_id)
+    if not conversation or conversation.user_id != current_user.id:
+        # This case should ideally not happen if AI message is correctly linked,
+        # but good for an explicit security check.
+        raise HTTPException(status_code=403, detail="Access forbidden: Conversation does not belong to the current user.")
+
+    # Fetch the pipeline data for the AI message
+    pipeline_data_entry = db.query(models.MessagePipelineData).filter(
+        models.MessagePipelineData.message_id == ai_message_id
+    ).first()
+
+    if not pipeline_data_entry or not pipeline_data_entry.pipeline_data:
+        # If there's no pipeline data entry or the data itself is null/empty
+        return [] # Return an empty list as per requirement if steps are not found or data is missing
+
+    # Extract the 'steps' array from the JSONB field
+    # The pipeline_data is already a dict because SQLAlchemy handles JSONB deserialization
+    steps = pipeline_data_entry.pipeline_data.get("steps")
+
+    if steps is None or not isinstance(steps, list):
+        # If 'steps' key doesn't exist or is not a list, return empty list
+        return []
+    
+    return steps
+# ---- End of New Endpoint ----

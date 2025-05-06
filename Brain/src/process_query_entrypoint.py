@@ -5,10 +5,11 @@ from src.core.learning_enhancement import generate_enhanced_response, LearningEn
 from src.utils.logger import logger
 import os
 import json
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from src.config_models import FlowConfig
+from src.schemas import ProcessQueryResponse, PipelineData
 
-def process_query(query: str, config: Optional[FlowConfig] = None) -> dict:
+def process_query(query: str, config: Optional[FlowConfig] = None) -> ProcessQueryResponse:
     """
     Process a user query through the intent identification and response generation pipeline.
     
@@ -18,7 +19,7 @@ def process_query(query: str, config: Optional[FlowConfig] = None) -> dict:
             If None, default configuration will be used.
         
     Returns:
-        dict: A dictionary containing the final response and intermediate prompts/responses
+        ProcessQueryResponse: A response object containing the final response and intermediate prompts/responses
         
     Raises:
         Exception: If any part of the pipeline fails
@@ -28,17 +29,17 @@ def process_query(query: str, config: Optional[FlowConfig] = None) -> dict:
     try:
         logger.info(f"Processing query: {query}")
         
-        # If no config is provided, use a default FlowConfig instance
+        effective_config = config if config is not None else FlowConfig()
         if config is None:
-            config = FlowConfig()
             logger.info("No configuration provided, using default FlowConfig.")
         else:
-            logger.info(f"Using provided configuration: {config.model_dump()}")
+            logger.info(f"Using provided configuration: {effective_config.model_dump()}")
 
-        intermediate_data = {
-            'prompts': [],
-            'intermediate_responses': [],
-            'intent': None,
+        pipeline_data = {
+            'query': query,
+            'config_used': effective_config.model_dump(),
+            'steps': [],
+            'final_response': None
         }
         
         # 1. Identify the intent and subject behind the query
@@ -46,61 +47,83 @@ def process_query(query: str, config: Optional[FlowConfig] = None) -> dict:
         intent_json, intent_prompt = identify_intent(query)
         logger.info(f"Identified intent: {intent_json}")
         
-        # Store intent data and the prompt used
-        intermediate_data['prompts'].append(intent_prompt)
-        intermediate_data['intent'] = {
+        intent_step_data = {
+            'name': 'intent_identification',
+            'enabled': True,
+            'prompt': intent_prompt,
+            'raw_result': intent_json,
             'main_topic': intent_json["subject"]["main_topic"],
             'related_topics': intent_json["subject"]["related_topics"],
-            'intents': intent_json["intents"],
-            'confidence': 1.0,  # Since we don't have confidence in the current implementation
-            'raw_intent': intent_json
         }
+        pipeline_data['steps'].append(intent_step_data)
         
-        # Extract the main topic for context
-        main_topic = intent_json["subject"]["main_topic"]
-        related_topics = intent_json["subject"]["related_topics"]
+        main_topic = intent_step_data['main_topic']
+        related_topics = intent_step_data['related_topics']
         logger.debug(f"Main topic: {main_topic}, Related topics: {related_topics}")
         
         # 2. Retrieve context information
         logger.debug("Retrieving knowledge context...")
         context_info, knowledge_prompt = retrieve_knowledge(main_topic, related_topics)
-        intermediate_data['prompts'].append(knowledge_prompt)
-        intermediate_data['intermediate_responses'].append(context_info)
+        knowledge_step_data = {
+            'name': 'knowledge_retrieval',
+            'enabled': True,
+            'prompt': knowledge_prompt,
+            'result': context_info
+        }
+        pipeline_data['steps'].append(knowledge_step_data)
         logger.debug(f"Retrieved context: {context_info}")
         
         # 3. Generate the initial response based on intent and context
         logger.debug("Generating initial response...")
-        initial_response, final_prompt = generate_initial_response(query, intent_json, context_info)
-        intermediate_data['prompts'].append(final_prompt)
-        intermediate_data['intermediate_responses'].append(initial_response)
-        logger.debug(f"Generated initial response: {initial_response[:100]}...") # Log snippet
+        initial_response, initial_response_prompt = generate_initial_response(
+            query, 
+            intent_step_data['raw_result'], 
+            knowledge_step_data['result']
+        )
+        initial_response_step_data = {
+            'name': 'initial_response_generation',
+            'enabled': True,
+            'prompt': initial_response_prompt,
+            'result': initial_response
+        }
+        pipeline_data['steps'].append(initial_response_step_data)
+        logger.debug(f"Generated initial response: {initial_response[:100]}...")
 
-        # Initialize final response with the initial one
-        final_response = initial_response
+        pipeline_data['final_response'] = initial_response
 
         # 4. Generate learning-enhanced response (conditionally)
         logger.debug("Checking if learning-enhanced response should be generated...")
-        print(f"Config: {config.model_dump()}")
-        if config.run_enhancement_step:
+        print(f"Config: {effective_config.model_dump()}")
+        
+        enhancement_step_data = {
+            'name': 'learning_enhancement',
+            'enabled': effective_config.run_enhancement_step,
+            'prompt': None,
+            'result': None
+        }
+        if effective_config.run_enhancement_step:
             logger.debug("Generating learning-enhanced response...")
-            enhanced_response_val, learning_prompt = generate_enhanced_response(initial_response, context_info)
-            intermediate_data['prompts'].append(learning_prompt)
-            intermediate_data['intermediate_responses'].append(enhanced_response_val)
-            final_response = enhanced_response_val # Update final response
+            enhanced_response_val, learning_prompt = generate_enhanced_response(
+                initial_response_step_data['result'], 
+                knowledge_step_data['result']
+            )
+            enhancement_step_data['prompt'] = learning_prompt
+            enhancement_step_data['result'] = enhanced_response_val
+            pipeline_data['final_response'] = enhanced_response_val
             logger.info("Successfully generated enhanced response")
         else:
             logger.info("Skipping learning-enhanced response generation as per config.")
-            # final_response remains initial_response
+        pipeline_data['steps'].append(enhancement_step_data)
 
-        import pprint
-        pprint.pprint(intermediate_data['prompts'])
-        # import ipdb; ipdb.set_trace()
-        return {
-            'response': final_response, # Use the correctly named variable
-            'prompts': intermediate_data['prompts'],
-            'intermediate_responses': intermediate_data['intermediate_responses'],
-            'intent': intermediate_data['intent'],
-        }
+        return ProcessQueryResponse(
+            response=pipeline_data['final_response'],
+            pipeline_data=PipelineData(
+                query=pipeline_data['query'],
+                config_used=pipeline_data['config_used'],
+                steps=pipeline_data['steps'],
+                final_response=pipeline_data['final_response']
+            )
+        )
         
     except IntentIdentificationError as e:
         logger.error(f"Error identifying intent: {e}", exc_info=True)

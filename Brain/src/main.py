@@ -92,29 +92,14 @@ def dequeue(message: MessagePayload, background_tasks: Optional[BackgroundTasks]
             logger.info(f"Processing query with S3-loaded config (if available): {s3_config_dict}") # Log the dict
             response_data = process_query(user_input, config=flow_config_instance) # Pass FlowConfig instance
 
-            # Prepare the response content for 'chat' purpose
-            content={
-                'response': response_data.get('response'), # Return the main response string directly
-                'prompts': response_data.get('prompts', []),
-                'intermediate_responses': response_data.get('intermediate_responses', []),
-                'intent': response_data.get('intent'),
-                'intent_prompt': response_data.get('intent_prompt'),
-                # Optionally include original message details if needed for context
-                'original_message': message.model_dump()
-            }
-
             # Prepare and schedule the callback if response was generated
-            if content and 'response' in content:
+            if response_data and response_data.response:
                 callback_payload = {
                     "user_id": int(message.user_id), # Ensure correct type
                     "conversation_id": message.conversation_id,
                     "original_message_id": int(message.message_id) if message.message_id.isdigit() else None, # Handle non-int IDs if needed
-                    "response_content": content.get('response'),
-                    # Pass other relevant fields from the result back to the backend
-                    "intent": content.get('intent'),
-                    "prompts": content.get('prompts'),
-                    "intermediate_responses": content.get('intermediate_responses'),
-                    "intent_prompt": content.get('intent_prompt')
+                    "llm_response": response_data.response, # The final response string
+                    "pipeline_data": response_data.pipeline_data.model_dump() # The pipeline data
                 }
                 # Schedule callback differently based on context
                 if background_tasks:
@@ -134,7 +119,7 @@ def dequeue(message: MessagePayload, background_tasks: Optional[BackgroundTasks]
                  logger.warning(f"No response generated for chat message, callback not scheduled for user_id: {message.user_id}")
 
 
-            return content
+            return response_data.model_dump()
         else:
             # Handle other purposes like "test_generation", "doubt_solver", "other"
             logger.info(f"Received message with purpose '{message.purpose}', not processing further.")

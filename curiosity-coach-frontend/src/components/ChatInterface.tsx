@@ -6,7 +6,9 @@ import BrainConfigView from './BrainConfigView';
 import { useChat } from '../context/ChatContext';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { LogoutOutlined, Send } from '@mui/icons-material';
+import { LogoutOutlined, Send, Visibility } from '@mui/icons-material';
+import { getPipelineSteps } from '../services/api';
+import PipelineStepsModal, { PipelineStep } from './PipelineStepsModal';
 
 const ChatInterface: React.FC = () => {
   const {
@@ -26,6 +28,11 @@ const ChatInterface: React.FC = () => {
   } = useChat();
 
   const [newMessage, setNewMessage] = useState('');
+  const [showPipelineModal, setShowPipelineModal] = useState(false);
+  const [pipelineSteps, setPipelineSteps] = useState<PipelineStep[]>([]);
+  const [isLoadingSteps, setIsLoadingSteps] = useState(false);
+  const [pipelineError, setPipelineError] = useState<string | null>(null);
+
   const { user, logout } = useAuth();
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -59,6 +66,27 @@ const ChatInterface: React.FC = () => {
     logout();
     selectConversation(null);
     navigate('/');
+  };
+
+  const handleViewPipelineSteps = async (messageId: number | string) => {
+    if (!messageId) return;
+    console.log("Fetching pipeline steps for message ID:", messageId);
+    setIsLoadingSteps(true);
+    setPipelineError(null);
+    setPipelineSteps([]); // Clear previous steps
+
+    try {
+      const stepsData: PipelineStep[] = await getPipelineSteps(messageId);
+      console.log("Fetched steps:", stepsData);
+      setPipelineSteps(stepsData);
+      setShowPipelineModal(true);
+    } catch (error: any) {
+      console.error("Error fetching pipeline steps:", error);
+      setPipelineError(error.message || "An unknown error occurred while fetching steps.");
+      setShowPipelineModal(true); // Still show modal to display the error
+    } finally {
+      setIsLoadingSteps(false);
+    }
   };
 
   return (
@@ -110,7 +138,21 @@ const ChatInterface: React.FC = () => {
             </div>
           ) : (
             messages.map((msg, index) => (
-              <ChatMessage key={msg.id || `msg-${index}`} message={msg} /> 
+              <React.Fragment key={msg.id || `msg-${index}`}>
+                <ChatMessage message={msg} />
+                {!msg.is_user && msg.id && ( // Show "View thinking steps" only for AI messages with an ID
+                  <div className="flex justify-start pl-10 -mt-2 mb-2">
+                    <button
+                      onClick={() => handleViewPipelineSteps(msg.id!)}
+                      className="text-xs text-indigo-600 hover:text-indigo-800 hover:underline focus:outline-none flex items-center"
+                      disabled={isLoadingSteps}
+                    >
+                      <Visibility fontSize="inherit" className="mr-1" />
+                      {isLoadingSteps && showPipelineModal ? 'Loading steps...' : 'View thinking steps'}
+                    </button>
+                  </div>
+                )}
+              </React.Fragment>
             ))
           )}
           {chatError && (
@@ -158,6 +200,18 @@ const ChatInterface: React.FC = () => {
           </footer>
         )}
       </div>
+
+      {/* Use the new PipelineStepsModal component */}
+      <PipelineStepsModal 
+        showModal={showPipelineModal}
+        onClose={() => {
+          setShowPipelineModal(false);
+          setPipelineError(null); // Clear error when closing
+        }}
+        isLoading={isLoadingSteps}
+        error={pipelineError}
+        steps={pipelineSteps}
+      />
     </div>
   );
 };
