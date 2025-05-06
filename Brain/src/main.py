@@ -22,7 +22,7 @@ from src.core.learning_enhancement import generate_enhanced_response, LearningEn
 load_dotenv() # Added call
 
 BACKEND_CALLBACK_BASE_URL = os.getenv("BACKEND_CALLBACK_BASE_URL", "http://localhost:5000")
-BACKEND_CALLBACK_ROUTE = os.getenv("BACKEND_CALLBACK_ROUTE", "/api/messages/internal/brain_response")
+BACKEND_CALLBACK_ROUTE = os.getenv("BACKEND_CALLBACK_ROUTE", "/api/internal/brain_response")
 BACKEND_CALLBACK_URL = f"{BACKEND_CALLBACK_BASE_URL}{BACKEND_CALLBACK_ROUTE}"
 
 app = FastAPI()
@@ -128,6 +128,7 @@ def dequeue(message: MessagePayload, background_tasks: Optional[BackgroundTasks]
 async def perform_backend_callback(payload: dict):
     """Sends the processing result back to the backend service."""
     logger.info(f"Performing callback to backend for user: {payload.get('user_id')}")
+    logger.info(f"Attempting callback to URL: {BACKEND_CALLBACK_URL}")
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             response = await client.post(BACKEND_CALLBACK_URL, json=payload)

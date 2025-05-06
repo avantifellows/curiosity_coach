@@ -4,6 +4,7 @@ import os
 import logging
 from src.auth.router import router as auth_router
 from src.messages.router import router as messages_router
+from src.conversations.router import router as conversations_router
 from src.health.router import router as health_router
 from src.config.settings import settings
 from src.database import init_db
@@ -36,6 +37,7 @@ def create_app() -> FastAPI:
         CORSMiddleware,
         # Use allow_origins for exact matches like localhost and deployed frontend
         allow_origins=[
+            "http://localhost:6000",
             "http://localhost:3000", # Common port for local React dev
             "http://localhost:5173", # Common port for local Vite dev
             "http://curiosity-coach-frontend-dev.s3-website.ap-south-1.amazonaws.com", # Explicitly add S3 origin
@@ -48,7 +50,9 @@ def create_app() -> FastAPI:
     # Include routers
     app.include_router(auth_router)
     app.include_router(messages_router)
+    app.include_router(conversations_router)
     app.include_router(health_router)
+
     
     # Initialize the database
     # try:
@@ -61,7 +65,12 @@ def create_app() -> FastAPI:
     return app
 
 _fastapi_app = create_app()
-app = Mangum(_fastapi_app)
+
+# Conditionally wrap with Mangum for serverless deployment
+if settings.APP_ENV != 'development':
+    app = Mangum(_fastapi_app)
+else:
+    app = _fastapi_app # Use the raw FastAPI app for local dev
 
 # For local development
 if __name__ == '__main__':
@@ -72,7 +81,8 @@ if __name__ == '__main__':
     print(f"Environment: {settings.APP_ENV}")
     print(f"API Documentation: http://localhost:{port}{settings.API_DOCS_URL}")
     
-    uvicorn.run("src.main:_fastapi_app", 
+    # Point uvicorn directly to the created app instance for local run
+    uvicorn.run(app, 
                 host="0.0.0.0", 
                 port=port,
                 log_level="info",
