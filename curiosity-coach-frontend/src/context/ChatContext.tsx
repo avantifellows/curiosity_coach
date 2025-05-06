@@ -22,6 +22,19 @@ interface ChatContextState {
   selectConversation: (conversationId: number | null) => void;
   handleSendMessage: (content: string) => Promise<void>;
   handleCreateConversation: (title?: string) => Promise<void>;
+
+  // New state for Brain Config View
+  isConfigViewActive: boolean;
+  setIsConfigViewActive: (isActive: boolean) => void;
+  brainConfigSchema: any | null; // To store the fetched JSON schema
+  isLoadingBrainConfig: boolean;
+  brainConfigError: string | null;
+  fetchBrainConfigSchema: () => Promise<void>;
+
+  // New state and function for updating Brain Config
+  isSavingBrainConfig: boolean;
+  saveBrainConfigError: string | null;
+  updateBrainConfig: (newConfig: any) => Promise<boolean>; // Returns true on success
 }
 
 const ChatContext = createContext<ChatContextState | undefined>(undefined);
@@ -35,6 +48,16 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [isSendingMessage, setIsSendingMessage] = useState(false);
   const [isBrainProcessing, setIsBrainProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // New state for Brain Config
+  const [isConfigViewActive, setIsConfigViewActive] = useState(false);
+  const [brainConfigSchema, setBrainConfigSchema] = useState<any | null>(null);
+  const [isLoadingBrainConfig, setIsLoadingBrainConfig] = useState(false);
+  const [brainConfigError, setBrainConfigError] = useState<string | null>(null);
+
+  // New state for saving brain config
+  const [isSavingBrainConfig, setIsSavingBrainConfig] = useState(false);
+  const [saveBrainConfigError, setSaveBrainConfigError] = useState<string | null>(null);
 
   const { user } = useAuth(); // Get user from AuthContext to fetch data only when logged in
   const cleanupPollingRef = useRef<(() => void) | null>(null); // Ref to hold the cleanup function
@@ -82,6 +105,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setIsBrainProcessing(false);
     if (conversationId !== null) {
       fetchMessages(conversationId);
+      setIsConfigViewActive(false); // Ensure config view is not active when a chat is selected
     } else {
       setMessages([]); // Clear messages if no conversation is selected
     }
@@ -222,10 +246,78 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       setConversations(prev => [newConversation, ...prev]); // Add to top of list
       setCurrentConversationId(newConversation.id);
       setMessages([]); // Clear messages for new chat
+      setIsConfigViewActive(false); // Ensure config view is not active
     } catch (err: any) {
       setError(err.message || 'Failed to create conversation');
     }
   }, [user]);
+
+  // --- Fetch Brain Config Schema ---
+  const fetchBrainConfigSchema = useCallback(async () => {
+    if (!user) return;
+    setIsLoadingBrainConfig(true);
+    setBrainConfigError(null);
+    setBrainConfigSchema(null); // Clear previous schema
+    try {
+      const brainApiUrl = process.env.REACT_APP_BRAIN_API_URL;
+      if (!brainApiUrl) {
+        throw new Error("REACT_APP_BRAIN_API_URL is not defined in .env file.");
+      }
+      const response = await fetch(`${brainApiUrl}/get-config`);
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ detail: 'Failed to fetch brain config schema' }));
+        throw new Error(errorData.detail || `HTTP error ${response.status}`);
+      }
+      const schema = await response.json();
+      setBrainConfigSchema(schema);
+    } catch (err: any) {
+      console.error("Failed to fetch brain config schema:", err);
+      setBrainConfigError(err.message || 'An unknown error occurred');
+    } finally {
+      setIsLoadingBrainConfig(false);
+    }
+  }, [user]);
+
+  // --- Update Brain Config ---
+  const updateBrainConfig = useCallback(async (newConfig: any): Promise<boolean> => {
+    if (!user) {
+      setSaveBrainConfigError("User not authenticated.");
+      return false;
+    }
+    setIsSavingBrainConfig(true);
+    setSaveBrainConfigError(null);
+    try {
+      const brainApiUrl = process.env.REACT_APP_BRAIN_API_URL;
+      if (!brainApiUrl) {
+        throw new Error("REACT_APP_BRAIN_API_URL is not defined in .env file.");
+      }
+      const response = await fetch(`${brainApiUrl}/set-config`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(newConfig),
+      });
+
+      const responseData = await response.json();
+
+      if (!response.ok) {
+        throw new Error(responseData.detail || `HTTP error ${response.status}`);
+      }
+      
+      // Optionally, refetch the schema or update local schema if needed after save
+      // For now, just indicate success. The BrainConfigView can reset its 'dirty' state.
+      // await fetchBrainConfigSchema(); // Or update state based on responseData.new_config
+      
+      return true;
+    } catch (err: any) {
+      console.error("Failed to update brain config:", err);
+      setSaveBrainConfigError(err.message || 'An unknown error occurred while saving configuration');
+      return false;
+    } finally {
+      setIsSavingBrainConfig(false);
+    }
+  }, [user]); // Removed fetchBrainConfigSchema from deps for now
 
   // --- Initial Fetch --- 
   useEffect(() => {
@@ -261,6 +353,17 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     selectConversation,
     handleSendMessage,
     handleCreateConversation,
+    // New exports for Brain Config
+    isConfigViewActive,
+    setIsConfigViewActive,
+    brainConfigSchema,
+    isLoadingBrainConfig,
+    brainConfigError,
+    fetchBrainConfigSchema,
+    // New exports for saving Brain Config
+    isSavingBrainConfig,
+    saveBrainConfigError,
+    updateBrainConfig,
   };
 
   return <ChatContext.Provider value={value}>{children}</ChatContext.Provider>;

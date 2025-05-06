@@ -37,7 +37,7 @@ def create_app() -> FastAPI:
         CORSMiddleware,
         # Use allow_origins for exact matches like localhost and deployed frontend
         allow_origins=[
-            "http://localhost:6000",
+            "http://localhost:8001",
             "http://localhost:3000", # Common port for local React dev
             "http://localhost:5173", # Common port for local Vite dev
             "http://curiosity-coach-frontend-dev.s3-website.ap-south-1.amazonaws.com", # Explicitly add S3 origin

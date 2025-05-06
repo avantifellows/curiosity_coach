@@ -8,7 +8,14 @@ const ConversationSidebar: React.FC = () => {
     selectConversation,
     handleCreateConversation,
     isLoadingConversations,
+    setIsConfigViewActive,
+    isConfigViewActive
   } = useChat();
+
+  const handleBrainConfigClick = () => {
+    selectConversation(null);
+    setIsConfigViewActive(true);
+  };
 
   return (
     <div className="w-64 bg-gray-800 text-white flex flex-col h-screen">
@@ -52,6 +59,18 @@ const ConversationSidebar: React.FC = () => {
 
       {/* Optional: Footer/User Info */}
       {/* <div className="p-4 border-t border-gray-700">User Info</div> */}
+
+      {/* Brain Config Button */}
+      <div className="p-4 border-t border-gray-700">
+        <button 
+          onClick={handleBrainConfigClick}
+          className={`w-full bg-teal-500 hover:bg-teal-600 text-white font-bold py-2 px-4 rounded transition duration-150 ease-in-out ${
+            isConfigViewActive ? 'bg-teal-700' : ''
+          }`}
+        >
+          Brain Config
+        </button>
+      </div>
     </div>
   );
 };

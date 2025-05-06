@@ -5,13 +5,17 @@ from src.core.learning_enhancement import generate_enhanced_response, LearningEn
 from src.utils.logger import logger
 import os
 import json
+from typing import Optional, Dict, Any
+from src.config_models import FlowConfig
 
-def process_query(query: str) -> dict:
+def process_query(query: str, config: Optional[FlowConfig] = None) -> dict:
     """
     Process a user query through the intent identification and response generation pipeline.
     
     Args:
         query (str): The user's query to process
+        config (Optional[FlowConfig]): Configuration object for the processing pipeline.
+            If None, default configuration will be used.
         
     Returns:
         dict: A dictionary containing the final response and intermediate prompts/responses
@@ -23,6 +27,14 @@ def process_query(query: str) -> dict:
     # import ipdb; ipdb.set_trace()
     try:
         logger.info(f"Processing query: {query}")
+        
+        # If no config is provided, use a default FlowConfig instance
+        if config is None:
+            config = FlowConfig()
+            logger.info("No configuration provided, using default FlowConfig.")
+        else:
+            logger.info(f"Using provided configuration: {config.model_dump()}")
+
         intermediate_data = {
             'prompts': [],
             'intermediate_responses': [],
@@ -63,19 +75,28 @@ def process_query(query: str) -> dict:
         intermediate_data['intermediate_responses'].append(initial_response)
         logger.debug(f"Generated initial response: {initial_response[:100]}...") # Log snippet
 
-        # 4. Generate learning-enhanced response
-        logger.debug("Generating learning-enhanced response...")
-        enhanced_response, learning_prompt = generate_enhanced_response(initial_response, context_info)
-        intermediate_data['prompts'].append(learning_prompt)
-        intermediate_data['intermediate_responses'].append(enhanced_response)
-        
-        logger.info("Successfully generated enhanced response")
+        # Initialize final response with the initial one
+        final_response = initial_response
+
+        # 4. Generate learning-enhanced response (conditionally)
+        logger.debug("Checking if learning-enhanced response should be generated...")
+        print(f"Config: {config.model_dump()}")
+        if config.run_enhancement_step:
+            logger.debug("Generating learning-enhanced response...")
+            enhanced_response_val, learning_prompt = generate_enhanced_response(initial_response, context_info)
+            intermediate_data['prompts'].append(learning_prompt)
+            intermediate_data['intermediate_responses'].append(enhanced_response_val)
+            final_response = enhanced_response_val # Update final response
+            logger.info("Successfully generated enhanced response")
+        else:
+            logger.info("Skipping learning-enhanced response generation as per config.")
+            # final_response remains initial_response
 
         import pprint
         pprint.pprint(intermediate_data['prompts'])
         # import ipdb; ipdb.set_trace()
         return {
-            'response': enhanced_response,
+            'response': final_response, # Use the correctly named variable
             'prompts': intermediate_data['prompts'],
             'intermediate_responses': intermediate_data['intermediate_responses'],
             'intent': intermediate_data['intent'],
@@ -105,10 +126,27 @@ if __name__ == "__main__":
     query = "Why do some planets have rings?"
     try:
         logger.info("Starting query processing...")
-        response = process_query(query)
-        logger.info("Query processing completed successfully")
-        # Pretty print the response dictionary
+        
+        # Example with default config (enhancement runs)
+        logger.info("--- Running with default config (enhancement enabled) ---")
+        response_default = process_query(query)
+        logger.info("Query processing completed successfully (default config)")
         import pprint
-        pprint.pprint(response)
+        pprint.pprint(response_default)
+
+        # # Example with enhancement disabled
+        # logger.info("\n--- Running with enhancement disabled ---")
+        # config_no_enhance = FlowConfig(run_enhancement_step=False)
+        # response_no_enhance = process_query(query, config=config_no_enhance)
+        # logger.info("Query processing completed successfully (enhancement disabled)")
+        # pprint.pprint(response_no_enhance)
+
+        # # Example with enhancement explicitly enabled
+        # logger.info("\n--- Running with enhancement explicitly enabled ---")
+        # config_enhance = FlowConfig(run_enhancement_step=True)
+        # response_enhance = process_query(query, config=config_enhance)
+        # logger.info("Query processing completed successfully (enhancement enabled)")
+        # pprint.pprint(response_enhance)
+
     except Exception as e:
         logger.error(f"Failed to process query: {e}", exc_info=True)
