@@ -1,4 +1,4 @@
-import React, { createContext, useState, useContext, useEffect, ReactNode, useCallback } from 'react';
+import React, { createContext, useState, useContext, useEffect, ReactNode, useCallback, useRef } from 'react';
 import {
   listConversations,
   createConversation,
@@ -6,7 +6,7 @@ import {
   sendMessage,
   getAiResponseForUserMessage
 } from '../services/api';
-import { ConversationSummary, Conversation, Message, ChatHistory } from '../types';
+import { ConversationSummary, Message, ChatHistory } from '../types';
 import { useAuth } from './AuthContext'; // Assuming AuthContext provides user info
 
 interface ChatContextState {
@@ -37,6 +37,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [error, setError] = useState<string | null>(null);
 
   const { user } = useAuth(); // Get user from AuthContext to fetch data only when logged in
+  const cleanupPollingRef = useRef<(() => void) | null>(null); // Ref to hold the cleanup function
 
   // --- Fetch Conversations --- 
   const fetchConversations = useCallback(async () => {
@@ -132,6 +133,14 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
               }
           } catch (pollError: any) {
               console.error("Polling error:", pollError);
+              // Ensure brain processing is turned off even if polling fails,
+              // but only if the conversation hasn't changed
+              setCurrentConversationId(prevConvId => {
+                  if (prevConvId === currentConvId) {
+                     setIsBrainProcessing(false);
+                  }
+                  return prevConvId;
+              });
               stopPolling(); // Stop polling on error too
           }
       }, 3000);
@@ -141,25 +150,16 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   }, []);
 
   // --- Send Message --- 
-  let cleanupPolling: (() => void) | undefined | null = null;
-
-  useEffect(() => {
-    return () => {
-        if (cleanupPolling) {
-            cleanupPolling();
-        }
-    };
-  }, [cleanupPolling]);
-
   const handleSendMessage = useCallback(async (content: string) => {
     if (currentConversationId === null) {
       setError('No conversation selected');
       return;
     }
 
-    if (cleanupPolling) {
-        cleanupPolling();
-        cleanupPolling = null;
+    // Clear any previous polling before starting a new send
+    if (cleanupPollingRef.current) {
+        cleanupPollingRef.current();
+        cleanupPollingRef.current = null;
     }
     
     setIsSendingMessage(true);
@@ -196,7 +196,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       
       const stopPollingCallback = await pollAiResponse(savedUserMessage.id!, currentConversationId);
       if (typeof stopPollingCallback === 'function') {
-          cleanupPolling = stopPollingCallback;
+          cleanupPollingRef.current = stopPollingCallback; // Store cleanup in ref
       }
 
     } catch (err: any) {
@@ -237,14 +237,15 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
        setMessages([]);
        setError(null);
        setIsBrainProcessing(false);
-       if (cleanupPolling) cleanupPolling();
+       if (cleanupPollingRef.current) cleanupPollingRef.current(); // Use ref for cleanup
     }
+    // Cleanup polling on component unmount or when user changes
     return () => {
-      if (cleanupPolling) {
-          cleanupPolling();
+      if (cleanupPollingRef.current) {
+          cleanupPollingRef.current();
       }
     };
-  }, [user, fetchConversations]);
+  }, [user, fetchConversations]); // Removed cleanupPolling from deps
 
   // --- Value Provided by Context ---
   const value: ChatContextState = {
