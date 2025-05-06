@@ -2,21 +2,25 @@ from fastapi import FastAPI, Request, HTTPException, BackgroundTasks
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 import uvicorn
 import time
 import uuid
 import httpx # Added for callback
 import asyncio # Added for synchronous callback execution
-from typing import Optional
+from typing import Optional, List, Dict, Any
 import os
 from dotenv import load_dotenv # Added import
+import json # Added for S3 config parsing
+import boto3 # Added for S3 interaction
+from botocore.exceptions import NoCredentialsError, PartialCredentialsError, ClientError # Added for S3 error handling
 
 from src.process_query_entrypoint import process_query
 from src.utils.logger import logger
 from src.core.intent_identifier import identify_intent, IntentIdentificationError # Import identify_intent
 from src.core.knowledge_retrieval import retrieve_knowledge, KnowledgeRetrievalError
 from src.core.learning_enhancement import generate_enhanced_response, LearningEnhancementError # Import learning enhancement
+from src.config_models import FlowConfig # Import FlowConfig from new location
 
 # Load environment variables from .env file
 load_dotenv() # Added call
@@ -39,7 +43,10 @@ app.add_middleware(
 # Setup templates
 templates = Jinja2Templates(directory="src/templates")
 
-# Pydantic model for the message structure
+# --- Configuration Models ---
+# FlowConfig class has been moved to src.config_models.py
+
+# --- Payload Models ---
 class MessagePayload(BaseModel):
     user_id: str
     message_id: str
@@ -63,8 +70,27 @@ def dequeue(message: MessagePayload, background_tasks: Optional[BackgroundTasks]
                 # Although the model enforces this, good to double-check
                 raise HTTPException(status_code=400, detail='No message_content provided')
 
+            # Attempt to load config from S3
+            s3_config_dict: Optional[Dict[str, Any]] = FlowConfig.get_config_from_s3()
+            
+            # Convert s3_config_dict to FlowConfig instance if it exists
+            flow_config_instance: Optional[FlowConfig] = None
+            if s3_config_dict is not None:
+                try:
+                    flow_config_instance = FlowConfig(**s3_config_dict)
+                except Exception as e: # Catch Pydantic validation errors or others
+                    logger.error(f"Error creating FlowConfig instance from S3 data: {s3_config_dict}. Error: {e}", exc_info=True)
+                    # Decide how to handle: proceed with default, or raise error, etc.
+                    # For now, we'll proceed with None, which process_query will handle by using defaults.
+                    pass # flow_config_instance remains None
+            else:
+                # If s3_config_dict is None (e.g., S3 not configured or file not found and init failed),
+                # process_query will use its internal default FlowConfig.
+                logger.info("No S3 config dictionary loaded, process_query will use default FlowConfig.")
+
             # Process the query and get response only if purpose is 'chat'
-            response_data = process_query(user_input)
+            logger.info(f"Processing query with S3-loaded config (if available): {s3_config_dict}") # Log the dict
+            response_data = process_query(user_input, config=flow_config_instance) # Pass FlowConfig instance
 
             # Prepare the response content for 'chat' purpose
             content={
@@ -177,6 +203,65 @@ async def show_rules(request: Request):
     except Exception as e:
         logger.error(f"Unexpected error generating /rules page: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error generating rules page.")
+
+@app.get("/get-config")
+async def get_config_schema():
+    """Returns the JSON schema for the FlowConfig model along with the current configuration values."""
+    try:
+        # Get the JSON schema
+        schema = FlowConfig.model_json_schema()
+        
+        # Get current config values from S3
+        current_config = FlowConfig.get_config_from_s3()
+        
+        # If no config exists in S3, use default values
+        if not current_config:
+            current_config = FlowConfig().model_dump(exclude_none=True)
+        
+        # Return both schema and current values
+        return JSONResponse(content={
+            "schema": schema,
+            "current_values": current_config
+        })
+    except Exception as e:
+        logger.error(f"Error generating FlowConfig schema or retrieving current values: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Could not retrieve configuration schema and values.")
+
+@app.post("/set-config")
+async def set_config_values(config: FlowConfig):
+    """
+    Receives new configuration values, validates them against FlowConfig,
+    and saves them to S3.
+    """
+    bucket_name = os.getenv("FLOW_CONFIG_S3_BUCKET_NAME")
+    object_key = os.getenv("FLOW_CONFIG_S3_KEY", "flow_config.json")
+
+    if not bucket_name:
+        logger.error("FLOW_CONFIG_S3_BUCKET_NAME not set. Cannot save config to S3.")
+        raise HTTPException(status_code=500, detail="S3 bucket name not configured on server.")
+
+    try:
+        config_data_to_save = config.model_dump(exclude_none=True) # Use validated model data
+        logger.info(f"Attempting to save new config to S3: s3://{bucket_name}/{object_key} - Data: {config_data_to_save}")
+
+        s3_client = boto3.client('s3')
+        s3_client.put_object(
+            Bucket=bucket_name,
+            Key=object_key,
+            Body=json.dumps(config_data_to_save, indent=2),
+            ContentType='application/json'
+        )
+        logger.info(f"Successfully saved new config to S3: s3://{bucket_name}/{object_key}")
+        return JSONResponse(content={"message": "Configuration updated successfully.", "new_config": config_data_to_save})
+    except ClientError as e:
+        logger.error(f"S3 ClientError when saving config to s3://{bucket_name}/{object_key}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Could not save configuration to S3: {e}")
+    except (NoCredentialsError, PartialCredentialsError):
+        logger.error("AWS credentials not found or incomplete for S3 access during set_config.")
+        raise HTTPException(status_code=500, detail="AWS credentials error on server.")
+    except Exception as e:
+        logger.error(f"Failed to save config to s3://{bucket_name}/{object_key}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"An unexpected error occurred while saving configuration: {e}")
 
 @app.post("/query")
 async def handle_query(message: MessagePayload, background_tasks: BackgroundTasks):

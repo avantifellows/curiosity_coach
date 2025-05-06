@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { CircularProgress } from '@mui/material';
 import ChatMessage from './ChatMessage';
 import ConversationSidebar from './ConversationSidebar';
+import BrainConfigView from './BrainConfigView';
 import { useChat } from '../context/ChatContext';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
@@ -16,7 +17,12 @@ const ChatInterface: React.FC = () => {
     error: chatError,
     handleSendMessage: handleSendMessageContext,
     selectConversation,
-    isBrainProcessing
+    isBrainProcessing,
+    isConfigViewActive,
+    brainConfigSchema,
+    isLoadingBrainConfig,
+    brainConfigError,
+    fetchBrainConfigSchema,
   } = useChat();
 
   const [newMessage, setNewMessage] = useState('');
@@ -26,10 +32,18 @@ const ChatInterface: React.FC = () => {
   const navigate = useNavigate();
 
   useEffect(() => {
-    setTimeout(() => {
-        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }, 100); 
-  }, [messages]);
+    if (!isConfigViewActive) {
+      setTimeout(() => {
+          messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+      }, 100); 
+    }
+  }, [messages, isConfigViewActive]);
+
+  useEffect(() => {
+    if (isConfigViewActive && !brainConfigSchema && !isLoadingBrainConfig && !brainConfigError) {
+      fetchBrainConfigSchema();
+    }
+  }, [isConfigViewActive, brainConfigSchema, isLoadingBrainConfig, brainConfigError, fetchBrainConfigSchema]);
 
   const handleFormSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -56,9 +70,9 @@ const ChatInterface: React.FC = () => {
           <div className="px-6 py-3 flex justify-between items-center">
             <div>
               <h2 className="text-lg font-semibold text-gray-800">
-                {currentConversationId ? `Chat` : 'Curiosity Coach'}
+                {isConfigViewActive ? 'Brain Configuration' : (currentConversationId ? `Chat` : 'Curiosity Coach')}
               </h2>
-              {user && (
+              {user && !isConfigViewActive && (
                 <p className="text-xs text-gray-500">
                   Logged in as: {user.phone_number}
                 </p>
@@ -76,7 +90,13 @@ const ChatInterface: React.FC = () => {
         </header>
 
         <main className="flex-1 overflow-y-auto p-4 space-y-4 bg-gray-50">
-          {currentConversationId === null ? (
+          {isConfigViewActive ? (
+            <BrainConfigView 
+              isLoadingBrainConfig={isLoadingBrainConfig}
+              brainConfigSchema={brainConfigSchema}
+              brainConfigError={brainConfigError}
+            />
+          ) : currentConversationId === null ? (
              <div className="flex justify-center items-center h-full">
                 <p className="text-gray-500">Select a conversation or start a new one.</p>
              </div>
@@ -106,35 +126,37 @@ const ChatInterface: React.FC = () => {
           <div ref={messagesEndRef} />
         </main>
 
-        <footer className="bg-white p-4 border-t border-gray-200">
-          <form onSubmit={handleFormSubmit} className="flex items-center space-x-3">
-            <textarea
-              className="flex-1 resize-none border rounded-md p-2 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed"
-              rows={1}
-              placeholder={currentConversationId === null ? "Select a conversation first..." : "Type your message..."}
-              value={newMessage}
-              onChange={(e) => setNewMessage(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault();
-                  handleFormSubmit(e);
-                }
-              }}
-              disabled={isSendingMessage || currentConversationId === null}
-            />
-            <button
-              type="submit"
-              className={`px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed ${isSendingMessage ? 'animate-pulse' : ''}`}
-              disabled={!newMessage.trim() || isSendingMessage || currentConversationId === null}
-            >
-              {isSendingMessage ? (
-                  <CircularProgress size={20} color="inherit" />
-              ) : (
-                  <Send fontSize="small" />
-              )}
-            </button>
-          </form>
-        </footer>
+        {!isConfigViewActive && (
+          <footer className="bg-white p-4 border-t border-gray-200">
+            <form onSubmit={handleFormSubmit} className="flex items-center space-x-3">
+              <textarea
+                className="flex-1 resize-none border rounded-md p-2 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed"
+                rows={1}
+                placeholder={currentConversationId === null ? "Select a conversation first..." : "Type your message..."}
+                value={newMessage}
+                onChange={(e) => setNewMessage(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    handleFormSubmit(e);
+                  }
+                }}
+                disabled={isSendingMessage || currentConversationId === null}
+              />
+              <button
+                type="submit"
+                className={`px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed ${isSendingMessage ? 'animate-pulse' : ''}`}
+                disabled={!newMessage.trim() || isSendingMessage || currentConversationId === null}
+              >
+                {isSendingMessage ? (
+                    <CircularProgress size={20} color="inherit" />
+                ) : (
+                    <Send fontSize="small" />
+                )}
+              </button>
+            </form>
+          </footer>
+        )}
       </div>
     </div>
   );

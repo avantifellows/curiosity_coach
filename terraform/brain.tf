@@ -76,6 +76,73 @@ resource "aws_iam_role_policy_attachment" "lambda_sqs_attachment" {
   policy_arn = aws_iam_policy.lambda_sqs_policy.arn
 }
 
+# --- S3 Bucket for Flow Configuration (Optional: Creates if name not provided) ---
+resource "aws_s3_bucket" "flow_config_bucket" {
+
+  bucket = "${var.flow_config_s3_bucket_name}"
+  force_destroy = true
+  # ACL no longer recommended, use bucket policies for fine-grained control if needed beyond Lambda access
+  # acl    = "private" # This is deprecated for new buckets
+
+  tags = merge(local.tags, {
+    Name = "${local.lambda_function_name}-flow-config"
+  })
+}
+
+resource "aws_s3_bucket_ownership_controls" "flow_config_bucket_ownership" {
+  bucket = aws_s3_bucket.flow_config_bucket.id
+  rule {
+    object_ownership = "BucketOwnerEnforced"
+  }
+}
+
+resource "aws_s3_bucket_public_access_block" "flow_config_bucket_public_access" {
+  bucket = aws_s3_bucket.flow_config_bucket.id
+
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
+# Determine the bucket name to use: either the newly created one or the provided one
+locals {
+  actual_flow_config_s3_bucket_name = var.flow_config_s3_bucket_name
+}
+
+# IAM Policy for Lambda to access S3 flow config
+resource "aws_iam_policy" "lambda_s3_config_policy" {
+  name        = "${local.lambda_function_name}-s3-config-policy"
+  description = "IAM policy for Lambda to read flow configuration from S3"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = [
+          "s3:GetObject"
+        ]
+        Effect   = "Allow"
+        Resource = "arn:aws:s3:::${local.actual_flow_config_s3_bucket_name}/${var.flow_config_s3_key}" # Specific object access
+      },
+      {
+        # Optional: If you want to allow listing the bucket to check existence (though the app currently doesn't do this, might be useful for debugging)
+        Action = ["s3:ListBucket"]
+        Effect = "Allow"
+        Resource = "arn:aws:s3:::${local.actual_flow_config_s3_bucket_name}"
+      }
+    ]
+  })
+
+  tags = local.tags
+}
+
+# Attach the S3 config policy to the Lambda role
+resource "aws_iam_role_policy_attachment" "lambda_s3_config_attachment" {
+  role       = aws_iam_role.lambda_exec_role.name
+  policy_arn = aws_iam_policy.lambda_s3_config_policy.arn
+}
+
 # Add other policy attachments if your lambda needs more permissions (e.g., S3, DynamoDB)
 
 # --- Docker Build & Push --- 
@@ -92,36 +159,48 @@ resource "null_resource" "docker_build_push" {
   }
 
   provisioner "local-exec" {
-    # This command runs in the terraform directory context
-    # Adjust the docker build context path accordingly (-f and context path)
     command = <<EOF
       set -e
       echo "Setting AWS Profile..."
       export AWS_PROFILE=${var.aws_profile}
       
-      echo "Logging into ECR for ${aws_ecr_repository.app_repo.name}..."
-      # Attempt login and capture output/error
-      login_output=$(aws ecr get-login-password --region ${var.aws_region} | docker login --username AWS --password-stdin ${data.aws_caller_identity.current.account_id}.dkr.ecr.${var.aws_region}.amazonaws.com 2>&1)
-      login_exit_code=$?
-      # Check if login failed
-      if [ $login_exit_code -ne 0 ]; then
+      echo "Attempting to get ECR login password for region ${var.aws_region}..."
+      ecr_password_output=$(aws ecr get-login-password --region ${var.aws_region} 2>&1)
+      ecr_password_exit_code=$?
+
+      if [ $ecr_password_exit_code -ne 0 ]; then
+        echo "ERROR: Failed to get ECR login password. AWS CLI command failed." >&2
+        echo "AWS CLI Output:" >&2
+        echo "$ecr_password_output" >&2
+        exit $ecr_password_exit_code
+      fi
+
+      echo "ECR password retrieved successfully. Logging into ECR for ${aws_ecr_repository.app_repo.name}..."
+      # Pipe the successfully retrieved password to docker login
+      # The ECR password output might contain the password itself, so avoid echoing it directly to logs unless necessary for debugging.
+      # We capture docker login output separately.
+      docker_login_full_output=$(echo "$ecr_password_output" | docker login --username AWS --password-stdin ${data.aws_caller_identity.current.account_id}.dkr.ecr.${var.aws_region}.amazonaws.com 2>&1)
+      docker_login_exit_code=$?
+      
+      if [ $docker_login_exit_code -ne 0 ]; then
         # Check if the failure was the specific keychain error
-        if echo "$login_output" | grep -q "The specified item already exists in the keychain"; then
+        if echo "$docker_login_full_output" | grep -q "The specified item already exists in the keychain"; then
           echo "Docker login skipped: Credentials already exist in keychain."
         else
-          # If it was a different error, print the error and exit
-          echo "Docker login failed:" >&2
-          echo "$login_output" >&2
-          exit $login_exit_code
+          echo "ERROR: Docker login failed." >&2
+          echo "Docker Login Output:" >&2
+          echo "$docker_login_full_output" >&2
+          exit $docker_login_exit_code
         fi
+      else
+        echo "Docker login to ${aws_ecr_repository.app_repo.name} successful."
       fi
       
       echo "Building Docker image ${aws_ecr_repository.app_repo.repository_url}:${var.docker_image_tag}..."
       docker build --platform linux/amd64 -t ${aws_ecr_repository.app_repo.repository_url}:${var.docker_image_tag} -f ${path.module}/../Brain/Dockerfile ${path.module}/../Brain
       
       echo "Pushing Docker image ${aws_ecr_repository.app_repo.repository_url}:${var.docker_image_tag}..."
-      docker push ${aws_ecr_repository.app_repo.repository_url}:${var.docker_image_tag} 
-      # Simpler push, assumes login is successful. Add retry logic from your example if needed.
+      docker push ${aws_ecr_repository.app_repo.repository_url}:${var.docker_image_tag}
       
       echo "Docker build and push completed successfully."
     EOF
@@ -174,7 +253,10 @@ resource "aws_lambda_function" "app_lambda" {
   # Optional: Define environment variables for the Lambda function
   environment {
     # Use the parsed variables from the external data source
-    variables = data.external.dotenv_prod.result
+    variables = merge(data.external.dotenv_prod.result, {
+      FLOW_CONFIG_S3_BUCKET_NAME = local.actual_flow_config_s3_bucket_name
+      FLOW_CONFIG_S3_KEY         = var.flow_config_s3_key
+    })
   }
 
   tags = local.tags
@@ -182,6 +264,7 @@ resource "aws_lambda_function" "app_lambda" {
   depends_on = [
     aws_iam_role_policy_attachment.lambda_policy_basic,
     aws_iam_role_policy_attachment.lambda_sqs_attachment, # Ensure policy is attached before lambda creation/update
+    aws_iam_role_policy_attachment.lambda_s3_config_attachment, # Ensure S3 config policy is attached
     null_resource.docker_build_push # Ensure lambda is created/updated after image push
   ]
 }
