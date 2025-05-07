@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     DB_PASSWORD: str = os.getenv('DB_PASSWORD', 'postgres')
     
     # Local Brain Endpoint (for development)
-    LOCAL_BRAIN_ENDPOINT_URL: str = os.getenv('LOCAL_BRAIN_ENDPOINT_URL', 'http://127.0.0.1:6000')
+    LOCAL_BRAIN_ENDPOINT_URL: str = os.getenv('LOCAL_BRAIN_ENDPOINT_URL', 'http://127.0.0.1:8001')
     
     # AWS settings
     AWS_ACCESS_KEY_ID: str = os.getenv('AWS_ACCESS_KEY_ID', '')

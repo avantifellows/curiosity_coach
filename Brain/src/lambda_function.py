@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import sys
+import asyncio
 
 # Add Mangum for FastAPI integration
 from mangum import Mangum
@@ -70,7 +71,8 @@ def lambda_handler(event, context):
 
                 logger.info(f"Processing message ID: {record.get('messageId')}")
                 # Pass the parsed Pydantic object to dequeue
-                dequeue(parsed_message)
+                # Use asyncio.run() to call the async dequeue function
+                asyncio.run(dequeue(parsed_message))
                 processed_messages += 1
 
             except Exception as e:
@@ -95,7 +97,24 @@ def lambda_handler(event, context):
     # Otherwise, assume it's an API Gateway/Function URL event and handle with Mangum
     else:
         logger.info("Detected non-SQS event (likely HTTP). Handling with FastAPI/Mangum...")
-        # Pass the event and context to the Mangum handler
+        
+        # Ensure an event loop is available for the current thread for Mangum.
+        # This is necessary for Python 3.10+ where asyncio.get_event_loop()
+        # raises a RuntimeError if no loop is set and one isn't automatically created.
+        # Mangum's LifespanCycle needs an active event loop.
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_closed():
+                # If the existing loop is closed (e.g., from a previous invocation in a reused environment),
+                # create and set a new one.
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+        except RuntimeError:
+            # If no event loop exists at all for this thread, create and set one.
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+        
+        # Now, call the Mangum handler. It will use the current event loop.
         return asgi_handler(event, context)
 
 # Example usage section remains for local testing of SQS path,
@@ -129,7 +148,7 @@ if __name__ == '__main__':
         ]
     }
     print("Testing SQS event:")
-    result_sqs = lambda_handler(test_event_sqs, None)
+    result_sqs = lambda_handler(test_event_sqs, None) # Changed back to direct call
     print(f"SQS Result: {result_sqs}")
 
     # To test the HTTP path locally, you'd need to simulate an API Gateway event payload.

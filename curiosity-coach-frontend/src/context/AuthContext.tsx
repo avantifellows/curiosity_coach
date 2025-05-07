@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { User } from '../types';
+import { verifyAuthStatus } from '../services/api';
 
 interface AuthContextType {
   user: User | null;
@@ -29,25 +30,37 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
   useEffect(() => {
-    // Check if user is stored in localStorage
+    // Check if user is stored in localStorage AND verify it
     const checkAuth = async () => {
-      try {
-        setIsLoading(true);
-        const storedUser = localStorage.getItem('user');
-        if (storedUser) {
-          const parsedUser = JSON.parse(storedUser);
-          setUser(parsedUser);
+      setIsLoading(true);
+      const storedUserTokenInfo = localStorage.getItem('user'); // Assume this stores necessary info (like ID for the bearer token)
+
+      if (storedUserTokenInfo) {
+        try {
+          // Attempt to verify the session with the backend
+          // verifyAuthStatus uses the interceptor which reads localStorage itself
+          const verifiedUser = await verifyAuthStatus(); 
+          
+          // If verification is successful, set the user state
+          setUser(verifiedUser);
           setIsAuthenticated(true);
+          console.log("Session verified successfully.");
+
+        } catch (error) {
+          // If verification fails (401 etc.), clear storage and state
+          console.error("Session verification failed:", error);
+          localStorage.removeItem('user');
+          setUser(null);
+          setIsAuthenticated(false);
         }
-      } catch (error) {
-        console.error("Error checking authentication:", error);
-        // Clear potentially corrupted data
-        localStorage.removeItem('user');
+      } else {
+        // No stored info, definitely not logged in
         setUser(null);
         setIsAuthenticated(false);
-      } finally {
-        setIsLoading(false);
       }
+      
+      // Loading finished whether verified, failed, or no token found
+      setIsLoading(false);
     };
 
     checkAuth();

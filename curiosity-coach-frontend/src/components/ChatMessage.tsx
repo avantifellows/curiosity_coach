@@ -1,40 +1,48 @@
-import React from 'react';
-// import { Message } from '../types';
-
-interface DisplayMessageForChat {
-  id: number | string;
-  content: string;
-  sender: 'user' | 'ai';
-  timestamp: string;
-  status?: 'sending' | 'sent' | 'failed';
-  user_id?: number;
-}
+import React, { useState, useEffect } from 'react';
+import { Message } from '../types';
 
 interface ChatMessageProps {
-  message: DisplayMessageForChat;
+  message: Message;
 }
 
 const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
-  const isUser = message.sender === 'user';
-  
-  const bubbleClass = isUser ? 'chat-bubble-user' : 'chat-bubble-bot';
-  
-  const statusOpacity = message.status === 'sending' || message.status === 'failed' ? 'opacity-60' : '';
-  
+  const { content, is_user, status } = message;
+  const [ellipsis, setEllipsis] = useState('.');
+
+  useEffect(() => {
+    let interval: NodeJS.Timeout | null = null;
+    if (status === 'sending') {
+      interval = setInterval(() => {
+        setEllipsis(prev => {
+          if (prev === '...') return '.';
+          return prev + '.';
+        });
+      }, 500); // Adjust speed as needed
+    }
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [status]);
+
+  const alignment = is_user ? 'justify-end' : 'justify-start';
+  const bgColor = is_user ? 'bg-indigo-500' : 'bg-gray-200';
+  const textColor = is_user ? 'text-white' : 'text-gray-700';
+  const opacity = status === 'sending' ? 'opacity-70' : 'opacity-100';
+  const errorStyle = status === 'error' ? 'border border-red-500' : '';
+
   return (
-    <div className={`mb-4 flex ${isUser ? 'justify-end' : 'justify-start'} ${statusOpacity}`}>
-      <div className={bubbleClass}>
-        <p className="whitespace-pre-wrap break-words">{message.content}</p>
-        {message.status === 'sending' && 
-          <p className="text-xs opacity-70 text-right mt-1 italic">Sending...</p>
-        }
-        {message.status === 'failed' && 
-          <p className="text-xs text-red-500 opacity-90 text-right mt-1">Failed</p>
-        }
-        {message.timestamp && message.status !== 'sending' && message.status !== 'failed' && (
-          <p className="text-xs opacity-70 text-right mt-1">
-            {new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-          </p>
+    <div className={`flex ${alignment} ${opacity}`}>
+      <div className={`rounded-lg px-4 py-2 max-w-xs lg:max-w-md shadow ${bgColor} ${textColor} ${errorStyle} whitespace-pre-wrap`}>
+        {content}
+        {status === 'sending' && (
+          <span className="text-xs italic ml-2 block opacity-80">
+            sending{ellipsis}
+          </span>
+        )}
+        {status === 'error' && (
+            <span className="text-xs italic ml-2 block text-red-300">
+                Failed to send
+            </span>
         )}
       </div>
     </div>
