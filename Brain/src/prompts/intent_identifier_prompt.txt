@@ -20,4 +20,4 @@ Remember:
 4. Ensure all arrays and objects are properly closed
 5. Do not include any markdown formatting or backticks
 
-Query to analyze: {{INSERT_QUERY_HERE}} 
+Query to analyze: {{INSERT_QUERY_HERE}}

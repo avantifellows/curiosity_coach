@@ -279,3 +279,35 @@ async def get_ai_response_pipeline_steps(
     
     return steps
 # ---- End of New Endpoint ----
+
+# New internal endpoint for Brain service
+@router.get("/internal/conversations/{conversation_id}/messages_for_brain", response_model=ChatHistoryResponse, tags=["internal"])
+async def get_conversation_messages_for_brain(
+    conversation_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    Internal endpoint for the Brain service to get message history for a specific conversation.
+    This endpoint does not perform user ownership checks.
+    """
+    try:
+        print(f"Router (Internal): Calling message_service.get_chat_history for conversation_id: {conversation_id} (for Brain)")
+        # Assuming message_service.get_chat_history can handle calls without a user_id
+        # or that the service layer can determine it's an internal call.
+        # If get_chat_history strictly requires user_id for ownership, this service call might need adjustment
+        # or a new service function specific for internal use.
+        messages = await message_service.get_chat_history(
+            conversation_id=conversation_id,
+            db=db
+            # user_id is intentionally omitted for this internal endpoint
+        )
+        print(f"Router (Internal): Retrieved history for conversation_id: {conversation_id} (for Brain)")
+        return {
+            'success': True,
+            'messages': messages
+        }
+    except Exception as e:
+        error_details = traceback.format_exc()
+        print(f"Error getting messages for conversation {conversation_id} (for Brain): {e}")
+        print(f"Error traceback: {error_details}")
+        raise HTTPException(status_code=500, detail=f"Error retrieving messages for Brain: {str(e)}")

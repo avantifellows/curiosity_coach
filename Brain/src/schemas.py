@@ -13,22 +13,22 @@ class IntentRawResult(BaseModel):
 class IntentStepData(BaseModel):
     name: Literal["intent_identification"]
     enabled: bool
-    prompt: str
-    raw_result: IntentRawResult
+    prompt: Optional[str] = None
+    raw_result: Optional[IntentRawResult] = None
     main_topic: Optional[str]
     related_topics: List[str]
 
 class KnowledgeStepData(BaseModel):
     name: Literal["knowledge_retrieval"]
     enabled: bool
-    prompt: str
-    result: str # Assuming context_info is a string
+    prompt: Optional[str] = None
+    result: Optional[str] = None # Assuming context_info is a string
 
 class InitialResponseStepData(BaseModel):
     name: Literal["initial_response_generation"]
     enabled: bool
-    prompt: str
-    result: str # Assuming initial_response is a string
+    prompt: Optional[str] = None
+    result: Optional[str] = None # Assuming initial_response is a string
 
 class LearningEnhancementStepData(BaseModel):
     name: Literal["learning_enhancement"]
@@ -42,7 +42,7 @@ class PipelineData(BaseModel):
     query: str
     config_used: Dict[str, Any] # Assuming FlowConfig().model_dump() is Dict[str, Any]
     steps: List[PipelineStepData]
-    final_response: str # Assuming final_response is a string
+    final_response: Optional[str] = None # Assuming final_response is a string
 
 class ProcessQueryResponse(BaseModel):
     response: str

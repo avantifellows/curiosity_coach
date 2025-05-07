@@ -1,16 +1,29 @@
 from pydantic import BaseModel, Field
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 import os
 import json
 import boto3
 from botocore.exceptions import NoCredentialsError, PartialCredentialsError, ClientError
 from src.utils.logger import logger # Assuming logger is appropriately accessible
 
+class StepConfig(BaseModel):
+    """Configuration for an individual step in the query processing flow."""
+    name: str = Field(description="The unique name of the processing step.")
+    enabled: bool = Field(default=True, description="Set to false to skip this step.")
+    use_conversation_history: bool = Field(default=False, description="Set to true to append conversation history to the query for this step.")
+    is_use_conversation_history_valid: bool = Field(description="Indicates if using conversation history is a valid option for this step.")
+    is_allowed_to_change_enabled: bool = Field(description="Indicates if the client is allowed to change the 'enabled' status of this step.")
+
 class FlowConfig(BaseModel):
     """Configuration for the query processing flow."""
-    run_enhancement_step: Optional[bool] = Field(
-        default=True,
-        description="Set to false to skip the learning enhancement step and return the initial response directly."
+    steps: List[StepConfig] = Field(
+        default_factory=lambda: [
+            StepConfig(name="intent_identification", enabled=True, use_conversation_history=False, is_use_conversation_history_valid=True, is_allowed_to_change_enabled=False),
+            StepConfig(name="knowledge_retrieval", enabled=True, use_conversation_history=False, is_use_conversation_history_valid=False, is_allowed_to_change_enabled=False),
+            StepConfig(name="initial_response_generation", enabled=True, use_conversation_history=False, is_use_conversation_history_valid=True, is_allowed_to_change_enabled=False),
+            StepConfig(name="learning_enhancement", enabled=True, use_conversation_history=False, is_use_conversation_history_valid=True, is_allowed_to_change_enabled=True),
+        ],
+        description="Configuration for each step in the processing pipeline."
     )
 
     @classmethod
@@ -24,19 +37,21 @@ class FlowConfig(BaseModel):
             return None
 
         # Create default configuration based on the model's defaults
-        default_config = cls().model_dump(exclude_none=True)
-        logger.info(f"Generated default FlowConfig: {default_config}")
+        # The default_factory for 'steps' will handle creating the default steps
+        default_config_model = cls()
+        default_config_dict = default_config_model.model_dump(exclude_none=True)
+        logger.info(f"Generated default FlowConfig: {default_config_dict}")
 
         s3_client = boto3.client('s3')
         try:
             s3_client.put_object(
                 Bucket=bucket_name,
                 Key=object_key,
-                Body=json.dumps(default_config, indent=2),
+                Body=json.dumps(default_config_dict, indent=2),
                 ContentType='application/json'
             )
             logger.info(f"Successfully uploaded default config to S3: s3://{bucket_name}/{object_key}")
-            return default_config
+            return default_config_dict
         except ClientError as e:
             logger.error(f"S3 ClientError when uploading default config to s3://{bucket_name}/{object_key}: {e}", exc_info=True)
         except (NoCredentialsError, PartialCredentialsError):
