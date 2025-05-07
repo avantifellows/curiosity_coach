@@ -299,15 +299,6 @@ resource "aws_lambda_function_url" "app_lambda_url" {
   function_name      = aws_lambda_function.app_lambda.function_name
   authorization_type = "NONE" # Changed to NONE for public access
 
-  # Added CORS configuration
-  cors {
-    allow_credentials = true
-    allow_origins     = ["*"] # Be more specific in production
-    allow_methods     = ["*"] # Typically GET, POST, PUT, DELETE, OPTIONS
-          allow_headers     = ["*"] # Changed: Removed "authorization" as "*" includes it
-    expose_headers    = ["keep-alive", "date"]
-    max_age           = 86400
-  }
 }
 
 # Grant invoke permission because authorization_type is NONE
