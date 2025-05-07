@@ -4,6 +4,7 @@ from src.auth.schemas import PhoneNumberRequest, LoginResponse, UserResponse
 from src.auth.service import auth_service
 from src.database import get_db # Import the dependency
 from src.models import User # Import User model for potential type hinting if needed
+from src.auth.dependencies import get_current_user # Import the dependency
 
 router = APIRouter(
     prefix="/api/auth",
@@ -32,4 +33,15 @@ async def login(request: PhoneNumberRequest, db: Session = Depends(get_db)):
     except Exception as e:
         print(f"Login error: {e}")
         # Consider more specific error handling
-        raise HTTPException(status_code=500, detail=f"Error during login: {str(e)}") 
+        raise HTTPException(status_code=500, detail=f"Error during login: {str(e)}")
+
+@router.get("/me", response_model=UserResponse)
+async def read_users_me(current_user: User = Depends(get_current_user)):
+    """
+    Fetch the details of the currently authenticated user.
+    Relies on the get_current_user dependency to validate the token 
+    and retrieve the user.
+    """
+    # If Depends(get_current_user) succeeds, current_user is the valid User object.
+    # Pydantic will automatically serialize it based on UserResponse schema.
+    return current_user 

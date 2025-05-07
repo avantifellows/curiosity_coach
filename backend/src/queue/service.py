@@ -98,7 +98,7 @@ class QueueService:
             'user_id': str(user_id),
             'message_id': str(message_id) if message_id else f"msg_{uuid.uuid4().hex[:8]}",
             'purpose': purpose,
-            'conversation_id': conversation_id,
+            'conversation_id': str(conversation_id),
             'message_content': message_content,
             'timestamp': time.time()
         }

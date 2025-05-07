@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { LoginResponse, Message, ChatHistory, SendMessageResponse } from '../types';
+import { LoginResponse, Message, ChatHistory, SendMessageResponse, ConversationSummary, Conversation, User } from '../types';
 
 const API = axios.create({
   baseURL: process.env.REACT_APP_BACKEND_BASE_URL + '/api' || '/api',
@@ -23,56 +23,100 @@ export const loginUser = async (phoneNumber: string): Promise<LoginResponse> => 
     const response = await API.post('/auth/login', { phone_number: phoneNumber });
     return response.data;
   } catch (error: any) {
-    throw new Error(error.response?.data?.message || 'Login failed');
+    console.error("Login error:", error.response?.data || error.message);
+    throw new Error(error.response?.data?.detail || 'Login failed');
   }
 };
 
-export const sendMessage = async (content: string): Promise<SendMessageResponse> => {
+export const sendMessage = async (conversationId: number, content: string): Promise<SendMessageResponse> => {
   try {
-    const response = await API.post<SendMessageResponse>('/messages', { content });
+    const response = await API.post<SendMessageResponse>(`/conversations/${conversationId}/messages`, { content });
     return response.data;
   } catch (error: any) {
-    throw new Error(error.response?.data?.message || 'Failed to send message');
+    console.error("Error sending message:", error.response?.data || error.message);
+    throw new Error(error.response?.data?.detail || 'Failed to send message');
   }
 };
 
-export const getChatHistory = async (): Promise<ChatHistory> => {
+export const getConversationMessages = async (conversationId: number): Promise<ChatHistory> => {
   try {
-    const response = await API.get('/messages/history');
+    const response = await API.get<ChatHistory>(`/conversations/${conversationId}/messages`);
     return response.data;
   } catch (error: any) {
-    throw new Error(error.response?.data?.message || 'Failed to get chat history');
+    console.error("Error fetching messages:", error.response?.data || error.message);
+    throw new Error(error.response?.data?.detail || 'Failed to get messages');
   }
 };
 
-// Fetches the specific AI response corresponding to a given user message ID
-// Note: This requires a corresponding backend endpoint, e.g., GET /api/messages/{user_message_id}/response
-export const getAiResponseForUserMessage = async (userMessageId: string | number): Promise<{ message: Message } | null> => {
+export const getAiResponseForUserMessage = async (userMessageId: number): Promise<Message | null> => {
   try {
-    // Construct the endpoint URL using the user message ID
-    // Changed the expected type here slightly, as the raw response might be the message directly
-    const response = await API.get<Message | { message: Message } | null>(`/messages/${userMessageId}/response`);
-    
-    // Check if the response data itself is the message object
-    if (response.data && 'id' in response.data && 'content' in response.data && 'is_user' in response.data && 'timestamp' in response.data && !('message' in response.data)) {
-      // If response.data is the message, wrap it in the expected structure
-      return { message: response.data };
-    } 
-    // Check if the response data contains the message nested under a 'message' key (original logic)
-    else if (response.data && 'message' in response.data && response.data.message) {
-        // Return the nested message directly
-        return { message: response.data.message };
-    } 
-    // Otherwise, the message is not ready or the response is empty/invalid
-    else {
-        return null; 
-    }
+    const response = await API.get<Message | null>(`/messages/${userMessageId}/response`);
+    return response.data;
   } catch (error: any) {
-    // Log the error but return null to allow polling to continue
-    // Avoid throwing an error here, as that would stop the polling loop prematurely
     console.error(`[API] Error fetching AI response for user message ${userMessageId}:`, error.response?.data || error.message);
-    // Optionally: Check for specific error codes (e.g., 404) to differentiate between 'not found yet' and actual server errors.
-    // For now, treat any error as 'response not ready'
-    return null; 
+    if (axios.isAxiosError(error) && error.response?.status === 404) {
+      console.log(`[API] Response for message ${userMessageId} not found (404).`);
+      return null;
+    }
+    return null;
+  }
+};
+
+export const listConversations = async (): Promise<ConversationSummary[]> => {
+  try {
+    const response = await API.get<ConversationSummary[]>('/conversations');
+    return response.data;
+  } catch (error: any) {
+    console.error("Error fetching conversations:", error.response?.data || error.message);
+    throw new Error(error.response?.data?.detail || 'Failed to get conversations');
+  }
+};
+
+export const createConversation = async (title?: string): Promise<Conversation> => {
+  try {
+    const payload = title ? { title } : {};
+    const response = await API.post<Conversation>('/conversations', payload);
+    return response.data;
+  } catch (error: any) {
+    console.error("Error creating conversation:", error.response?.data || error.message);
+    throw new Error(error.response?.data?.detail || 'Failed to create conversation');
+  }
+};
+
+// Add a function to verify auth status by calling /auth/me
+export const verifyAuthStatus = async (): Promise<User> => {
+  try {
+    // The interceptor automatically adds the Authorization header
+    const response = await API.get<User>('/auth/me'); 
+    return response.data;
+  } catch (error: any) {
+    console.error("Auth status verification failed:", error.response?.data || error.message);
+    // Re-throw the error so the caller (AuthProvider) knows verification failed
+    throw new Error(error.response?.data?.detail || 'Session verification failed');
+  }
+};
+
+export const updateConversationTitleApi = async (conversationId: number, newTitle: string): Promise<Conversation> => {
+  try {
+    const response = await API.put<Conversation>(`/conversations/${conversationId}/title`, { title: newTitle });
+    return response.data;
+  } catch (error: any) {
+    console.error(`Error updating conversation title for ID ${conversationId}:`, error.response?.data || error.message);
+    throw new Error(error.response?.data?.detail || 'Failed to update conversation title');
+  }
+};
+
+// New function to get pipeline steps for an AI message
+export const getPipelineSteps = async (aiMessageId: number | string): Promise<any[]> => {
+  try {
+    // The interceptor automatically adds the Authorization header
+    const response = await API.get<any[]>(`/messages/${aiMessageId}/pipeline_steps`);
+    return response.data;
+  } catch (error: any) {
+    console.error(`Error fetching pipeline steps for AI message ID ${aiMessageId}:`, error.response?.data || error.message);
+    // If the error is a 404, or if no specific steps are found, the backend returns [] which is fine.
+    // For other errors, we might want to throw or return a specific error object.
+    // For now, let's re-throw to be handled by the caller, similar to other functions.
+    throw new Error(error.response?.data?.detail || `Failed to fetch pipeline steps for message ${aiMessageId}`);
   }
 }; 
