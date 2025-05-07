@@ -50,9 +50,5 @@ class BrainResponsePayload(BaseModel):
     user_id: int # Keep user_id for potential validation/logging if needed by Brain
     conversation_id: int = Field(..., description="ID of the conversation this response belongs to")
     original_message_id: Optional[int] = Field(None, description="ID of the user message this is a response to")
-    response_content: str = Field(..., description="The content of the AI's response")
-    # Optional fields remain the same
-    intent: Optional[dict] = Field(None)
-    prompts: Optional[list] = Field(None)
-    intermediate_responses: Optional[list] = Field(None)
-    intent_prompt: Optional[str] = Field(None) 
+    llm_response: str = Field(..., description="The final content of the AI's response")
+    pipeline_data: Dict[str, Any] = Field(..., description="Detailed data from the Brain pipeline") 

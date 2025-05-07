@@ -94,4 +94,29 @@ export const verifyAuthStatus = async (): Promise<User> => {
     // Re-throw the error so the caller (AuthProvider) knows verification failed
     throw new Error(error.response?.data?.detail || 'Session verification failed');
   }
+};
+
+export const updateConversationTitleApi = async (conversationId: number, newTitle: string): Promise<Conversation> => {
+  try {
+    const response = await API.put<Conversation>(`/conversations/${conversationId}/title`, { title: newTitle });
+    return response.data;
+  } catch (error: any) {
+    console.error(`Error updating conversation title for ID ${conversationId}:`, error.response?.data || error.message);
+    throw new Error(error.response?.data?.detail || 'Failed to update conversation title');
+  }
+};
+
+// New function to get pipeline steps for an AI message
+export const getPipelineSteps = async (aiMessageId: number | string): Promise<any[]> => {
+  try {
+    // The interceptor automatically adds the Authorization header
+    const response = await API.get<any[]>(`/messages/${aiMessageId}/pipeline_steps`);
+    return response.data;
+  } catch (error: any) {
+    console.error(`Error fetching pipeline steps for AI message ID ${aiMessageId}:`, error.response?.data || error.message);
+    // If the error is a 404, or if no specific steps are found, the backend returns [] which is fine.
+    // For other errors, we might want to throw or return a specific error object.
+    // For now, let's re-throw to be handled by the caller, similar to other functions.
+    throw new Error(error.response?.data?.detail || `Failed to fetch pipeline steps for message ${aiMessageId}`);
+  }
 }; 

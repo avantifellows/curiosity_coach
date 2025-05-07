@@ -32,7 +32,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
 
   return (
     <div className={`flex ${alignment} ${opacity}`}>
-      <div className={`rounded-lg px-4 py-2 max-w-xs lg:max-w-md shadow ${bgColor} ${textColor} ${errorStyle}`}>
+      <div className={`rounded-lg px-4 py-2 max-w-xs lg:max-w-md shadow ${bgColor} ${textColor} ${errorStyle} whitespace-pre-wrap`}>
         {content}
         {status === 'sending' && (
           <span className="text-xs italic ml-2 block opacity-80">
