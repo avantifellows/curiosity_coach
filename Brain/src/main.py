@@ -165,10 +165,12 @@ async def dequeue(message: MessagePayload, background_tasks: Optional[Background
                     # Running in non-FastAPI context (e.g., SQS Lambda path), run synchronously
                     logger.info(f"Running callback synchronously for user_id: {message.user_id}")
                     try:
-                        asyncio.run(perform_backend_callback(callback_payload))
+                        # Since dequeue is already run with asyncio.run() in the SQS path (lambda_function.py),
+                        # we should await the coroutine directly here.
+                        await perform_backend_callback(callback_payload)
                     except Exception as cb_exc:
                         # Log synchronous callback errors, but don't let them fail the main dequeue process necessarily
-                        logger.error(f"Error during synchronous callback execution: {cb_exc}", exc_info=True)
+                        logger.error(f"Error during awaited callback execution (SQS context): {cb_exc}", exc_info=True)
                         # Depending on requirements, you might want to re-raise or handle differently
             else:
                  logger.warning(f"No response generated for chat message, callback not scheduled for user_id: {message.user_id}")
