@@ -51,8 +51,11 @@ def _generate_response_prompt(query: str, intent_json: Dict[str, Any], context_i
 
     # Add student query and context
     prompt_parts.append(f"The student asked: \"{query}\"\n")
-    prompt_parts.append("Use the following information to answer the question:\n")
-    prompt_parts.append(f"{context_info.strip()}\n")
+    if context_info and context_info.strip(): # Check if context_info is not None and not just whitespace
+        prompt_parts.append("Use the following information to answer the question:\n")
+        prompt_parts.append(f"{context_info.strip()}\n")
+    else:
+        prompt_parts.append("No specific context information was retrieved. Answer based on general knowledge.\n")
 
     prompt_parts.append("Now, generate a response that does the following:\n")
 

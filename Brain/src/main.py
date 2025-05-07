@@ -1,8 +1,8 @@
-from fastapi import FastAPI, Request, HTTPException, BackgroundTasks
+from fastapi import FastAPI, Request, HTTPException, BackgroundTasks, Depends
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 import uvicorn
 import time
 import uuid
@@ -14,8 +14,9 @@ from dotenv import load_dotenv # Added import
 import json # Added for S3 config parsing
 import boto3 # Added for S3 interaction
 from botocore.exceptions import NoCredentialsError, PartialCredentialsError, ClientError # Added for S3 error handling
+from mangum import Mangum
 
-from src.process_query_entrypoint import process_query
+from src.process_query_entrypoint import process_query, ProcessQueryResponse
 from src.utils.logger import logger
 from src.core.intent_identifier import identify_intent, IntentIdentificationError # Import identify_intent
 from src.core.knowledge_retrieval import retrieve_knowledge, KnowledgeRetrievalError
@@ -26,6 +27,7 @@ from src.config_models import FlowConfig # Import FlowConfig from new location
 load_dotenv() # Added call
 
 BACKEND_CALLBACK_BASE_URL = os.getenv("BACKEND_CALLBACK_BASE_URL", "http://localhost:5000")
+
 BACKEND_CALLBACK_ROUTE = os.getenv("BACKEND_CALLBACK_ROUTE", "/api/internal/brain_response")
 BACKEND_CALLBACK_URL = f"{BACKEND_CALLBACK_BASE_URL}{BACKEND_CALLBACK_ROUTE}"
 
@@ -56,7 +58,7 @@ class MessagePayload(BaseModel):
     timestamp: float # Assuming timestamp is a float epoch time
 
 # Updated dequeue function containing the core logic
-def dequeue(message: MessagePayload, background_tasks: Optional[BackgroundTasks] = None):
+async def dequeue(message: MessagePayload, background_tasks: Optional[BackgroundTasks] = None):
     """
     Processes a message received either from SQS or the /query endpoint.
     """
@@ -80,17 +82,70 @@ def dequeue(message: MessagePayload, background_tasks: Optional[BackgroundTasks]
                     flow_config_instance = FlowConfig(**s3_config_dict)
                 except Exception as e: # Catch Pydantic validation errors or others
                     logger.error(f"Error creating FlowConfig instance from S3 data: {s3_config_dict}. Error: {e}", exc_info=True)
-                    # Decide how to handle: proceed with default, or raise error, etc.
-                    # For now, we'll proceed with None, which process_query will handle by using defaults.
                     pass # flow_config_instance remains None
             else:
                 # If s3_config_dict is None (e.g., S3 not configured or file not found and init failed),
                 # process_query will use its internal default FlowConfig.
                 logger.info("No S3 config dictionary loaded, process_query will use default FlowConfig.")
 
+            # Initialize conversation_history_str
+            conversation_history_str: Optional[str] = None
+            
+            # Check if any step wants to use conversation history
+            should_fetch_history = False
+            if flow_config_instance and flow_config_instance.steps:
+                for step_config in flow_config_instance.steps:
+                    if step_config.use_conversation_history and step_config.is_use_conversation_history_valid:
+                        should_fetch_history = True
+                        break
+            
+            if should_fetch_history and message.conversation_id:
+                logger.info(f"Fetching conversation history for conversation_id: {message.conversation_id} via internal endpoint")
+                try:
+                    # Use the new internal endpoint that does not require auth for Brain service
+                    history_url = f"{BACKEND_CALLBACK_BASE_URL.rstrip('/')}/api/internal/conversations/{message.conversation_id}/messages_for_brain"
+                    
+                    async with httpx.AsyncClient() as client:
+                        response = await client.get(history_url)
+                    
+                    if response.status_code == 200:
+                        history_data = response.json()
+                        if history_data.get("success") and "messages" in history_data:
+                            fetched_messages = history_data["messages"]
+                            # Filter out the current message being processed, if present
+                            # Assuming message.message_id is a string, and history message IDs are int.
+                            current_message_id_int: Optional[int] = None
+                            if message.message_id and message.message_id.isdigit():
+                                current_message_id_int = int(message.message_id)
+
+                            relevant_messages = []
+                            for msg_data in fetched_messages:
+                                if current_message_id_int is None or msg_data.get('id') != current_message_id_int:
+                                    sender = "User" if msg_data.get('is_user') else "AI"
+                                    relevant_messages.append(f"{sender}: {msg_data.get('content')}")
+                            
+                            if relevant_messages:
+                                conversation_history_str = "\n".join(relevant_messages)
+                                logger.info(f"Successfully fetched and formatted conversation history. Length: {len(conversation_history_str)}")
+                            else:
+                                logger.info("No prior messages found in history to use.")
+                        else:
+                            logger.warning(f"Failed to fetch conversation history: API response indicates failure or malformed data. Response: {response.text}")
+                    else:
+                        logger.error(f"Error fetching conversation history: API responded with status {response.status_code}. Response: {response.text}")
+                except httpx.RequestError as e:
+                    logger.error(f"HTTPX RequestError fetching conversation history: {e}", exc_info=True)
+                except Exception as e:
+                    logger.error(f"Unexpected error fetching or processing conversation history: {e}", exc_info=True)
+
+
             # Process the query and get response only if purpose is 'chat'
-            logger.info(f"Processing query with S3-loaded config (if available): {s3_config_dict}") # Log the dict
-            response_data = process_query(user_input, config=flow_config_instance) # Pass FlowConfig instance
+            logger.info(f"Processing query with S3-loaded config (if available): {s3_config_dict}")
+            response_data = process_query(
+                user_input, 
+                config=flow_config_instance,
+                conversation_history=conversation_history_str # Pass fetched history
+            )
 
             # Prepare and schedule the callback if response was generated
             if response_data and response_data.response:
@@ -254,7 +309,7 @@ async def handle_query(message: MessagePayload, background_tasks: BackgroundTask
     # and passes it to the dequeue function along with background_tasks.
     try:
         # Dequeue handles processing and schedules the callback if needed.
-        result = dequeue(message, background_tasks) # Pass background_tasks
+        result = await dequeue(message, background_tasks) # await dequeue call
 
         # The callback scheduling logic is now inside dequeue.
         # We just return the immediate result from dequeue.

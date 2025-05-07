@@ -1,10 +1,30 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import { CircularProgress, Button, Alert, Box } from '@mui/material';
 import { useChat } from '../context/ChatContext';
 
+interface StepConfig {
+  name: string;
+  enabled: boolean;
+  use_conversation_history: boolean;
+  is_use_conversation_history_valid: boolean;
+  is_allowed_to_change_enabled: boolean;
+  // [key: string]: any; // Allow other properties if any, though we primarily care about the above
+}
+
+interface BrainConfigFormData {
+  steps: StepConfig[];
+}
+
 interface BrainConfigViewProps {
   isLoadingBrainConfig: boolean;
-  brainConfigSchema: any | null;
+  brainConfigSchema: { // Updated to reflect the new structure
+    schema?: any; // The JSON schema part
+    current_values?: { // The current configuration values
+      steps: StepConfig[];
+    };
+    // Allow other properties from the old structure for graceful degradation if needed, though we focus on new one
+    [key: string]: any; 
+  } | null;
   brainConfigError: string | null;
 }
 
@@ -19,42 +39,30 @@ const BrainConfigView: React.FC<BrainConfigViewProps> = ({
     saveBrainConfigError: contextSaveError
   } = useChat();
 
-  const [formData, setFormData] = useState<Record<string, any>>({});
-  const [initialFormData, setInitialFormData] = useState<Record<string, any>>({});
+  const [formData, setFormData] = useState<BrainConfigFormData>({ steps: [] });
+  const [initialFormData, setInitialFormData] = useState<BrainConfigFormData>({ steps: [] });
   const [isDirty, setIsDirty] = useState(false);
   const [localSaveSuccess, setLocalSaveSuccess] = useState<string | null>(null);
   const [localSaveError, setLocalSaveError] = useState<string | null>(null);
 
-  const getInitialDataFromSchema = useCallback((schema: any, currentValues: any) => {
-    const initialData: Record<string, any> = {};
-    if (schema && schema.properties) {
-      Object.entries(schema.properties).forEach(([key, prop]: [string, any]) => {
-        // Use current values from API if available, otherwise use schema default
-        initialData[key] = currentValues && key in currentValues 
-          ? currentValues[key] 
-          : prop.default;
-      });
-    }
-    return initialData;
-  }, []);
-
   useEffect(() => {
-    if (brainConfigSchema) {
-      // Extract the schema and current values from the updated API response
-      const schema = brainConfigSchema.schema || brainConfigSchema;
-      const currentValues = brainConfigSchema.current_values || {};
-      
-      const initialData = getInitialDataFromSchema(schema, currentValues);
+    if (brainConfigSchema && brainConfigSchema.current_values && Array.isArray(brainConfigSchema.current_values.steps)) {
+      const initialData = { steps: JSON.parse(JSON.stringify(brainConfigSchema.current_values.steps)) };
       setFormData(initialData);
-      setInitialFormData(initialData); 
+      setInitialFormData(JSON.parse(JSON.stringify(initialData))); // Deep copy for comparison
       setIsDirty(false);
       setLocalSaveSuccess(null);
       setLocalSaveError(null);
+    } else {
+      // Reset if schema is not as expected or null
+      setFormData({ steps: [] });
+      setInitialFormData({ steps: [] });
     }
-  }, [brainConfigSchema, getInitialDataFromSchema]);
+  }, [brainConfigSchema]);
 
   useEffect(() => {
-    setIsDirty(JSON.stringify(formData) !== JSON.stringify(initialFormData));
+    // Deep comparison for isDirty, formData.steps could be undefined initially or if schema is bad
+    setIsDirty(JSON.stringify(formData.steps || []) !== JSON.stringify(initialFormData.steps || []));
   }, [formData, initialFormData]);
 
   useEffect(() => {
@@ -64,8 +72,14 @@ const BrainConfigView: React.FC<BrainConfigViewProps> = ({
     }
   }, [contextSaveError]);
 
-  const handleInputChange = (key: string, value: any) => {
-    setFormData(prev => ({ ...prev, [key]: value }));
+  const handleStepInputChange = (stepIndex: number, key: string, value: any) => {
+    setFormData(prev => {
+      const newSteps = prev.steps ? [...prev.steps] : [];
+      if (newSteps[stepIndex]) {
+        newSteps[stepIndex] = { ...newSteps[stepIndex], [key]: value };
+      }
+      return { ...prev, steps: newSteps };
+    });
     setLocalSaveSuccess(null);
     setLocalSaveError(null);
   };
@@ -73,13 +87,18 @@ const BrainConfigView: React.FC<BrainConfigViewProps> = ({
   const handleSave = async () => {
     setLocalSaveSuccess(null);
     setLocalSaveError(null);
-    const success = await updateBrainConfig(formData);
+    // Ensure formData (and formData.steps) is what updateBrainConfig expects
+    // The backend expects the whole current_values structure or just the part that changed.
+    // Assuming updateBrainConfig expects the same structure as current_values for simplicity.
+    const configToSave = { steps: formData.steps };
+    const success = await updateBrainConfig(configToSave); 
     if (success) {
       setLocalSaveSuccess("Configuration saved successfully!");
-      setInitialFormData(formData);
+      // Update initialFormData to match the saved state
+      setInitialFormData(JSON.parse(JSON.stringify(formData)));
       setIsDirty(false);
-    } else {
     }
+    // No explicit 'else' needed here as contextSaveError effect handles API errors
   };
 
   if (isLoadingBrainConfig) {
@@ -102,62 +121,101 @@ const BrainConfigView: React.FC<BrainConfigViewProps> = ({
     );
   }
   
-  // Extract schema from the response
-  const schema = brainConfigSchema?.schema || brainConfigSchema;
-  
-  if (!brainConfigSchema || !schema || !schema.properties) {
+  const currentValues = brainConfigSchema?.current_values;
+  const stepSchemaDefinition = brainConfigSchema?.schema?.$defs?.StepConfig?.properties;
+
+  if (!currentValues || !Array.isArray(currentValues.steps) || currentValues.steps.length === 0 || !stepSchemaDefinition) {
     return (
-      <div className="flex justify-center items-center h-full">
-        <p className="text-gray-500">Brain configuration schema is not available or has an unexpected format.</p>
+      <div className="flex justify-center items-center h-full p-4">
+        <p className="text-gray-500">
+          {currentValues && Array.isArray(currentValues.steps) && currentValues.steps.length === 0 
+            ? "No configuration steps found."
+            : "Brain configuration is not available, has an unexpected format, or no steps are defined."}
+        </p>
       </div>
     );
   }
 
   return (
     <div className="p-6 space-y-6 bg-white shadow rounded-lg m-4">
-      <h3 className="text-xl font-semibold text-gray-700 border-b pb-2">Brain Configuration Settings</h3>
-      {Object.entries(schema.properties).map(([key, prop]: [string, any]) => {
-        let isBooleanProperty = prop.type === 'boolean';
-        if (!isBooleanProperty && Array.isArray(prop.anyOf)) {
-          isBooleanProperty = prop.anyOf.some((t: any) => t.type === 'boolean');
-        }
+      <h3 className="text-xl font-semibold text-gray-700 border-b pb-2">Brain Processing Flow Configuration</h3>
+      {formData.steps && formData.steps.map((step, index) => {
+        const stepName = step.name || `Step ${index + 1}`;
+        const enabledTitle = stepSchemaDefinition?.enabled?.title || "Enable Step";
+        const enabledDescription = stepSchemaDefinition?.enabled?.description;
+        const historyTitle = stepSchemaDefinition?.use_conversation_history?.title || "Use Conversation History";
+        const historyDescription = stepSchemaDefinition?.use_conversation_history?.description;
 
-        if (isBooleanProperty) {
-          return (
-            <div key={key} className="p-4 border rounded-md hover:shadow-md transition-shadow">
-              <label htmlFor={key} className="flex items-center cursor-pointer">
+        return (
+          <div key={step.name || index} className="p-4 border rounded-md hover:shadow-md transition-shadow space-y-3">
+            <h4 className="text-lg font-medium text-gray-800 capitalize">
+              {stepSchemaDefinition?.name?.title || "Step Name"}: {stepName.replace(/_/g, ' ')}
+            </h4>
+
+            {/* Enabled Checkbox */}
+            <div className="pl-4">
+              <label 
+                htmlFor={`step-${index}-enabled`} 
+                className={`flex items-center ${!step.is_allowed_to_change_enabled ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}>
                 <input 
                   type="checkbox" 
-                  id={key} 
-                  name={key} 
-                  checked={formData[key] === undefined ? (prop.default === undefined ? false : prop.default) : formData[key]}
-                  onChange={(e) => handleInputChange(key, e.target.checked)}
+                  id={`step-${index}-enabled`}
+                  checked={!!step.enabled} // Ensure boolean
+                  onChange={(e) => handleStepInputChange(index, 'enabled', e.target.checked)}
                   className="mr-3 h-5 w-5 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded disabled:opacity-70"
-                  disabled={isSavingBrainConfig}
+                  disabled={isSavingBrainConfig || !step.is_allowed_to_change_enabled}
                 />
                 <div className="flex-grow">
-                  <span className="font-medium text-gray-800 capitalize">
-                    {prop.title || key.replace(/_/g, ' ')}
+                  <span className="font-medium text-gray-800">
+                    {enabledTitle}
                   </span>
-                  {prop.description && (
-                    <p className="text-sm text-gray-500 mt-1">{prop.description}</p>
+                  {enabledDescription && (
+                    <p className="text-sm text-gray-500 mt-1">{enabledDescription}</p>
+                  )}
+                  {!step.is_allowed_to_change_enabled && (
+                    <p className="text-xs text-amber-700 mt-1 italic">
+                      (Cannot be disabled as it's essential for the flow)
+                    </p>
                   )}
                 </div>
               </label>
             </div>
-          );
-        }
-        return (
-            <div key={key} className="p-4 border rounded-md">
-                <p className="font-medium text-gray-800 capitalize">{prop.title || key.replace(/_/g, ' ')}</p>
-                <p className="text-sm text-gray-500 mt-1">Unsupported property type: {prop.type || (prop.anyOf ? 'anyOf structure not fully supported for non-boolean' : 'unknown')}</p>
+
+            {/* Use Conversation History Checkbox */}
+            <div className="pl-4">
+              <label 
+                htmlFor={`step-${index}-use_conversation_history`} 
+                className={`flex items-center ${!step.is_use_conversation_history_valid ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}
+              >
+                <input 
+                  type="checkbox" 
+                  id={`step-${index}-use_conversation_history`}
+                  checked={!!step.use_conversation_history} // Ensure boolean
+                  onChange={(e) => handleStepInputChange(index, 'use_conversation_history', e.target.checked)}
+                  className="mr-3 h-5 w-5 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded disabled:opacity-70"
+                  disabled={isSavingBrainConfig || !step.is_use_conversation_history_valid}
+                />
+                <div className="flex-grow">
+                  <span className="font-medium text-gray-800">
+                    {historyTitle}
+                  </span>
+                  {historyDescription && (
+                    <p className="text-sm text-gray-500 mt-1">{historyDescription}</p>
+                  )}
+                   {!step.is_use_conversation_history_valid && (
+                    <p className="text-xs text-amber-700 mt-1 italic">
+                        (Not applicable for this step)
+                    </p>
+                  )}
+                </div>
+              </label>
             </div>
+             {/* Display is_use_conversation_history_valid - mostly for debug/info, handled by disabling checkbox */}
+             {/* <p className="text-xs text-gray-400 pl-4">Conversation history valid: {step.is_use_conversation_history_valid ? 'Yes' : 'No'}</p> */}
+          </div>
         );
       })}
-      {Object.keys(schema.properties).length === 0 && (
-        <p className="text-gray-500">No configuration properties found in the schema.</p>
-      )}
-
+      
       {(localSaveError || localSaveSuccess) && (
         <Box mt={2} mb={2}>
           {localSaveSuccess && <Alert severity="success">{localSaveSuccess}</Alert>}
@@ -165,7 +223,7 @@ const BrainConfigView: React.FC<BrainConfigViewProps> = ({
         </Box>
       )}
 
-      {Object.keys(schema.properties).length > 0 && (
+      {formData.steps && formData.steps.length > 0 && (
         <div className="mt-6 flex justify-end">
           <Button 
             variant="contained" 
