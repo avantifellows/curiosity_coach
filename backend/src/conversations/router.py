@@ -47,3 +47,37 @@ async def create_new_conversation(
         db=db, user_id=current_user.id, title=title
     )
     return conversation 
+
+@router.put("/{conversation_id}/title", response_model=schemas.Conversation)
+async def update_conversation_title_endpoint(
+    conversation_id: int,
+    payload: schemas.ConversationTitleUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Update the title of a specific conversation for the authenticated user.
+    """
+    updated_conversation = models.update_conversation_title(
+        db=db,
+        conversation_id=conversation_id,
+        new_title=payload.title,
+        user_id=current_user.id
+    )
+
+    if updated_conversation is None:
+        # Attempt to fetch the conversation to see if it exists but belongs to another user or if title was invalid
+        conversation_check = models.get_conversation(db, conversation_id)
+        if not conversation_check:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found")
+        # If it exists, but update_conversation_title returned None, it means it was an auth issue or invalid title
+        # The models.update_conversation_title has checks for empty title and user_id match
+        # We can refine this error reporting if needed, e.g. by having update_conversation_title raise specific exceptions.
+        # For now, a generic 403 or 400 depending on what we assume failed.
+        # If title was empty, pydantic model constr should catch it, but as a fallback:
+        if not payload.title.strip(): # This check is also in ConversationTitleUpdate via constr
+             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Title cannot be empty")
+        # If it got here, it's likely an authorization issue or an unexpected None from the update function
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to update this conversation or invalid input")
+
+    return updated_conversation 

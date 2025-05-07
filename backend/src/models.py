@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime, ForeignKey, Text
+from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime, ForeignKey, Text, JSON
 from sqlalchemy.orm import relationship, sessionmaker, Session, declarative_base
 from sqlalchemy.sql import func
 from src.database import Base, get_db # Assuming Base and get_db will be defined in database.py
@@ -38,7 +38,18 @@ class Message(Base):
     responds_to_message_id = Column(Integer, ForeignKey("messages.id"), nullable=True)
 
     conversation = relationship("Conversation", back_populates="messages")
+    pipeline_info = relationship("MessagePipelineData", back_populates="message", uselist=False, cascade="all, delete-orphan")
 
+# New Table for Pipeline Data
+class MessagePipelineData(Base):
+    __tablename__ = "message_pipeline_data"
+
+    id = Column(Integer, primary_key=True, index=True)
+    message_id = Column(Integer, ForeignKey("messages.id", ondelete="CASCADE"), unique=True, nullable=False, index=True)
+    pipeline_data = Column(JSON, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    message = relationship("Message", back_populates="pipeline_info")
 
 # --- CRUD Helper Functions ---
 
@@ -63,6 +74,28 @@ def create_conversation(db: Session, user_id: int, title: Optional[str] = "New C
 def get_conversation(db: Session, conversation_id: int) -> Optional[Conversation]:
     """Gets a specific conversation by its ID."""
     return db.query(Conversation).filter(Conversation.id == conversation_id).first()
+
+def update_conversation_title(db: Session, conversation_id: int, new_title: str, user_id: int) -> Optional[Conversation]:
+    """Updates the title of a specific conversation for a user."""
+    conversation = db.query(Conversation).filter(Conversation.id == conversation_id).first()
+
+    if not conversation:
+        return None # Or raise HTTPException(status_code=404, detail="Conversation not found")
+
+    if conversation.user_id != user_id:
+        # Or raise HTTPException(status_code=403, detail="Not authorized to update this conversation")
+        return None # Indicate authorization failure or handle in router
+
+    if not new_title.strip():
+        # Or raise HTTPException(status_code=400, detail="Title cannot be empty")
+        return None # Indicate validation failure or handle in router
+
+    conversation.title = new_title.strip()
+    # conversation.updated_at = func.now() # This is handled by onupdate=func.now() in the model
+    db.add(conversation)
+    db.commit()
+    db.refresh(conversation)
+    return conversation
 
 def list_user_conversations(db: Session, user_id: int, limit: int = 50, offset: int = 0) -> List[Conversation]:
     """Lists conversations for a given user, most recent first."""
@@ -115,3 +148,11 @@ def get_ai_response_for_user_message(db: Session, user_message_id: int) -> Optio
         Message.is_user == False
     ).first()
     return ai_response
+
+def save_message_pipeline_data(db: Session, message_id: int, pipeline_data_dict: dict) -> MessagePipelineData:
+    """Saves pipeline data for a specific message."""
+    db_pipeline_data = MessagePipelineData(message_id=message_id, pipeline_data=pipeline_data_dict)
+    db.add(db_pipeline_data)
+    db.commit()
+    db.refresh(db_pipeline_data)
+    return db_pipeline_data

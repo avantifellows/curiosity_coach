@@ -46,5 +46,17 @@ variable "aws_profile" {
   default     = "deepansh-af" # Or leave empty to prompt/use environment default
 }
 
+variable "flow_config_s3_bucket_name" {
+  description = "The name of the S3 bucket to store flow_config.json. If not provided, a new bucket will be created."
+  type        = string
+  default     = "111766607077-curiosity-coach-flow-config" # If empty, a new bucket will be created by Terraform
+}
+
+variable "flow_config_s3_key" {
+  description = "The S3 object key for the flow configuration JSON file."
+  type        = string
+  default     = "flow_config.json"
+}
+
 # Default values for ecr_repo_name and lambda_function_name are set in locals block in main.tf
 # to use the app_name variable for consistency. 
