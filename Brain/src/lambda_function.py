@@ -24,7 +24,7 @@ logger.setLevel(logging.INFO)
 # Create the Mangum handler for the FastAPI app
 asgi_handler = Mangum(app)
 
-async def lambda_handler(event, context):
+def lambda_handler(event, context):
     """
     AWS Lambda handler function.
 
@@ -71,7 +71,8 @@ async def lambda_handler(event, context):
 
                 logger.info(f"Processing message ID: {record.get('messageId')}")
                 # Pass the parsed Pydantic object to dequeue
-                await dequeue(parsed_message)
+                # Use asyncio.run() to call the async dequeue function
+                asyncio.run(dequeue(parsed_message))
                 processed_messages += 1
 
             except Exception as e:
@@ -130,7 +131,7 @@ if __name__ == '__main__':
         ]
     }
     print("Testing SQS event:")
-    result_sqs = asyncio.run(lambda_handler(test_event_sqs, None))
+    result_sqs = lambda_handler(test_event_sqs, None) # Changed back to direct call
     print(f"SQS Result: {result_sqs}")
 
     # To test the HTTP path locally, you'd need to simulate an API Gateway event payload.
