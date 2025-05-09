@@ -1,274 +1,106 @@
 # Curiosity Coach
 
-A modern chatbot application with a React frontend and Flask backend, using PostgreSQL for data storage and AWS SQS for message processing.
+Curiosity Coach is a multi-component application designed to provide a coaching-like experience to users. It leverages Large Language Models (LLMs) to process user queries and formulate thoughtful responses, guiding users through various topics or problems.
 
-## Architecture
+## Architecture Overview
 
-The application follows a modern, scalable architecture:
+The application follows a microservices architecture, comprising three main services: Frontend, Backend, and Brain. These services are orchestrated and deployed on AWS, with infrastructure managed by Terraform.
 
-- **Frontend**: React application with TypeScript and Material UI
-- **Backend**: Flask RESTful API 
-- **Database**: PostgreSQL for message and user storage
-- **Queue**: AWS SQS for message processing
-- **Processing**: AWS Lambda for message processing (simulated during development)
+-   **Frontend:** A web interface (likely React-based) allowing users to interact with the Curiosity Coach. Hosted on AWS S3.
+-   **Backend:** A Python FastAPI application serving as the API layer. It handles business logic, user authentication (if applicable), data persistence with RDS PostgreSQL, and communication with the Brain service via SQS. Hosted on AWS Lambda with a Function URL.
+-   **Brain:** A Python application (also deployable on AWS Lambda) responsible for the core intelligent processing. It consumes tasks from SQS, interacts with LLMs (e.g., OpenAI, Groq), uses a flow configuration from S3, and sends results back to the Backend.
 
-## Features
+## Services
 
-- User authentication with phone number
-- Real-time chat interface with message history
-- PostgreSQL database for persistent storage
-- Message queue integration for scalable processing
-- Responsive Material UI design
+Each service has its own detailed README file providing specific information about its functionality, setup, and local development.
 
-## Project Structure
+-   ### [Frontend Service (`curiosity-coach-frontend/`)](curiosity-coach-frontend/README.md)
+    The user-facing web application.
+    *   **Location:** `curiosity-coach-frontend/README.md`
 
-```
-curiosity-coach/
-├── backend/               # Flask backend API
-│   ├── app.py             # Main Flask application
-│   ├── database.py        # Database interaction module
-│   ├── queue_service.py   # AWS SQS integration
-│   └── requirements.txt   # Python dependencies
-│
-├── lambda_function/       # AWS Lambda function
-│   ├── lambda_function.py # Main Lambda handler
-│   ├── pyproject.toml     # Dependencies and project config
-│   ├── test_lambda_function.py # Unit tests
-│   └── deploy.sh          # Deployment script
-│
-└── curiosity-coach-frontend/  # React frontend
-    ├── public/            # Static assets
-    ├── src/               # Source code
-    │   ├── components/    # React components
-    │   ├── context/       # React context providers
-    │   ├── services/      # API services
-    │   └── types/         # TypeScript type definitions
-    └── package.json       # Node.js dependencies
-```
+-   ### [Backend Service (`backend/`)](backend/README.md)
+    Handles API requests, business logic, database interactions (PostgreSQL), and queuing tasks for the Brain.
+    *   **Location:** `backend/README.md`
 
-## Setup and Running Instructions
+-   ### [Brain Service (`Brain/`)](Brain/README.md)
+    The intelligent core that processes queries using LLMs and contextual data.
+    *   **Location:** `Brain/README.md`
 
-### Prerequisites
+## Infrastructure as Code (IaC)
 
-- Node.js 14+ and npm
-- Python 3.8+
-- PostgreSQL 14+
-- AWS account (optional for development)
+The entire cloud infrastructure for Curiosity Coach is defined and managed using Terraform. The configuration files are located in the `terraform/` directory at the root of the project.
 
-### 1. PostgreSQL Setup
+-   `terraform/frontend.tf`: Defines resources for the frontend (S3 bucket for static website hosting).
+-   `terraform/backend.tf`: Defines resources for the backend (Lambda, RDS, ECR, IAM roles, SQS queue access, VPC configurations).
+-   `terraform/brain.tf`: Defines resources for the Brain service (Lambda, ECR, S3 for flow configuration, SQS queue and trigger, IAM roles).
+-   `terraform/variables.tf`: Contains common variables used across the Terraform configurations.
+-   `terraform/providers.tf` (if present, or part of main.tf): Configures AWS provider.
+-   `terraform/outputs.tf` (if present): Defines outputs like service URLs.
 
-#### Starting PostgreSQL Server (macOS)
+For details on deploying and managing the infrastructure, refer to the README within the `terraform/` directory (you may need to create one if it doesn't exist) and the individual service READMEs for build/push instructions that might be prerequisites for Terraform deployment.
 
-**Using Homebrew:**
-```bash
-# Start PostgreSQL
-brew services start postgresql@14
+## User Flow and System Diagram
 
-# Check status
-brew services list | grep postgres
+The following diagram illustrates the typical flow of a user query through the Curiosity Coach system:
+
+```mermaid
+graph TD
+    User((User)) --> Frontend_S3{Frontend Application (S3)};
+    Frontend_S3 -- API Call (HTTPS) --> Backend_Lambda[Backend Lambda (Function URL)];
+    Backend_Lambda -- Read/Write --> RDS_DB[(RDS PostgreSQL)];
+    Backend_Lambda -- Sends Task --> SQS_Queue[SQS Queue];
+    SQS_Queue -- Triggers --> Brain_Lambda[Brain Lambda];
+    Brain_Lambda -- Reads Config --> S3_FlowConfig[S3 (flow_config.json)];
+    Brain_Lambda -- Interacts --> LLM_Services[LLM APIs (e.g., OpenAI, Groq)];
+    Brain_Lambda -- Sends Result (HTTP Callback) --> Backend_Lambda;
+    Backend_Lambda -- API Response (HTTPS) --> Frontend_S3;
+    Frontend_S3 -- Displays to --> User;
 ```
 
-**Using PostgreSQL.app:**
-1. Open PostgreSQL.app from Applications folder
-2. Click "Start" button
+**Flow Description:**
 
-**Troubleshooting PostgreSQL:**
+1.  **User Interaction:** The user interacts with the Frontend application hosted on S3.
+2.  **API Request:** The Frontend sends an API request (e.g., a query) to the Backend Lambda via its Function URL.
+3.  **Backend Processing (Initial):**
+    *   The Backend Lambda processes the request.
+    *   It may read from or write to the RDS PostgreSQL database (e.g., save conversation history, user data).
+    *   It then sends a message/task to an SQS queue for the Brain service to handle the computationally intensive or LLM-dependent part.
+4.  **SQS to Brain:** The SQS queue triggers the Brain Lambda function.
+5.  **Brain Processing:**
+    *   The Brain Lambda consumes the message from SQS.
+    *   It reads a `flow_config.json` from an S3 bucket to guide its processing logic.
+    *   It interacts with external LLM services (like OpenAI or Groq) to generate a response or analysis.
+    *   Once processing is complete, the Brain Lambda sends the result back to the Backend Lambda via an HTTP callback to a specific endpoint on the Backend.
+6.  **Backend Processing (Final):**
+    *   The Backend Lambda receives the callback from the Brain.
+    *   It processes this result, potentially updating the RDS database.
+    *   It formulates the final API response.
+7.  **API Response:** The Backend Lambda sends the API response back to the Frontend.
+8.  **Display to User:** The Frontend displays the information/response to the user.
 
-If you see a port conflict with AirPlay Receiver on port 5000:
-1. Go to System Settings → Sharing
-2. Turn off "AirPlay Receiver"
+## Getting Started
 
-If PostgreSQL requires a password:
-```bash
-export PGPASSWORD=yourpassword
-```
+To get started with development or deployment:
 
-#### Create the Database
-```bash
-# Connect to PostgreSQL
-psql -U postgres
+1.  **Prerequisites:**
+    *   AWS Account and configured AWS CLI.
+    *   Terraform CLI.
+    *   Docker.
+    *   Node.js and npm/yarn (for the frontend).
+    *   Python (for backend and brain, version specified in their respective READMEs/Dockerfiles).
+    *   `uv` (for backend Python environment, as mentioned in `backend/README.md`).
+2.  **Clone the Repository:**
+    ```bash
+    # git clone <repository-url>
+    cd curiosity-coach
+    ```
+3.  **Service-Specific Setup:** Follow the instructions in the `README.md` files located within each service directory (`curiosity-coach-frontend/`, `backend/`, `Brain/`) for detailed setup, environment configuration, and local running instructions.
+4.  **Infrastructure Deployment:** Use Terraform commands (`terraform init`, `terraform plan`, `terraform apply`) in the `terraform/` directory to deploy the AWS infrastructure. Ensure any prerequisite image pushes to ECR are done as per service READMEs if not fully automated by Terraform `null_resource` provisioners.
+5.  **Run All Services Locally:** You can start all services (Frontend, Backend, and Brain) concurrently using the "Start All Servers" task defined in `.vscode/tasks.json`. This is often executable via your IDE's task runner (e.g., VS Code: Command Palette -> Tasks: Run Task -> Start All Servers).
 
-# Create database
-CREATE DATABASE curiosity_coach;
+## Contributing
 
-# Exit psql
-\q
-```
-
-### 2. Backend Setup
-
-```bash
-# Navigate to backend directory
-cd backend
-
-# Create and activate virtual environment
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Create .env.local file
-cp .env.example .env.local
-# Edit .env.local with your PostgreSQL credentials
-```
-
-### 3. Frontend Setup
-
-```bash
-# Navigate to frontend directory
-cd curiosity-coach-frontend
-
-# Install dependencies
-npm install
-```
-
-### 4. Running the Application
-
-#### Option 1: Run Both Frontend and Backend Together
-
-```bash
-# From project root
-./run_dev.sh
-```
-
-This script starts both the backend and frontend development servers. Use `Ctrl+C` to gracefully stop both servers.
-
-#### Option 2: Run Backend and Frontend Separately
-
-**Terminal 1 - Backend:**
-```bash
-cd backend
-./run.sh
-```
-
-**Terminal 2 - Frontend:**
-```bash
-cd curiosity-coach-frontend
-npm start
-```
-
-### 5. Stopping the Servers
-
-If you need to forcefully stop the servers at any time:
-
-```bash
-# From project root
-./kill_servers.sh
-```
-
-This script kills both the frontend and backend processes.
-
-### 6. Access the Application
-
-- Frontend: http://localhost:3000
-- Backend API: http://localhost:5000
-- API Health Check: http://localhost:5000/api/health
-
-### Common Issues and Solutions
-
-- **Port 5000 already in use:** Change the port in backend/.env.local (PORT=5001) and update the proxy in curiosity-coach-frontend/package.json
-- **Database connection error:** Ensure PostgreSQL is running and credentials are correct
-- **Module not found errors:** Verify all dependencies are installed properly
-
-## Documentation
-
-- [Frontend Documentation](./curiosity-coach-frontend/README.md)
-- [Backend Documentation](./backend/README.md)
-
-## License
-
-This project is licensed under the GNU General Public License v3.0 - see the [LICENSE](./LICENSE) file for details.
-
-## Lambda Function
-
-The AWS Lambda function for processing messages is located in the `lambda_function/` directory. See the specific [Lambda README](./lambda_function/README.md) for details on setup and deployment.
-
-# Curiosity Coach Lambda Function
-
-This Lambda function processes messages from an SQS queue, calls an LLM API based on the message purpose, and saves the responses to a database.
-
-## Structure
-
-The SQS message structure expected by this Lambda function is:
-
-```json
-{
-  "user_id": "user123",
-  "message_id": "db_message_789",
-  "purpose": "test_generation",
-  "conversation_id": "conv_456"
-}
-```
-
-## Components
-
-- `lambda_function.py`: Main Lambda handler function
-- `requirements.txt`: Dependencies required for the Lambda function
-- `test_lambda_function.py`: Unit tests for the Lambda function
-
-## Setup and Deployment
-
-### Prerequisites
-
-- AWS Account
-- AWS CLI configured
-- Python 3.8+
-
-### Local Testing
-
-1. Install dependencies:
-
-```bash
-pip install -r requirements.txt
-```
-
-2. Run the unit tests:
-
-```bash
-python -m unittest test_lambda_function.py
-```
-
-### Deployment to AWS Lambda
-
-1. Create a deployment package:
-
-```bash
-pip install -r requirements.txt -t ./package
-cp *.py ./package/
-cd package
-zip -r ../lambda_deployment_package.zip .
-```
-
-2. Create the Lambda function using AWS CLI:
-
-```bash
-aws lambda create-function \
-  --function-name CuriosityCoach \
-  --runtime python3.9 \
-  --handler lambda_function.lambda_handler \
-  --role arn:aws:iam::<account-id>:role/lambda-sqs-role \
-  --zip-file fileb://lambda_deployment_package.zip
-```
-
-3. Create an SQS trigger for the Lambda function:
-
-```bash
-aws lambda create-event-source-mapping \
-  --function-name CuriosityCoach \
-  --event-source-arn arn:aws:sqs:<region>:<account-id>:<queue-name> \
-  --batch-size 10
-```
-
-## Implementation Notes
-
-- The function currently uses placeholder implementations for database operations and LLM API calls
-- These need to be replaced with actual implementations based on your infrastructure
-- Different model parameters are used based on the message purpose
-
-## Future Improvements
-
-- Implement actual database integration
-- Add more robust error handling and retry logic
-- Support for more purpose types and model parameters
-- Add CloudWatch metrics and alarms 
+Please refer to contributing guidelines if available (e.g., `CONTRIBUTING.md`). (Currently, a placeholder).
+-   Follow coding standards.
+-   Write tests for new features.
+-   Ensure documentation is updated. 
