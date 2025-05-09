@@ -32,9 +32,9 @@
     {
       "label": "Start Brain",
       "type": "shell",
-      "command": "cd Brain && source venv/bin/activate && pip install -r requirements.txt && uvicorn src.main:app --reload --port 8001",
+      "command": "./run.sh",
       "options": {
-        "cwd": "${workspaceFolder}"
+        "cwd": "${workspaceFolder}/Brain"
       },
       "isBackground": true,
       "presentation": {

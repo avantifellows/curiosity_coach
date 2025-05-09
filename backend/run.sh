@@ -3,6 +3,8 @@
 # Set environment to development
 export APP_ENV=development
 
+echo "Current working directory: $(pwd)"
+
 # Check if .env.local exists, if not, copy from .env.example
 if [ ! -f ".env.local" ]; then
     echo ".env.local not found."
@@ -14,26 +16,12 @@ if [ ! -f ".env.local" ]; then
         # Optionally exit here if .env.local is strictly required
         # exit 1
     fi
-elif [ -f "../.env.local" ]; then
-    # Check if .env.local exists in parent directory
-    if [ ! -f ".env.local" ]; then
-        echo ".env.local not found in current directory, checking parent directory..."
-        if [ -f "../.env.example" ]; then
-            echo "Creating .env.local from ../.env.example..."
-            cp ../.env.example .env.local
-        else
-             echo "Warning: ../.env.example not found. Cannot create .env.local."
-        fi
-    fi
 fi
 
 # Load environment variables from .env.local
 if [ -f ".env.local" ]; then
     echo "Loading environment variables from .env.local"
     export $(grep -v '^#' .env.local | xargs)
-elif [ -f "../.env.local" ]; then
-    echo "Loading environment variables from ../.env.local"
-    export $(grep -v '^#' ../.env.local | xargs)
 fi
 
 # --- AWS Credential Validation ---
@@ -114,6 +102,12 @@ fi
 # If we reach here, keys are valid
 echo "AWS credentials validated successfully (using Access Keys)."
 # --- End AWS Credential Validation ---
+
+# Check for and remove .venv directory if it exists
+if [ -d ".venv" ]; then
+    echo "Found existing .venv directory. Removing it..."
+    rm -rf ".venv"
+fi
 
 # Set up virtual environment path
 VENV_PATH="venv"
