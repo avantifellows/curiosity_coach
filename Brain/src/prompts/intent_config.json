@@ -23,5 +23,12 @@
   ],
   "recursive_intent": [
     "Curiosity about Curiosity"
-  ]
+  ],
+  "conversational_intent": [
+    "Greeting",
+    "Small_Talk",
+    "Farewell",
+    "Meaningless_Input",
+    "Meta_System_Query"
+]
 } 

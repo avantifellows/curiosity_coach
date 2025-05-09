@@ -48,7 +48,7 @@ def retrieve_knowledge(main_topic: str, related_topics: List[str], get_prompt_te
 
         # Return just the template if requested
         if get_prompt_template_only:
-            logger.info("Returning only the knowledge retrieval prompt template.")
+            logger.info(f"Returning only the knowledge retrieval prompt template.")
             # Ensure placeholders are still present
             if "{{MAIN_TOPIC}}" not in formatted_prompt_template_text or "{{RELATED_TOPICS}}" not in formatted_prompt_template_text:
                  logger.warning("Placeholders not found in the template when returning knowledge template only.")
@@ -63,22 +63,34 @@ def retrieve_knowledge(main_topic: str, related_topics: List[str], get_prompt_te
 
         logger.info(f"Retrieving knowledge for main topic: {main_topic}")
 
+        # Format the related topics as a comma-separated list or handle empty list
+        related_topics_str = ", ".join(related_topics) if related_topics else "None specified"
+        
         # Format the complete prompt with actual topics
         formatted_prompt = knowledge_prompt_template.replace("{{MAIN_TOPIC}}", main_topic)
-        formatted_prompt = formatted_prompt.replace("{{RELATED_TOPICS}}", ", ".join(related_topics))
-        logger.debug("Formatted complete prompt for knowledge retrieval")
+        formatted_prompt = formatted_prompt.replace("{{RELATED_TOPICS}}", related_topics_str)
+        logger.debug(f"Formatted complete prompt for knowledge retrieval on: {main_topic}")
 
         # Initialize LLM service
         logger.debug("Initializing LLM service for knowledge retrieval")
         llm_service = LLMService()
         
+        # Prepare messages for the LLM
+        messages = [
+            {"role": "system", "content": "You are an educational knowledge assistant with expertise across many domains."},
+            {"role": "user", "content": formatted_prompt}
+        ]
+        
         # Get context information from knowledge retrieval
         logger.debug("Requesting knowledge context from LLM")
-        knowledge_response = llm_service.generate_response(formatted_prompt, call_type="knowledge_retrieval")
-        context_info = knowledge_response["raw_response"]
+        response = llm_service.get_completion(messages, call_type="knowledge_retrieval")
         
-        logger.info("Successfully retrieved knowledge context")
-        return context_info, formatted_prompt # Return both context and the prompt
+        # Validate the response is not empty
+        if not response or len(response.strip()) < 50:
+            logger.warning(f"Knowledge retrieval returned unusually short response: '{response}'")
+            
+        logger.info(f"Successfully retrieved knowledge context ({len(response)} chars)")
+        return response, formatted_prompt # Return both context and the prompt
         
     except KnowledgeRetrievalError: # Re-raise specific errors
         raise
@@ -89,4 +101,4 @@ def retrieve_knowledge(main_topic: str, related_topics: List[str], get_prompt_te
         elif get_prompt_template_only and formatted_prompt_template_text:
             error_msg += f"\nPrompt template being processed:\n{formatted_prompt_template_text}"
         logger.error(error_msg, exc_info=True)
-        raise KnowledgeRetrievalError(error_msg) 
+        raise KnowledgeRetrievalError(error_msg)

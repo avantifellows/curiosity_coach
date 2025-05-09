@@ -39,52 +39,77 @@ intent_prompt_templates = {
     },
     "recursive_intent": {
         "Curiosity about Curiosity": "Say: 'Curiosity is like gravity for the mind.' Then ask: 'What\'s the last thing that really pulled your attention like that?'"
+    },
+    "conversational_intent": {
+        "Greeting": "Warmly greet the student and ask what they're curious about today. For example: 'Hello! What scientific topic or question has been on your mind lately?'",
+        "Small_Talk": "Briefly acknowledge the small talk, then guide toward learning with a question like: 'What have you been learning recently that you found interesting?' or 'Would you like to explore a fascinating science topic together?'",
+        "Farewell": "Acknowledge the goodbye and encourage future curiosity with something like: 'Goodbye! Remember to stay curious and come back when you have more questions to explore!'",
+        "Meaningless_Input": "Politely acknowledge the unclear input and offer structured options: 'I'm not quite sure what you're asking about. Would you like to learn about: 1) Space and astronomy, 2) Biology and living things, 3) How everyday technology works, or 4) Something else?'",
+        "Meta_System_Query": "Briefly explain what Curiosity Coach does and offer a starter question: 'I'm here to help you explore interesting topics and answer your questions. What would you like to learn about today?'"
     }
 }
 
 def _generate_response_prompt(query: str, intent_json: Dict[str, Any], context_info: str) -> str:
     """
     Generates the prompt for the initial response based on query, intent, and context.
-    (Renamed from the original generate_response_prompt for internal use)
     """
     prompt_parts = []
 
-    # Add student query and context
+    # Get primary intent from the updated intent structure
+    primary_intent = intent_json["intents"]["primary_intent"]
+    category = primary_intent["category"]
+    specific_type = primary_intent["specific_type"]
+    confidence = primary_intent["confidence"]
+    
+    # Add student query
     prompt_parts.append(f"The student asked: \"{query}\"\n")
-    if context_info and context_info.strip(): # Check if context_info is not None and not just whitespace
+    
+    # Handle very low confidence or meaningless inputs differently
+    if confidence < 0.4 or (category == "conversational_intent" and specific_type == "Meaningless_Input"):
+        prompt_parts.append("This appears to be a low-quality or unclear input. Respond by:")
+        prompt_parts.append("1. Briefly acknowledging what was said")
+        prompt_parts.append("2. Redirecting to more meaningful conversation")
+        prompt_parts.append("3. Offering 3-4 specific topic options they might be interested in")
+        prompt_parts.append("4. Asking an engaging question to spark curiosity\n")
+    
+    # Add context for substantive questions
+    elif category != "conversational_intent" and context_info and context_info.strip(): 
         prompt_parts.append("Use the following information to answer the question:\n")
         prompt_parts.append(f"{context_info.strip()}\n")
+        prompt_parts.append("Now, generate a response that does the following:\n")
+    
+        # Add intent-specific templates for substantive questions
+        template = intent_prompt_templates.get(category, {}).get(specific_type)
+        if template:
+            prompt_parts.append(f"- {template}")
+            
+        # Add secondary intent handling if confidence is good
+        secondary_intent = intent_json["intents"].get("secondary_intent")
+        if secondary_intent and secondary_intent["confidence"] > 0.3:
+            sec_category = secondary_intent["category"]
+            sec_type = secondary_intent["specific_type"]
+            sec_template = intent_prompt_templates.get(sec_category, {}).get(sec_type)
+            if sec_template:
+                prompt_parts.append(f"- Also: {sec_template}")
+    
+    # Handle conversational intents
     else:
-        prompt_parts.append("No specific context information was retrieved. Answer based on general knowledge.\n")
-
-    prompt_parts.append("Now, generate a response that does the following:\n")
-
-    for category, value in intent_json["intents"].items():
-        if value:
-            template = intent_prompt_templates.get(category, {}).get(value)
-            if template:
-                prompt_parts.append(f"- {template}")
-
-    prompt_parts.append("\nFrame the response in a conversational tone aimed at a curious student aged 11–15.")
+        template = intent_prompt_templates.get(category, {}).get(specific_type)
+        if template:
+            prompt_parts.append(f"- {template}")
+    
+    # Universal instructions
+    prompt_parts.append("\nImportant guidelines:")
+    prompt_parts.append("- Frame the response in a friendly, conversational tone aimed at a curious student aged 11–15")
+    prompt_parts.append("- Keep responses concise (max 4-5 sentences)")
+    prompt_parts.append("- Always end with a question that encourages further engagement")
+    prompt_parts.append("- If the input is unclear, guide them toward more meaningful topics rather than attempting to answer")
+    
     return "\n".join(prompt_parts)
-
 
 def generate_initial_response(query: str, intent_json: Dict[str, Any], context_info: str) -> Tuple[str, str]:
     """
     Generates the initial response based on the query, identified intents, and retrieved context.
-
-    Args:
-        query (str): The user's query.
-        intent_json (Dict[str, Any]): The identified intent data.
-        context_info (str): The retrieved knowledge context.
-
-    Returns:
-        Tuple[str, str]: A tuple containing:
-            - The generated initial response string.
-            - The prompt used to generate the response.
-
-    Raises:
-        ResponseGenerationError: If the response generation fails.
     """
     final_prompt = "" # Initialize
     try:
@@ -96,10 +121,15 @@ def generate_initial_response(query: str, intent_json: Dict[str, Any], context_i
         logger.debug("Initializing LLM service for initial response generation")
         llm_service = LLMService()
 
+        # Prepare messages for the LLM
+        messages = [
+            {"role": "system", "content": "You are Curiosity Coach, an educational AI designed to foster curiosity and engage students in meaningful learning conversations."},
+            {"role": "user", "content": final_prompt}
+        ]
+        
         # Generate the initial response
         logger.debug("Generating initial response...")
-        response_dict = llm_service.generate_response(final_prompt, call_type="response_generation")
-        initial_response = response_dict["raw_response"]
+        initial_response = llm_service.get_completion(messages, call_type="response_generation")
 
         logger.debug("Successfully generated initial response")
         return initial_response, final_prompt
