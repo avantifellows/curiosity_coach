@@ -144,6 +144,14 @@ async def receive_brain_response(payload: BrainResponsePayload, db: Session = De
         if not conversation:
             print(f"Error: Brain response received for non-existent conversation_id: {payload.conversation_id}")
             raise HTTPException(status_code=404, detail=f"Conversation {payload.conversation_id} not found.")
+        
+        # Update conversation's prompt_version_id if provided
+        if payload.prompt_version_id is not None:
+            conversation.prompt_version_id = payload.prompt_version_id
+            db.add(conversation)
+            db.commit()
+            db.refresh(conversation)
+            print(f"Updated conversation {payload.conversation_id} with prompt_version_id: {payload.prompt_version_id}")
             
         pipeline_data_to_save = None
         if payload.pipeline_data:
