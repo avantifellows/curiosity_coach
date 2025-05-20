@@ -115,28 +115,74 @@
     <div class="container">
         <h1>Curiosity Coach - Processing Rules Flowchart</h1>
 
-        <!-- Mermaid Flowchart Definition -->
-        <div class="mermaid">
-            graph TD
-                A[User Query] --> B(1. Intent Gathering);
-                B --> G{Needs Clarification?};
-                G -->|Yes| H[Ask Follow-up Questions];
-                H --> I[User Response];
-                I --> J(Process Follow-up);
-                J --> G;
-                G -->|No| K{Check Intent Category};
-                K -->|Educational| C(2. Knowledge Retrieval);
-                K -->|Conversational| D(3. Initial Response Generation);
-                K -->|Clarification| C(2. Knowledge Retrieval);
-                K -->|Administrative| D(3. Initial Response Generation);
-                K -->|Personal| D(3. Initial Response Generation);
-                C --> D(3. Initial Response Generation);
-                D --> L{Educational Intent?};
-                L -->|Yes| E(4. Learning Enhancement);
-                L -->|No| F[Send Response to Chat App];
-                E --> F[Send Response to Chat App];
+        <!-- View Link -->
+        <div style="text-align: center; margin-bottom: 20px;">
+            <a href="/simplified_rules" style="display: inline-block; padding: 8px 16px; background-color: #4CAF50; color: white; text-decoration: none; border-radius: 4px;">
+                Switch to Simplified View
+            </a>
+        </div>
 
-                %% Click interactions removed, will be added via JS
+        <!-- Original Flowchart View -->
+        <div>
+            <!-- Mermaid Flowchart Definition -->
+            <div class="mermaid">
+                graph TD
+                    A[User Query] --> B(1. Intent Gathering);
+                    B --> G{Needs Clarification?};
+                    G -->|Yes| H[Ask Follow-up Questions];
+                    H --> I[User Response];
+                    I --> J(Process Follow-up);
+                    J --> G;
+                    G -->|No| K{Check Intent Category};
+                    K -->|Educational| C(2. Knowledge Retrieval);
+                    K -->|Conversational| D(3. Initial Response Generation);
+                    K -->|Clarification| C(2. Knowledge Retrieval);
+                    K -->|Administrative| D(3. Initial Response Generation);
+                    K -->|Personal| D(3. Initial Response Generation);
+                    C --> D(3. Initial Response Generation);
+                    D --> L{Educational Intent?};
+                    L -->|Yes| E(4. Learning Enhancement);
+                    L -->|No| F[Send Response to Chat App];
+                    E --> F[Send Response to Chat App];
+
+                    %% Click interactions removed, will be added via JS
+            </div>
+        </div>
+
+        <!-- Simplified Flowchart View (hidden by default) -->
+        <div id="simplified-view" style="display: none;">
+            <h2>Simplified Processing Flow</h2>
+            <div class="mermaid">
+                graph TD
+                    A[User Query] --> B(Simplified Conversation Handler);
+                    B --> C{Needs Clarification?};
+                    C -->|Yes| D[Ask Follow-up Questions];
+                    D --> E[User Response];
+                    E --> B;
+                    C -->|No| F[Generate Response];
+                    F --> G[Send Response to Chat App];
+            </div>
+            
+            <div style="background-color: #f8f9fa; padding: 20px; border-radius: 8px; margin-top: 30px;">
+                <h3>About Simplified Mode</h3>
+                <p>The simplified conversation mode replaces the multi-step pipeline with a single, streamlined process that:</p>
+                <ul>
+                    <li>Uses one consolidated prompt with examples and guidelines</li>
+                    <li>Returns structured JSON responses with clarification handling</li>
+                    <li>Maintains conversation history for context-aware responses</li>
+                    <li>Focuses on fostering curiosity through interactive dialogue</li>
+                </ul>
+                <p>The response format includes:</p>
+                <pre style="font-size: 0.9em;">
+{
+    "needs_clarification": boolean,
+    "follow_up_questions": [] or null,
+    "response": string,
+    "ended_with_question": boolean,
+    "educational_concepts": []
+}</pre>
+                <p>This approach is designed to create natural, engaging conversations with students while preserving the pedagogical effectiveness of the original pipeline.</p>
+            </div>
         </div>
 
         <!-- Modal for Intent Gathering -->
@@ -205,150 +251,70 @@
             </div>
         </div>
 
-        <!-- Modal for Follow-up Processing -->
-        <div id="followup-modal" class="modal">
+        <!-- Add a new modal for Simplified Conversation Handler -->
+        <div id="simplified-modal" class="modal">
             <div class="modal-content">
-                <span class="modal-close" onclick="closeModal('followup-modal')">&times;</span>
-                <h2>Follow-up Question Processing</h2>
+                <span class="modal-close" onclick="closeModal('simplified-modal')">&times;</span>
+                <h2>Simplified Conversation Handler</h2>
                 <div class="content">
-                    <p>When the system asks follow-up questions, it processes the student's responses to gather more information about their intent. This enables more targeted and helpful answers.</p>
+                    <p>The simplified conversation handler uses a single prompt-based approach to generate engaging responses that foster curiosity.</p>
                     
-                    <p><strong>For example:</strong></p>
-                    <p>Original query: "Tell me more about the Pope."</p>
-                    <p>Follow-up questions:</p>
-                    <ul>
-                        <li>What made you interested in learning about the Pope?</li>
-                        <li>What do you already know about the Pope or the Catholic Church?</li>
-                    </ul>
-                    
-                    <p>Student response: "I saw him on TV yesterday and my friends were talking about him. I know he's the leader of the Catholic Church and lives in Vatican City."</p>
-                    
-                    <p>The system then processes this response to build a complete understanding:</p>
-                    <pre>
+                    {% if simplified_conversation_template %}
+                    <p>Here's an excerpt from the prompt template:</p>
+                    <pre>{{ simplified_conversation_template }}</pre>
+                    {% else %}
+                    <p>Template example (preview):</p>
+                    <pre>You are a Curiosity Coach, designed to engage students in grades 5-10 in thought-provoking conversations that foster critical thinking, curiosity, and active learning.
+
+CONVERSATION EXAMPLES:
+- Example conversations showing interactive dialogue patterns
+- Demonstrating how to build on student responses
+- Showing progression from simple questions to deeper exploration
+
+CONVERSATION GUIDELINES:
+1. Ask open-ended questions to encourage deeper thinking
+2. Build on student's responses to foster exploration
+3. Connect abstract concepts to personal experiences
+4. Focus on the student's perspective rather than providing direct answers
+5. End with a question or task that extends learning
+
+RESPONSE FORMAT:
+Return a JSON object with the following structure:
 {
-    "needs_clarification": false,
-    "query": "Tell me more about the Pope.",
-    "subject": {
-        "main_topic": "The Pope (Catholic leadership)",
-        "related_topics": [
-            "Vatican City",
-            "Papal duties",
-            "Current Pope Francis",
-            "Catholic Church"
-        ]
-    },
-    "intents": {
-        "primary_intent": {
-            "category": "exploratory_intent",
-            "specific_type": "Open-ended Exploration",
-            "confidence": 0.88
-        },
-        "secondary_intent": {
-            "category": "cognitive_intent",
-            "specific_type": "Concept Clarification",
-            "confidence": 0.65
-        }
-    },
-    "context": {
-        "known_information": "The student knows the Pope is the leader of the Catholic Church and resides in Vatican City",
-        "motivation": "Current events - saw the Pope on television and heard friends discussing him",
-        "learning_goal": "Understanding more about the Pope's role, significance, and current activities"
-    }
+    "needs_clarification": boolean,
+    "follow_up_questions": [] or null,
+    "response": string,
+    "ended_with_question": boolean,
+    "educational_concepts": []
 }</pre>
-                    <p>This comprehensive understanding allows the system to provide a response that is tailored to the student's actual interests and background knowledge.</p>
-                </div>
-            </div>
-        </div>
-
-        <!-- Modal for Knowledge Retrieval -->
-        <div id="knowledge-modal" class="modal">
-            <div class="modal-content">
-                <span class="modal-close" onclick="closeModal('knowledge-modal')">&times;</span>
-                <h2>2. Knowledge Retrieval</h2>
-                <div class="content">
-                    <p>This step gathers relevant background information based on the identified topic and related topics. It is only executed for intent categories "educational" and "clarification". The following prompt template is used:</p>
-                    <pre>{{ knowledge_prompt_template }}</pre>
-                    <p>The LLM responds with relevant factual context. Here's an example output based on the topic "Rayleigh scattering":</p>
+                    {% endif %}
+                    
+                    <p><strong>Example Conversations:</strong></p>
+                    <p>The template includes example conversations like:</p>
                     <pre>
-Rayleigh scattering is the elastic scattering of light or other electromagnetic radiation by particles much smaller than the wavelength of the radiation. It is named after the British physicist Lord Rayleigh, who first described it in the 1870s.
+Example: Mountains
+Kid: How are mountains formed?
+AI: What do you think — do mountains grow like trees or are they made some other way?
+Kid: maybe the earth pushes them up?
+AI: You're on the right track! Have you heard of something called tectonic plates?
+Kid: Nope, what's that?
+AI: They're huge slabs under the earth that move very slowly. When they crash into each other, they push up land — and that's how many mountains are made!
+Kid: So they're still moving?
+AI: Yep! Very slowly though. Can you guess which is the tallest mountain in the world?
+Kid: Mount Everest!
+AI: Correct! Do you know where it is?
+Kid: Somewhere in Nepal, right?
+AI: Exactly. Want to draw your own imaginary mountain range and name your peaks? Make up a story about who lives on top!</pre>
 
-Key points:
-*   Scattering Intensity: Rayleigh scattering intensity is inversely proportional to the fourth power of the wavelength (I ∝ 1/λ⁴). This means shorter wavelengths (blue and violet light) are scattered much more strongly than longer wavelengths (red and orange light).
-*   Particle Size: The effect is prominent when light interacts with particles much smaller than its wavelength, such as individual air molecules (oxygen and nitrogen) in the Earth's atmosphere.
-*   Atmospheric Optics: This strong scattering of blue light by air molecules is why the daytime sky appears blue. Sunlight entering the atmosphere has all colors, but blue light gets scattered in all directions across the sky, making it appear blue when we look up.
-*   Sunset Colors: At sunrise and sunset, sunlight travels through more of the atmosphere to reach our eyes. Most of the blue light is scattered away, leaving the longer wavelengths (reds and oranges) to dominate the light that reaches us directly, resulting in reddish skies.
-*   Mie Scattering: Scattering by particles comparable to or larger than the wavelength of light (like water droplets, dust, or pollen) in described by Mie theory. Mie scattering is less wavelength-dependent and scatters light more in the forward direction. It contributes to the white glare around the sun and the white appearance of clouds.
-*   Polarization: Rayleigh scattered light is also partially polarized.
-
-Understanding Rayleigh scattering is crucial for explaining various natural phenomena related to atmospheric optics and color perception.</pre>
-                </div>
-            </div>
-        </div>
-
-        <!-- Modal for Initial Response Generation -->
-        <div id="response-modal" class="modal">
-            <div class="modal-content">
-                <span class="modal-close" onclick="closeModal('response-modal')">&times;</span>
-                <h2>3. Initial Response Generation</h2>
-                <div class="content">
-                    <p>This step constructs a prompt dynamically to guide the LLM in generating an initial response. The prompt combines the user's query, the retrieved knowledge, and specific instructions based on the intents identified in Step 1.</p>
-
-                    <p>The base structure of the prompt looks like this:</p>
-                    <pre>
-The student asked: "{{ '{{' }}USER QUERY{{ '}}' }}"
-
-Use the following information to answer the question:
-{{ '{{' }}KNOWLEDGE CONTEXT{{ '}}' }}
-
-The student's context based on our conversation:
-- What they already know: {{ '{{' }}KNOWN_INFORMATION{{ '}}' }}
-- Why they're asking: {{ '{{' }}MOTIVATION{{ '}}' }}
-- What they want to learn: {{ '{{' }}LEARNING_GOAL{{ '}}' }}
-
-Now, generate a response that does the following:
-{{ '{{' }}DYNAMIC INTENT-BASED INSTRUCTIONS{{ '}}' }}
-
-Frame the response in a conversational tone aimed at a curious student aged 10-12.</pre>
-
-                    <p>The <code>{{ '{{' }}DYNAMIC INTENT-BASED INSTRUCTIONS{{ '}}' }}</code> part is built by looking up the identified intents in the following mapping. For each non-null intent found, the corresponding instruction line is added to the prompt:</p>
-                    <pre style="font-size: 0.9em; line-height: 1.4;">
-cognitive_intent:
-    Concept Clarification: "- Define the term in very simple language, relate it to a real-world analogy, and ask: 'Have you come across something like this before?'"
-    Causal Exploration: "- Explain the reason behind the phenomenon step-by-step. Then end with a question like: 'Can you think of another place in the universe where this might also happen?'"
-    Comparison Seeking: "- Give a contrast-based explanation with a table or analogy. Follow with: 'Which one do you think is cooler or more useful?'"
-    Hypothetical Reasoning: "- Say: 'Let's imagine this was true… what would change around us?' and walk them through a scenario. End with: 'What else would you change in this imagined world?'"
-    Application Inquiry: "- Start with: 'This might sound surprising, but this is used in real life like this…'. Then ask: 'Where else do you think this idea could be useful?'"
-    Depth Expansion: "- Say: 'You already know the basics, so let's go one level deeper…'. Then offer an advanced idea and ask: 'Does this change how you see the original idea?'"
-
-exploratory_intent:
-    Open-ended Exploration: "- Give a fun fact or little-known detail and say: 'Want me to show you more fascinating stuff related to this?'"
-    Topic Hopping: "- Mention 2–3 related ideas and ask: 'Want to jump into those next?'"
-    Curiosity about Systems/Structures: "- Explain how the system's parts work together. Ask: 'What would happen if one part didn't work?'"
-
-metacognitive_intent:
-    Learning How to Learn: "- Give a technique or trick (e.g., memory method) and ask: 'Want to try using it on this topic?'"
-    Interest Reflection: "- Link the topic to hobbies and say: 'Do you think this connects with what you already enjoy doing?'"
-
-emotional_identity_intent:
-    Identity Exploration: "- Say: 'It's okay to feel unsure. Let's explore this together step-by-step.' Then give an easy entry point."
-    Validation Seeking: "- Say: 'That's a great thought — let me show you if that's true and why.'"
-    Inspiration Seeking: "- Respond with awe: 'This is mind-blowing — let me show you why!'"
-
-recursive_intent:
-    Curiosity about Curiosity: "- Say: 'Curiosity is like gravity for the mind.' Then ask: 'What's the last thing that really pulled your attention like that?'"</pre>
-                </div>
-            </div>
-        </div>
-
-        <!-- Modal for Learning Enhancement -->
-        <div id="enhancement-modal" class="modal">
-            <div class="modal-content">
-                <span class="modal-close" onclick="closeModal('enhancement-modal')">&times;</span>
-                <h2>4. Learning Enhancement</h2>
-                <div class="content">
-                    <p>This step takes the initial response and enhances it with pedagogical strategies to foster curiosity and deeper learning. It is only executed for intent category "educational". The following template is used:</p>
-                    <pre>{{ learning_prompt_template }}</pre>
-                    <p>This enhancement step transforms a straightforward explanatory response into one that actively engages the student's curiosity, invites further questions, and encourages exploration of the topic.</p>
+                    <p><strong>Conversation Guidelines:</strong></p>
+                    <ul>
+                        <li>Ask open-ended questions to encourage deeper thinking</li>
+                        <li>Build on student's responses to foster exploration</li>
+                        <li>Connect abstract concepts to personal experiences</li>
+                        <li>Focus on the student's perspective rather than providing direct answers</li>
+                        <li>End with a question or task that extends learning beyond the conversation</li>
+                        <li>Keep responses concise and appropriate for the age level</li>
+                    </ul>
                 </div>
             </div>
         </div>
@@ -357,63 +323,66 @@ recursive_intent:
             // Initialize Mermaid
             mermaid.initialize({
                 startOnLoad: true,
-                theme: 'default',
-                flowchart: {
-                    useMaxWidth: false, 
-                    htmlLabels: true,
-                    curve: 'basis'
-                }
+                securityLevel: 'loose',
+                theme: 'default'
             });
 
             // After Mermaid has rendered, set up click handlers
             document.addEventListener('DOMContentLoaded', function() {
                 setTimeout(function() {
-                    // Click handler for Intent Identification
-                    let intentNode = document.querySelector('.node:nth-child(3)'); // First node from the start
-                    if (intentNode) {
-                        intentNode.classList.add('clickable');
-                        intentNode.addEventListener('click', function() {
-                            openModal('intent-modal');
-                        });
-                    }
-
-                    // Click handler for Follow-up Questions
-                    let followupNode = document.querySelector('.node:nth-child(5)'); // Adjust as needed
-                    if (followupNode) {
-                        followupNode.classList.add('clickable');
-                        followupNode.addEventListener('click', function() {
-                            openModal('followup-modal');
-                        });
-                    }
-
-                    // Click handler for Knowledge Retrieval
-                    let knowledgeNode = document.querySelector('.node:nth-child(8)'); // Adjust based on your SVG structure
-                    if (knowledgeNode) {
-                        knowledgeNode.classList.add('clickable');
-                        knowledgeNode.addEventListener('click', function() {
-                            openModal('knowledge-modal');
-                        });
-                    }
-
-                    // Click handler for Initial Response
-                    let responseNode = document.querySelector('.node:nth-child(9)'); // Adjust based on your SVG structure
-                    if (responseNode) {
-                        responseNode.classList.add('clickable');
-                        responseNode.addEventListener('click', function() {
-                            openModal('response-modal');
-                        });
-                    }
-
-                    // Click handler for Learning Enhancement
-                    let enhancementNode = document.querySelector('.node:nth-child(10)'); // Last node
-                    if (enhancementNode) {
-                        enhancementNode.classList.add('clickable');
-                        enhancementNode.addEventListener('click', function() {
-                            openModal('enhancement-modal');
-                        });
-                    }
+                    setupFlowchartHandlers();
                 }, 1000); // Give time for Mermaid to render
             });
+            
+            function setupFlowchartHandlers() {
+                // Original flowchart handlers
+                const nodes = document.querySelectorAll('.node');
+                
+                // Click handler for Intent Identification
+                let intentNode = nodes[2]; // First node from the start
+                if (intentNode) {
+                    intentNode.classList.add('clickable');
+                    intentNode.addEventListener('click', function() {
+                        openModal('intent-modal');
+                    });
+                }
+
+                // Click handler for Follow-up Questions
+                let followupNode = nodes[4]; // Adjust as needed
+                if (followupNode) {
+                    followupNode.classList.add('clickable');
+                    followupNode.addEventListener('click', function() {
+                        openModal('followup-modal');
+                    });
+                }
+
+                // Click handler for Knowledge Retrieval
+                let knowledgeNode = nodes[7]; // Adjust based on your SVG structure
+                if (knowledgeNode) {
+                    knowledgeNode.classList.add('clickable');
+                    knowledgeNode.addEventListener('click', function() {
+                        openModal('knowledge-modal');
+                    });
+                }
+
+                // Click handler for Initial Response
+                let responseNode = nodes[8]; // Adjust based on your SVG structure
+                if (responseNode) {
+                    responseNode.classList.add('clickable');
+                    responseNode.addEventListener('click', function() {
+                        openModal('response-modal');
+                    });
+                }
+
+                // Click handler for Learning Enhancement
+                let enhancementNode = nodes[9]; // Last node
+                if (enhancementNode) {
+                    enhancementNode.classList.add('clickable');
+                    enhancementNode.addEventListener('click', function() {
+                        openModal('enhancement-modal');
+                    });
+                }
+            }
 
             // Functions to open and close modals
             function openModal(modalId) {
