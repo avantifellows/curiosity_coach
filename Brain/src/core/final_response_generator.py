@@ -1,7 +1,7 @@
 # intent_response_generator.py
 
 import os
-from typing import Dict, Any, Tuple
+from typing import Dict, Any, Tuple, Optional
 from src.services.llm_service import LLMService
 from src.utils.logger import logger
 
@@ -49,20 +49,42 @@ intent_prompt_templates = {
     }
 }
 
-def _generate_response_prompt(query: str, intent_json: Dict[str, Any], context_info: str) -> str:
+def _generate_response_prompt(query: str, intent_data: Dict[str, Any], context_info: str) -> str:
     """
     Generates the prompt for the initial response based on query, intent, and context.
     """
     prompt_parts = []
 
-    # Get primary intent from the updated intent structure
-    primary_intent = intent_json["intents"]["primary_intent"]
-    category = primary_intent["category"]
-    specific_type = primary_intent["specific_type"]
-    confidence = primary_intent["confidence"]
-    
     # Add student query
     prompt_parts.append(f"The student asked: \"{query}\"\n")
+    
+    # Check if intent_data has the expected structure
+    if not intent_data or "intents" not in intent_data:
+        # Handle missing intent data
+        prompt_parts.append("This appears to be a query with unclear intent. Respond by:")
+        prompt_parts.append("1. Acknowledging what was asked")
+        prompt_parts.append("2. Providing a simple, friendly answer")
+        prompt_parts.append("3. Asking a follow-up question to better understand their interests")
+        prompt_parts.append("4. Encouraging further curiosity\n")
+        
+        # Add universal instructions and return
+        prompt_parts.append("\nImportant guidelines:")
+        prompt_parts.append("- Frame the response in a friendly, conversational tone aimed at a curious student aged 10-12")
+        prompt_parts.append("- Keep responses concise (max 4-5 sentences)")
+        prompt_parts.append("- Always end with a question that encourages further engagement")
+        return "\n".join(prompt_parts)
+    
+    # Get primary intent from the intent structure
+    primary_intent = intent_data.get("intents", {}).get("primary_intent", {})
+    category = primary_intent.get("category", "")
+    specific_type = primary_intent.get("specific_type", "")
+    confidence = primary_intent.get("confidence", 0.0)
+    
+    # Extract context information from intent data
+    student_context = intent_data.get("context", {})
+    known_information = student_context.get("known_information", "Not specified")
+    motivation = student_context.get("motivation", "Not specified")
+    learning_goal = student_context.get("learning_goal", "Not specified")
     
     # Handle very low confidence or meaningless inputs differently
     if confidence < 0.4 or (category == "conversational_intent" and specific_type == "Meaningless_Input"):
@@ -76,6 +98,13 @@ def _generate_response_prompt(query: str, intent_json: Dict[str, Any], context_i
     elif category != "conversational_intent" and context_info and context_info.strip(): 
         prompt_parts.append("Use the following information to answer the question:\n")
         prompt_parts.append(f"{context_info.strip()}\n")
+        
+        # Include student context from intent gathering
+        prompt_parts.append("The student's context based on our conversation:")
+        prompt_parts.append(f"- What they already know: {known_information}")
+        prompt_parts.append(f"- Why they're asking: {motivation}")
+        prompt_parts.append(f"- What they want to learn: {learning_goal}\n")
+        
         prompt_parts.append("Now, generate a response that does the following:\n")
     
         # Add intent-specific templates for substantive questions
@@ -84,10 +113,10 @@ def _generate_response_prompt(query: str, intent_json: Dict[str, Any], context_i
             prompt_parts.append(f"- {template}")
             
         # Add secondary intent handling if confidence is good
-        secondary_intent = intent_json["intents"].get("secondary_intent")
-        if secondary_intent and secondary_intent["confidence"] > 0.3:
-            sec_category = secondary_intent["category"]
-            sec_type = secondary_intent["specific_type"]
+        secondary_intent = intent_data.get("intents", {}).get("secondary_intent", {})
+        if secondary_intent and secondary_intent.get("confidence", 0.0) > 0.3:
+            sec_category = secondary_intent.get("category", "")
+            sec_type = secondary_intent.get("specific_type", "")
             sec_template = intent_prompt_templates.get(sec_category, {}).get(sec_type)
             if sec_template:
                 prompt_parts.append(f"- Also: {sec_template}")
@@ -100,21 +129,33 @@ def _generate_response_prompt(query: str, intent_json: Dict[str, Any], context_i
     
     # Universal instructions
     prompt_parts.append("\nImportant guidelines:")
-    prompt_parts.append("- Frame the response in a friendly, conversational tone aimed at a curious student aged 11–15")
+    prompt_parts.append("- Frame the response in a friendly, conversational tone aimed at a curious student aged 10-12")
     prompt_parts.append("- Keep responses concise (max 4-5 sentences)")
     prompt_parts.append("- Always end with a question that encourages further engagement")
     prompt_parts.append("- If the input is unclear, guide them toward more meaningful topics rather than attempting to answer")
     
     return "\n".join(prompt_parts)
 
-def generate_initial_response(query: str, intent_json: Dict[str, Any], context_info: str) -> Tuple[str, str]:
+def generate_initial_response(query: str, intent_data: Optional[Dict[str, Any]], context_info: Optional[str] = None) -> Tuple[str, str]:
     """
     Generates the initial response based on the query, identified intents, and retrieved context.
+    
+    Args:
+        query (str): The user's query
+        intent_data (Optional[Dict[str, Any]]): The intent data from the intent gathering process
+        context_info (Optional[str]): Retrieved context information about the topic
+        
+    Returns:
+        Tuple[str, str]: The generated response and the prompt used to generate it
     """
     final_prompt = "" # Initialize
     try:
         logger.debug("Generating initial response prompt...")
-        final_prompt = _generate_response_prompt(query, intent_json, context_info)
+        final_prompt = _generate_response_prompt(
+            query, 
+            intent_data if intent_data else {}, 
+            context_info if context_info else ""
+        )
         logger.debug(f"Generated initial response prompt: {final_prompt}")
 
         # Initialize LLM service
