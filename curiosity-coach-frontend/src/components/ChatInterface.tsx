@@ -4,7 +4,7 @@ import ChatMessage from './ChatMessage';
 import ConversationSidebar from './ConversationSidebar';
 import BrainConfigView from './BrainConfigView';
 import { useChat } from '../context/ChatContext';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { LogoutOutlined, Send, Visibility } from '@mui/icons-material';
 import { getPipelineSteps } from '../services/api';
@@ -106,14 +106,22 @@ const ChatInterface: React.FC = () => {
                 </p>
               )}
             </div>
-            <button 
-              onClick={handleLogout}
-              className="flex items-center px-3 py-1.5 bg-red-500 text-white rounded hover:bg-red-600 transition duration-150 ease-in-out text-sm"
-              title="Logout"
-            >
-              <LogoutOutlined fontSize="small" className="mr-1"/> 
-              Logout
-            </button>
+            <div className="flex items-center space-x-3">
+              <Link 
+                to="/prompts"
+                className="flex items-center px-3 py-1.5 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition duration-150 ease-in-out text-sm"
+              >
+                Prompt Versions
+              </Link>
+              <button 
+                onClick={handleLogout}
+                className="flex items-center px-3 py-1.5 bg-red-500 text-white rounded hover:bg-red-600 transition duration-150 ease-in-out text-sm"
+                title="Logout"
+              >
+                <LogoutOutlined fontSize="small" className="mr-1"/> 
+                Logout
+              </button>
+            </div>
           </div>
         </header>
 

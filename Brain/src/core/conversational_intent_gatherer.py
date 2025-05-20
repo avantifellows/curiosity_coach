@@ -91,22 +91,32 @@ async def _get_prompt_from_backend(prompt_name: str) -> Optional[str]:
     """
     try:
         url = f"{_BACKEND_URL}{_PROMPT_API_PATH}/{prompt_name}/versions/active/"
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            logger.debug(f"Fetching prompt '{prompt_name}' from backend at: {url}")
+        logger.info(f"Fetching active prompt version for '{prompt_name}' from: {url}")
+        
+        async with httpx.AsyncClient(timeout=10.0) as client:
             response = await client.get(url)
             
             if response.status_code == 200:
                 data = response.json()
-                logger.info(f"Successfully fetched prompt '{prompt_name}' from backend versioning system")
+                logger.info(f"Successfully fetched prompt '{prompt_name}' (version {data.get('version_number')}) from backend")
                 return data.get("prompt_text")
+            elif response.status_code == 404:
+                logger.warning(f"No active version found for prompt '{prompt_name}' (404). Will use local fallback.")
+                return None
             else:
                 logger.warning(f"Failed to fetch prompt '{prompt_name}' from backend: {response.status_code} - {response.text}")
                 return None
+    except httpx.RequestError as e:
+        logger.warning(f"Network error when fetching prompt from backend: {e}", exc_info=True)
+        return None
+    except httpx.TimeoutException:
+        logger.warning(f"Timeout when fetching prompt '{prompt_name}' from backend", exc_info=True)
+        return None
     except Exception as e:
         logger.warning(f"Error fetching prompt from backend: {e}", exc_info=True)
         return None
 
-def _get_prompt_template(filepath: str, prompt_name: str) -> str:
+async def _get_prompt_template(filepath: str, prompt_name: str) -> str:
     """
     Gets a prompt template from a local file or the backend versioning system.
     
@@ -122,22 +132,28 @@ def _get_prompt_template(filepath: str, prompt_name: str) -> str:
     """
     try:
         # First, try to get from the backend (asynchronously)
-        import asyncio
-        prompt_text = asyncio.run(_get_prompt_from_backend(prompt_name))
+        logger.info(f"Attempting to fetch '{prompt_name}' prompt from backend versioning system")
+        prompt_text = await _get_prompt_from_backend(prompt_name)
         
         if prompt_text:
+            logger.info(f"Using versioned prompt '{prompt_name}' from backend")
             return prompt_text
         
         # Fallback to local file
-        logger.debug(f"Using local prompt template from: {filepath}")
+        logger.info(f"Falling back to local prompt template: {filepath}")
         with open(filepath, "r") as f:
             prompt_template = f.read()
+            
+        logger.info(f"Successfully loaded local prompt template: {filepath}")
         return prompt_template
+    except FileNotFoundError:
+        logger.error(f"Local prompt template file not found: {filepath}")
+        raise ConversationalIntentError(f"Local prompt template file not found: {filepath}")
     except Exception as e:
         logger.error(f"Failed to get prompt template: {e}", exc_info=True)
         raise ConversationalIntentError(f"Failed to get prompt template: {e}")
 
-def gather_initial_intent(query: str, conversation_history: Optional[str] = None, get_prompt_template_only: bool = False) -> Union[Dict[str, Any], str]:
+async def gather_initial_intent(query: str, conversation_history: Optional[str] = None, get_prompt_template_only: bool = False) -> Union[Dict[str, Any], str]:
     """
     Analyzes a query to determine if follow-up questions are needed or if intent is clear.
     
@@ -156,7 +172,7 @@ def gather_initial_intent(query: str, conversation_history: Optional[str] = None
     """
     try:
         # Get the prompt template (from backend or local file)
-        intent_gathering_template = _get_prompt_template(
+        intent_gathering_template = await _get_prompt_template(
             _INTENT_GATHERING_TEMPLATE_PATH, 
             "intent_gathering"
         )
@@ -209,7 +225,7 @@ def gather_initial_intent(query: str, conversation_history: Optional[str] = None
         logger.error(f"Failed to gather intent: {str(e)}", exc_info=True)
         raise ConversationalIntentError(f"Failed to gather intent: {str(e)}")
 
-def process_follow_up_response(
+async def process_follow_up_response(
     original_query: str,
     previous_questions: List[str],
     student_response: str,
@@ -232,7 +248,7 @@ def process_follow_up_response(
     """
     try:
         # Get the prompt template (from backend or local file)
-        follow_up_template = _get_prompt_template(
+        follow_up_template = await _get_prompt_template(
             _FOLLOW_UP_RESPONSE_TEMPLATE_PATH, 
             "follow_up_response"
         )

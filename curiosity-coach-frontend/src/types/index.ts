@@ -52,4 +52,38 @@ export interface Conversation extends ConversationSummary {
   created_at: string; // ISO date string
 }
 
-// --- End Conversation Types --- 
+// --- End Conversation Types ---
+
+// Add the following prompt-related types to the types file
+
+// Prompt version
+export interface PromptVersion {
+  id: number;
+  prompt_id: number;
+  version_number: number;
+  prompt_text: string;
+  is_active: boolean;
+  created_at: string;
+}
+
+// Prompt with versions
+export interface Prompt {
+  id: number;
+  name: string;
+  description: string;
+  created_at: string;
+  updated_at: string;
+  versions: PromptVersion[];
+  active_prompt_version: PromptVersion | null;
+}
+
+// Simple prompt representation
+export interface PromptSimple {
+  id: number;
+  name: string;
+  description: string;
+  created_at: string;
+  updated_at: string;
+  active_version_number: number | null;
+  active_version_text: string | null;
+} 

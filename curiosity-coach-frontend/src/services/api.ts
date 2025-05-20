@@ -119,4 +119,50 @@ export const getPipelineSteps = async (aiMessageId: number | string): Promise<an
     // For now, let's re-throw to be handled by the caller, similar to other functions.
     throw new Error(error.response?.data?.detail || `Failed to fetch pipeline steps for message ${aiMessageId}`);
   }
+};
+
+// --- Prompt Versioning API Methods ---
+
+// Get a list of all prompts
+export const getPrompts = async () => {
+  try {
+    const response = await API.get('/prompts');
+    return response.data;
+  } catch (error) {
+    console.error("Error fetching prompts:", error);
+    throw new Error("Failed to fetch prompts");
+  }
+};
+
+// Get a specific prompt by name or ID
+export const getPrompt = async (nameOrId: string | number) => {
+  try {
+    const response = await API.get(`/prompts/${nameOrId}`);
+    return response.data;
+  } catch (error) {
+    console.error(`Error fetching prompt ${nameOrId}:`, error);
+    throw new Error(`Failed to fetch prompt ${nameOrId}`);
+  }
+};
+
+// Get all versions of a specific prompt
+export const getPromptVersions = async (nameOrId: string | number) => {
+  try {
+    const response = await API.get(`/prompts/${nameOrId}/versions`);
+    return response.data;
+  } catch (error) {
+    console.error(`Error fetching versions for prompt ${nameOrId}:`, error);
+    throw new Error(`Failed to fetch versions for prompt ${nameOrId}`);
+  }
+};
+
+// Get the active version of a specific prompt
+export const getActivePromptVersion = async (nameOrId: string | number) => {
+  try {
+    const response = await API.get(`/prompts/${nameOrId}/versions/active`);
+    return response.data;
+  } catch (error) {
+    console.error(`Error fetching active version for prompt ${nameOrId}:`, error);
+    throw new Error(`Failed to fetch active version for prompt ${nameOrId}`);
+  }
 }; 
