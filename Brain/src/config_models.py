@@ -16,12 +16,19 @@ class StepConfig(BaseModel):
 
 class FlowConfig(BaseModel):
     """Configuration for the query processing flow."""
+    # Flag to control whether to use simplified conversation mode (single-step) or full pipeline
+    use_simplified_mode: bool = Field(
+        default=False, 
+        description="When true, only the simplified_conversation step is used, ignoring all other steps."
+    )
+    
     steps: List[StepConfig] = Field(
         default_factory=lambda: [
-            StepConfig(name="intent_identification", enabled=True, use_conversation_history=False, is_use_conversation_history_valid=True, is_allowed_to_change_enabled=False),
+            StepConfig(name="intent_identification", enabled=True, use_conversation_history=True, is_use_conversation_history_valid=True, is_allowed_to_change_enabled=False),
             StepConfig(name="knowledge_retrieval", enabled=True, use_conversation_history=False, is_use_conversation_history_valid=False, is_allowed_to_change_enabled=False),
-            StepConfig(name="initial_response_generation", enabled=True, use_conversation_history=False, is_use_conversation_history_valid=True, is_allowed_to_change_enabled=False),
-            StepConfig(name="learning_enhancement", enabled=True, use_conversation_history=False, is_use_conversation_history_valid=True, is_allowed_to_change_enabled=True),
+            StepConfig(name="initial_response_generation", enabled=True, use_conversation_history=True, is_use_conversation_history_valid=True, is_allowed_to_change_enabled=False),
+            StepConfig(name="learning_enhancement", enabled=True, use_conversation_history=True, is_use_conversation_history_valid=True, is_allowed_to_change_enabled=True),
+            StepConfig(name="simplified_conversation", enabled=True, use_conversation_history=True, is_use_conversation_history_valid=True, is_allowed_to_change_enabled=False),
         ],
         description="Configuration for each step in the processing pipeline."
     )
@@ -92,4 +99,38 @@ class FlowConfig(BaseModel):
             logger.error(f"Failed to decode JSON from config file s3://{bucket_name}/{object_key}.", exc_info=True)
         except Exception as e: # Catch any other exceptions, including Pydantic validation errors
             logger.error(f"Failed to load or parse config from s3://{bucket_name}/{object_key}: {e}", exc_info=True)
+        return None
+
+    # Create a simplified config in S3 (same as init but with simplified mode set to true)
+    @classmethod
+    def init_simplified(cls) -> Optional[Dict[str, Any]]:
+        """Creates a simplified configuration (single-step) and uploads it to S3."""
+        bucket_name = os.getenv("FLOW_CONFIG_S3_BUCKET_NAME")
+        object_key = os.getenv("FLOW_CONFIG_S3_KEY", "flow_config.json")
+
+        if not bucket_name:
+            logger.error("FLOW_CONFIG_S3_BUCKET_NAME not set. Cannot initialize simplified config in S3.")
+            return None
+
+        # Create simplified configuration
+        simplified_config_model = cls(use_simplified_mode=True)
+        simplified_config_dict = simplified_config_model.model_dump(exclude_none=True)
+        logger.info(f"Generated simplified FlowConfig: {simplified_config_dict}")
+
+        s3_client = boto3.client('s3')
+        try:
+            s3_client.put_object(
+                Bucket=bucket_name,
+                Key=object_key,
+                Body=json.dumps(simplified_config_dict, indent=2),
+                ContentType='application/json'
+            )
+            logger.info(f"Successfully uploaded simplified config to S3: s3://{bucket_name}/{object_key}")
+            return simplified_config_dict
+        except ClientError as e:
+            logger.error(f"S3 ClientError when uploading simplified config to s3://{bucket_name}/{object_key}: {e}", exc_info=True)
+        except (NoCredentialsError, PartialCredentialsError):
+            logger.error("AWS credentials not found or incomplete for S3 access during init_simplified.")
+        except Exception as e:
+            logger.error(f"Failed to upload simplified config to s3://{bucket_name}/{object_key}: {e}", exc_info=True)
         return None 
