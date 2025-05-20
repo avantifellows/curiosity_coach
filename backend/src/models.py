@@ -21,11 +21,13 @@ class Conversation(Base):
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     title = Column(String, nullable=True, default="New Chat")
+    prompt_version_id = Column(Integer, ForeignKey("prompt_versions.id"), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     user = relationship("User", back_populates="conversations")
     messages = relationship("Message", back_populates="conversation", cascade="all, delete-orphan", order_by="Message.timestamp")
+    prompt_version = relationship("PromptVersion")
 
 class Message(Base):
     __tablename__ = "messages"
@@ -111,9 +113,9 @@ def get_or_create_user(db: Session, phone_number: str) -> User:
         db.refresh(user)
     return user
 
-def create_conversation(db: Session, user_id: int, title: Optional[str] = "New Chat") -> Conversation:
+def create_conversation(db: Session, user_id: int, title: Optional[str] = "New Chat", prompt_version_id: Optional[int] = None) -> Conversation:
     """Creates a new conversation for a user."""
-    conversation = Conversation(user_id=user_id, title=title)
+    conversation = Conversation(user_id=user_id, title=title, prompt_version_id=prompt_version_id)
     db.add(conversation)
     db.commit()
     db.refresh(conversation)
