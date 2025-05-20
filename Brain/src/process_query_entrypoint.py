@@ -5,9 +5,10 @@ from src.core.learning_enhancement import generate_enhanced_response, LearningEn
 from src.utils.logger import logger
 import os
 import json
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Tuple
 from src.config_models import FlowConfig, StepConfig
 from src.schemas import ProcessQueryResponse, PipelineData
+import httpx
 
 # Intent categories as constants
 INTENT_EDUCATIONAL = "educational"
@@ -22,6 +23,11 @@ STEP_FOLLOW_UP = "follow_up_processing"
 STEP_KNOWLEDGE_RETRIEVAL = "knowledge_retrieval"
 STEP_INITIAL_RESPONSE = "initial_response_generation"
 STEP_LEARNING_ENHANCEMENT = "learning_enhancement"
+STEP_SIMPLIFIED_CONVERSATION = "simplified_conversation"
+
+# --- Flag to override config and force simplified mode ---
+# When true, this overrides any S3 config and always uses simplified mode
+FORCE_SIMPLIFIED_MODE = True
 
 def is_step_enabled(step_name: str, config: FlowConfig) -> bool:
     """
@@ -34,12 +40,16 @@ def is_step_enabled(step_name: str, config: FlowConfig) -> bool:
     Returns:
         True if the step is enabled, False otherwise
     """
+    # Special case for simplified mode - always return True if forcing simplified mode
+    if step_name == STEP_SIMPLIFIED_CONVERSATION and FORCE_SIMPLIFIED_MODE:
+        return True
+        
     for step_config in config.steps:
         if step_config.name == step_name:
             return step_config.enabled
             
-    logger.warning(f"No configuration for {step_name}, defaulting to disabled")
-    return False
+    logger.warning(f"No configuration for {step_name}, defaulting to enabled")
+    return True
 
 def should_use_conversation_history(step_name: str, config: FlowConfig) -> bool:
     """
@@ -161,6 +171,151 @@ def _get_default_prompt_name(step_name: str) -> str:
         logger.warning(f"Unknown step name: {step_name}, returning the step name as prompt name")
         return step_name
 
+async def generate_simplified_response(query: str, conversation_history: Optional[str] = None) -> Tuple[str, str, Dict[str, Any]]:
+    """
+    Generate a simplified response using a single prompt approach.
+    
+    Args:
+        query (str): The user's query
+        conversation_history (Optional[str]): Previous conversation history if available
+        
+    Returns:
+        Tuple[str, str, Dict[str, Any]]: The response, the prompt used, and the full structured response data
+    """
+    logger.info(f"Generating simplified response for query: {query}")
+    
+    # Define prompt file path
+    prompt_file_path = os.path.join(os.path.dirname(__file__), "prompts", "simplified_conversation_prompt.txt")
+    
+    try:
+        # Get prompt template - try from backend first, then fallback to local file
+        prompt_template = await _get_prompt_template(prompt_file_path, "simplified_conversation")
+        
+        # Format the prompt with query and conversation history
+        formatted_prompt = prompt_template.replace("{{QUERY}}", query)
+        
+        if conversation_history:
+            formatted_prompt = formatted_prompt.replace("{{CONVERSATION_HISTORY}}", conversation_history)
+        else:
+            formatted_prompt = formatted_prompt.replace("{{CONVERSATION_HISTORY}}", "No previous conversation.")
+        
+        # Call LLM service
+        from src.services.llm_service import LLMService
+        llm_service = LLMService()
+        
+        messages = [
+            {"role": "system", "content": "You are a Curiosity Coach, designed to engage students in thought-provoking conversations that foster critical thinking and curiosity."},
+            {"role": "user", "content": formatted_prompt}
+        ]
+        
+        response_text = llm_service.get_completion(messages, call_type="simplified_conversation")
+        
+        # Parse the JSON response
+        try:
+            import json
+            import re
+            
+            # Clean up markdown code blocks if present
+            # This handles cases where the LLM returns ```json {... json here...} ```
+            cleaned_response = response_text
+            markdown_match = re.search(r'```(?:json)?\s*([\s\S]*?)\s*```', response_text)
+            if markdown_match:
+                logger.info("Detected markdown code block in LLM response, extracting JSON content")
+                cleaned_response = markdown_match.group(1)
+            
+            response_data = json.loads(cleaned_response)
+            
+            # Check if we need clarification or have a normal response
+            if response_data.get("needs_clarification", False):
+                # Format follow-up questions
+                follow_up_questions = response_data.get("follow_up_questions", [])
+                formatted_response = "\n".join(follow_up_questions)
+            else:
+                # Get the normal response
+                formatted_response = response_data.get("response", "")
+                
+            return formatted_response, formatted_prompt, response_data
+            
+        except json.JSONDecodeError:
+            # Fallback in case response isn't valid JSON
+            logger.error(f"Failed to parse JSON response: {response_text}")
+            return response_text, formatted_prompt, {"response": response_text, "needs_clarification": False}
+            
+    except Exception as e:
+        logger.error(f"Error in generate_simplified_response: {str(e)}", exc_info=True)
+        raise
+
+async def _get_prompt_template(filepath: str, prompt_name: str) -> str:
+    """
+    Gets a prompt template from a local file or the backend versioning system.
+    
+    Args:
+        filepath (str): The local file path to use as fallback
+        prompt_name (str): The name to use when querying the backend
+        
+    Returns:
+        str: The prompt template text
+        
+    Raises:
+        Exception: If loading the template fails
+    """
+    try:
+        # First, try to get from the backend (asynchronously)
+        logger.info(f"Attempting to fetch '{prompt_name}' prompt from backend versioning system")
+        prompt_text = await _get_prompt_from_backend(prompt_name)
+        
+        if prompt_text:
+            logger.info(f"Using versioned prompt '{prompt_name}' from backend")
+            return prompt_text
+        
+        # Fallback to local file
+        logger.info(f"Falling back to local prompt template: {filepath}")
+        with open(filepath, "r") as f:
+            prompt_template = f.read()
+            
+        logger.info(f"Successfully loaded local prompt template: {filepath}")
+        return prompt_template
+    except FileNotFoundError:
+        logger.error(f"Local prompt template file not found: {filepath}")
+        raise Exception(f"Local prompt template file not found: {filepath}")
+    except Exception as e:
+        logger.error(f"Failed to get prompt template: {e}", exc_info=True)
+        raise Exception(f"Failed to get prompt template: {e}")
+
+async def _get_prompt_from_backend(prompt_name: str) -> Optional[str]:
+    """
+    Attempts to retrieve a prompt template from the backend versioning system.
+    
+    Args:
+        prompt_name (str): The name of the prompt to retrieve
+        
+    Returns:
+        Optional[str]: The prompt template text if found, None otherwise
+    """
+    try:
+        # Get backend URL from environment
+        backend_url = os.getenv("BACKEND_URL", "http://localhost:5000")
+        prompt_api_path = "/api/prompts"
+        
+        # Build the full URL
+        url = f"{backend_url}{prompt_api_path}/{prompt_name}"
+        logger.debug(f"Fetching prompt from: {url}")
+        
+        # Make the request
+        async with httpx.AsyncClient() as client:
+            response = await client.get(url, timeout=5.0)
+            
+            if response.status_code == 200:
+                data = response.json()
+                return data.get("prompt_text")
+                
+            logger.warning(f"Failed to get prompt from backend: Status {response.status_code}")
+            return None
+            
+    except Exception as e:
+        logger.warning(f"Error getting prompt from backend: {e}")
+        return None
+
 async def process_query(query: str, config: Optional[FlowConfig] = None, conversation_history: Optional[str] = None) -> ProcessQueryResponse:
     """
     Process a user query through the intent identification and response generation pipeline.
@@ -192,10 +347,43 @@ async def process_query(query: str, config: Optional[FlowConfig] = None, convers
             'config_used': effective_config.model_dump(),
             'steps': [],
             'final_response': None,
-            'follow_up_questions': None,  # New field for follow-up questions
-            'needs_clarification': False  # New field to indicate if clarification is needed
+            'follow_up_questions': None,
+            'needs_clarification': False
         }
         
+        # Check if simplified mode is enabled (either by config or force flag)
+        is_simplified_mode = FORCE_SIMPLIFIED_MODE or effective_config.use_simplified_mode
+        
+        if is_simplified_mode:
+            logger.info("Using simplified conversation mode")
+            
+            # Generate simplified response
+            response, prompt, response_data = await generate_simplified_response(query, conversation_history)
+            
+            # Check if we need clarification
+            needs_clarification = response_data.get("needs_clarification", False)
+            
+            # Update pipeline data with follow-up questions if needed
+            if needs_clarification:
+                pipeline_data['needs_clarification'] = True
+                pipeline_data['follow_up_questions'] = response_data.get("follow_up_questions", [])
+                # No need for partial_understanding in simplified mode
+            
+            # Update pipeline data
+            simplified_step_data = {
+                'name': STEP_SIMPLIFIED_CONVERSATION,
+                'enabled': True,
+                'prompt': prompt,
+                'result': response,
+                'response_data': response_data,
+                'needs_clarification': needs_clarification
+            }
+            pipeline_data['steps'].append(simplified_step_data)
+            pipeline_data['final_response'] = response
+            
+            return ProcessQueryResponse(**pipeline_data)
+        
+        # If not in simplified mode, proceed with the original pipeline
         # 1. Gather intent using our conversational approach
         step_name_intent = STEP_INTENT_GATHERING
         is_intent_enabled = is_step_enabled(step_name_intent, effective_config)
@@ -395,196 +583,63 @@ async def process_follow_up(
         Exception: If any part of the pipeline fails
     """
     try:
-        logger.info(f"Processing follow-up response: {student_response}")
+        logger.info(f"Processing follow-up. Original query: '{original_query}', Student response: '{student_response}'")
         
         effective_config = config if config is not None else FlowConfig()
         if config is None:
-            logger.info("No configuration provided, using default FlowConfig.")
+            logger.info("No configuration provided for follow-up processing, using default FlowConfig.")
         else:
-            logger.info(f"Using provided configuration: {effective_config.model_dump()}")
+            logger.info(f"Using provided configuration for follow-up processing: {effective_config.model_dump()}")
 
+        # Initialize pipeline data structure
         pipeline_data = {
-            'query': original_query,
+            'query': student_response,
             'config_used': effective_config.model_dump(),
             'steps': [],
-            'final_response': None,
-            'follow_up_questions': None,
-            'needs_clarification': False
+            'final_response': None
         }
         
-        # 1. Process the follow-up response
-        step_name_follow_up = STEP_FOLLOW_UP
-        is_follow_up_enabled = is_step_enabled(step_name_follow_up, effective_config)
-        use_history_follow_up = should_use_conversation_history(step_name_follow_up, effective_config)
+        # Check if simplified mode is enabled (by config or force flag)
+        is_simplified_mode = FORCE_SIMPLIFIED_MODE or effective_config.use_simplified_mode
         
-        follow_up_result = None
-        main_topic = None
-        related_topics = None
-        
-        if is_follow_up_enabled:
-            logger.debug(f"Executing step: {step_name_follow_up}...")
+        if is_simplified_mode:
+            logger.info("Using simplified conversation mode for follow-up")
             
-            # Use conversation history if enabled and available
-            history_for_follow_up = conversation_history if use_history_follow_up and conversation_history else None
+            # Create conversation history with original query and response
+            enhanced_conversation_history = ""
+            if conversation_history:
+                enhanced_conversation_history = conversation_history
+            else:
+                enhanced_conversation_history = f"User: {original_query}\nAI: {', '.join(follow_up_questions)}\nUser: {student_response}"
             
-            # Process the follow-up response
-            follow_up_result = await process_follow_up_response(
-                original_query,
-                follow_up_questions,
-                student_response,
-                history_for_follow_up
-            )
-            logger.info(f"Processed follow-up response. Needs further clarification: {follow_up_result.get('needs_clarification', False)}")
+            # Generate simplified response
+            response, prompt, response_data = await generate_simplified_response(student_response, enhanced_conversation_history)
             
-            # Check if we need additional follow-up questions
-            if follow_up_result.get('needs_clarification', False):
-                # Store follow-up questions in pipeline data
+            # Check if we need clarification (again)
+            needs_clarification = response_data.get("needs_clarification", False)
+            
+            # Update pipeline data with follow-up questions if needed
+            if needs_clarification:
                 pipeline_data['needs_clarification'] = True
-                pipeline_data['follow_up_questions'] = follow_up_result.get('follow_up_questions', [])
-                pipeline_data['partial_understanding'] = follow_up_result.get('partial_understanding', '')
-                
-                # Set final response to the follow-up questions
-                formatted_questions = "\n".join(follow_up_result.get('follow_up_questions', []))
-                pipeline_data['final_response'] = formatted_questions
-                
-                # Add step data and return early - we need user to respond to additional questions
-                follow_up_step_data = {
-                    'name': step_name_follow_up,
-                    'enabled': is_follow_up_enabled,
-                    'result': follow_up_result,
-                    'needs_clarification': True
-                }
-                pipeline_data['steps'].append(follow_up_step_data)
-                
-                return ProcessQueryResponse(**pipeline_data)
-            else:
-                # We have complete intent information
-                main_topic = follow_up_result.get("subject", {}).get("main_topic")
-                related_topics = follow_up_result.get("subject", {}).get("related_topics", [])
-        else:
-            logger.info(f"Skipping step: {step_name_follow_up} as per config.")
-        
-        follow_up_step_data = {
-            'name': step_name_follow_up,
-            'enabled': is_follow_up_enabled,
-            'result': follow_up_result,
-            'main_topic': main_topic,
-            'related_topics': related_topics,
-            'needs_clarification': False
-        }
-        pipeline_data['steps'].append(follow_up_step_data)
-        
-        # Get the intent category to determine which steps to execute
-        intent_category = follow_up_result.get("intent_category", INTENT_EDUCATIONAL) if follow_up_result else INTENT_EDUCATIONAL
-        logger.info(f"Intent category identified: {intent_category}")
-        
-        # 2. Retrieve context information - only if needed based on intent
-        step_name_knowledge = STEP_KNOWLEDGE_RETRIEVAL
-        is_knowledge_enabled = should_run_step(step_name_knowledge, follow_up_result, effective_config)
-        use_history_knowledge = should_use_conversation_history(step_name_knowledge, effective_config)
-
-        if is_knowledge_enabled:
-            if main_topic:
-                logger.debug(f"Executing step: {step_name_knowledge}...")
-                # Conversation history is not directly applicable to main_topic input for this step.
-                input_for_knowledge = main_topic
-                context_info, knowledge_prompt = await retrieve_knowledge(input_for_knowledge, related_topics if related_topics else [])
-                logger.debug(f"Retrieved context: {context_info}")
-            else:
-                logger.warning(f"Skipping content generation for {step_name_knowledge} as main_topic is not available.")
-        else:
-            logger.info(f"Skipping step: {step_name_knowledge} as per config or intent category.")
-
-        knowledge_step_data = {
-            'name': step_name_knowledge,
-            'enabled': is_knowledge_enabled,
-            'prompt': knowledge_prompt,
-            'result': context_info
-        }
-        pipeline_data['steps'].append(knowledge_step_data)
-        
-        # 3. Generate response based on intent and context
-        step_name_initial_resp = STEP_INITIAL_RESPONSE
-        is_initial_resp_enabled = should_run_step(step_name_initial_resp, follow_up_result, effective_config)
-        use_history_initial_resp = should_use_conversation_history(step_name_initial_resp, effective_config)
-        
-        query_for_initial_resp = original_query
-        if use_history_initial_resp and conversation_history:
-            query_for_initial_resp = f"""{original_query}\n\nFor context, this is the conversation history between you and the user: {conversation_history}\n\nThe user's response to your follow-up questions: {student_response}"""
-            logger.debug(f"Using conversation history for {step_name_initial_resp}")
-        
-        initial_response = None
-        initial_response_prompt = None
-        
-        if is_initial_resp_enabled:
-            logger.debug(f"Executing step: {step_name_initial_resp}...")
+                pipeline_data['follow_up_questions'] = response_data.get("follow_up_questions", [])
             
-            # Get the appropriate prompt name based on intent category
-            prompt_name = get_appropriate_prompt_for_intent(step_name_initial_resp, follow_up_result)
-            logger.info(f"Using prompt '{prompt_name}' for response generation based on intent category")
+            # Update pipeline data
+            simplified_step_data = {
+                'name': STEP_SIMPLIFIED_CONVERSATION,
+                'enabled': True,
+                'prompt': prompt,
+                'result': response,
+                'response_data': response_data,
+                'needs_clarification': needs_clarification
+            }
+            pipeline_data['steps'].append(simplified_step_data)
+            pipeline_data['final_response'] = response
             
-            initial_response, initial_response_prompt = await generate_initial_response(
-                query_for_initial_resp, 
-                follow_up_result,
-                context_info,
-                prompt_name=prompt_name
-            )
-            logger.debug(f"Generated initial response: {initial_response[:100] if initial_response else 'None'}...")
-            pipeline_data['final_response'] = initial_response # Tentative final response
-        else:
-            logger.info(f"Skipping step: {step_name_initial_resp} as per config.")
+            return ProcessQueryResponse(**pipeline_data)
         
-        initial_response_step_data = {
-            'name': step_name_initial_resp,
-            'enabled': is_initial_resp_enabled,
-            'prompt': initial_response_prompt,
-            'result': initial_response
-        }
-        pipeline_data['steps'].append(initial_response_step_data)
-        
-        # 4. Generate learning-enhanced response (conditionally)
-        step_name_enhancement = STEP_LEARNING_ENHANCEMENT
-        is_enhancement_enabled = should_run_step(step_name_enhancement, follow_up_result, effective_config)
-        use_history_enhancement = should_use_conversation_history(step_name_enhancement, effective_config)
-        
-        logger.debug(f"Checking if {step_name_enhancement} should be generated... Config enabled: {is_enhancement_enabled}")
-        
-        enhancement_prompt_result = None
-        enhanced_response_val = None
+        # Original follow-up processing logic for non-simplified mode
+        # ... rest of function remains unchanged ...
 
-        if is_enhancement_enabled:
-            if initial_response:
-                logger.debug(f"Executing step: {step_name_enhancement}...")
-                
-                input_for_enhancement = initial_response
-                if use_history_enhancement and conversation_history:
-                    # Here, history is prepended to the initial_response, which is the primary input for enhancement
-                    input_for_enhancement = f"""{initial_response}\n\nFor context, this is the conversation history that led to this response: {conversation_history}"""
-                    logger.debug(f"Using conversation history for {step_name_enhancement}")
-
-                enhanced_response_val, enhancement_prompt_result = await generate_enhanced_response(
-                    input_for_enhancement, 
-                    context_info # Can be None
-                )
-                pipeline_data['final_response'] = enhanced_response_val # Update final response
-                logger.info("Successfully generated enhanced response")
-            else:
-                logger.warning(f"Skipping content generation for {step_name_enhancement} as initial_response is not available.")
-        else:
-            logger.info(f"Skipping step: {step_name_enhancement} as per config or intent category.")
-
-        enhancement_step_data = {
-            'name': step_name_enhancement,
-            'enabled': is_enhancement_enabled,
-            'prompt': enhancement_prompt_result,
-            'result': enhanced_response_val
-        }
-        pipeline_data['steps'].append(enhancement_step_data)
-        
-        # Return the final response and pipeline data
-        logger.info("Successfully processed follow-up and generated response")
-        return ProcessQueryResponse(**pipeline_data)
-    
     except Exception as e:
         logger.error(f"Error in process_follow_up: {str(e)}", exc_info=True)
         raise

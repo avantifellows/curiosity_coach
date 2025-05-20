@@ -176,12 +176,6 @@ const ChatInterface: React.FC = () => {
               </div>
             </div>
             <div className="flex items-center space-x-3">
-              <Link 
-                to="/prompts"
-                className="flex items-center px-3 py-1.5 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition duration-150 ease-in-out text-sm"
-              >
-                Prompt Versions
-              </Link>
               <button 
                 onClick={handleLogout}
                 className="flex items-center px-3 py-1.5 bg-red-500 text-white rounded hover:bg-red-600 transition duration-150 ease-in-out text-sm"
@@ -213,7 +207,7 @@ const ChatInterface: React.FC = () => {
             messages.map((msg, index) => (
               <React.Fragment key={msg.id || `msg-${index}`}>
                 <ChatMessage message={msg} />
-                {!msg.is_user && msg.id && ( // Show "View thinking steps" only for AI messages with an ID
+                {!msg.is_user && msg.id && !isConfigViewActive && ( // Only show "View thinking steps" when not in config view
                   <div className="flex justify-start pl-10 -mt-2 mb-2">
                     <button
                       onClick={() => handleViewPipelineSteps(msg.id!)}
