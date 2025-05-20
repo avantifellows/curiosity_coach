@@ -51,4 +51,5 @@ class BrainResponsePayload(BaseModel):
     conversation_id: int = Field(..., description="ID of the conversation this response belongs to")
     original_message_id: Optional[int] = Field(None, description="ID of the user message this is a response to")
     llm_response: str = Field(..., description="The final content of the AI's response")
-    pipeline_data: Dict[str, Any] = Field(..., description="Detailed data from the Brain pipeline") 
+    pipeline_data: Dict[str, Any] = Field(..., description="Detailed data from the Brain pipeline")
+    prompt_version_id: Optional[int] = Field(None, description="ID of the prompt version used for this conversation") 
