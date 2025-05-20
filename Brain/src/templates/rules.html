@@ -118,46 +118,127 @@
         <!-- Mermaid Flowchart Definition -->
         <div class="mermaid">
             graph TD
-                A[User Query] --> B(1. Intent Identification);
-                B --> C(2. Knowledge Retrieval);
-                B --> D{3. Initial Response Generation};
-                C --> D;
+                A[User Query] --> B(1. Intent Gathering);
+                B --> G{Needs Clarification?};
+                G -->|Yes| H[Ask Follow-up Questions];
+                H --> I[User Response];
+                I --> J(Process Follow-up);
+                J --> G;
+                G -->|No| C(2. Knowledge Retrieval);
+                C --> D{3. Initial Response Generation};
                 D --> E(4. Learning Enhancement);
-                C --> E;
                 E --> F[Send Response to Chat App];
 
                 %% Click interactions removed, will be added via JS
         </div>
 
-        <!-- Modal for Intent Identification -->
+        <!-- Modal for Intent Gathering -->
         <div id="intent-modal" class="modal">
             <div class="modal-content">
                 <span class="modal-close" onclick="closeModal('intent-modal')">&times;</span>
-                <h2>1. Intent Identification</h2>
+                <h2>1. Intent Gathering</h2>
                 <div class="content">
-                    <p>This step identifies the core topic and the user's goal (intent) behind their query. The following prompt template is used (with <code>{{ '{{' }}INSERT_QUERY_HERE{{ '}}' }}</code> replaced by the actual query):</p>
-                    <pre>{{ intent_prompt_template }}</pre>
-                    <p>After processing the query with the LLM using the above prompt, the system produces a JSON output like this example:</p>
+                    <p>This step analyzes the student's query to determine if we need more context or if we can immediately identify their intent. The process may involve asking follow-up questions to better understand what the student wants to learn. The following prompt template is used:</p>
+                    <pre>{{ intent_gathering_template }}</pre>
+                    <p>After processing the query with the LLM, the system produces one of two possible JSON outputs:</p>
+                    
+                    <p><strong>1. When clarification is needed:</strong></p>
                     <pre>
 {
-  "query": "Why is the sky blue during the day but red at sunset?",
-  "subject": {
-    "main_topic": "Rayleigh scattering",
-    "related_topics": [
-      "Atmospheric optics",
-      "Light wavelengths",
-      "Mie scattering",
-      "Sunset colors"
-    ]
-  },
-  "intents": {
-    "cognitive_intent": "Explain Causality",
-    "exploratory_intent": "Compare and Contrast",
-    "metacognitive_intent": null,
-    "emotional_identity_intent": null,
-    "recursive_intent": null
-  }
+    "needs_clarification": true,
+    "follow_up_questions": [
+        "What made you interested in learning about the Pope?",
+        "What do you already know about the Pope or the Catholic Church?"
+    ],
+    "partial_understanding": "The student is asking about the Pope, likely referring to the head of the Catholic Church, but I need more context about their specific interests."
 }</pre>
+
+                    <p><strong>2. When intent is already clear:</strong></p>
+                    <pre>
+{
+    "needs_clarification": false,
+    "query": "Why is the sky blue during the day but red at sunset?",
+    "subject": {
+        "main_topic": "Rayleigh scattering",
+        "related_topics": [
+            "Atmospheric optics",
+            "Light wavelengths",
+            "Sunset colors"
+        ]
+    },
+    "intents": {
+        "primary_intent": {
+            "category": "cognitive_intent",
+            "specific_type": "Causal Exploration",
+            "confidence": 0.92
+        },
+        "secondary_intent": {
+            "category": "exploratory_intent",
+            "specific_type": "Curiosity about Systems/Structures",
+            "confidence": 0.78
+        }
+    },
+    "context": {
+        "known_information": "The student likely knows that the sky changes colors but doesn't understand the physics behind it",
+        "motivation": "Genuine curiosity about a natural phenomenon they observe",
+        "learning_goal": "Understanding the scientific explanation for sky colors"
+    }
+}</pre>
+                </div>
+            </div>
+        </div>
+
+        <!-- Modal for Follow-up Processing -->
+        <div id="followup-modal" class="modal">
+            <div class="modal-content">
+                <span class="modal-close" onclick="closeModal('followup-modal')">&times;</span>
+                <h2>Follow-up Question Processing</h2>
+                <div class="content">
+                    <p>When the system asks follow-up questions, it processes the student's responses to gather more information about their intent. This enables more targeted and helpful answers.</p>
+                    
+                    <p><strong>For example:</strong></p>
+                    <p>Original query: "Tell me more about the Pope."</p>
+                    <p>Follow-up questions:</p>
+                    <ul>
+                        <li>What made you interested in learning about the Pope?</li>
+                        <li>What do you already know about the Pope or the Catholic Church?</li>
+                    </ul>
+                    
+                    <p>Student response: "I saw him on TV yesterday and my friends were talking about him. I know he's the leader of the Catholic Church and lives in Vatican City."</p>
+                    
+                    <p>The system then processes this response to build a complete understanding:</p>
+                    <pre>
+{
+    "needs_clarification": false,
+    "query": "Tell me more about the Pope.",
+    "subject": {
+        "main_topic": "The Pope (Catholic leadership)",
+        "related_topics": [
+            "Vatican City",
+            "Papal duties",
+            "Current Pope Francis",
+            "Catholic Church"
+        ]
+    },
+    "intents": {
+        "primary_intent": {
+            "category": "exploratory_intent",
+            "specific_type": "Open-ended Exploration",
+            "confidence": 0.88
+        },
+        "secondary_intent": {
+            "category": "cognitive_intent",
+            "specific_type": "Concept Clarification",
+            "confidence": 0.65
+        }
+    },
+    "context": {
+        "known_information": "The student knows the Pope is the leader of the Catholic Church and resides in Vatican City",
+        "motivation": "Current events - saw the Pope on television and heard friends discussing him",
+        "learning_goal": "Understanding more about the Pope's role, significance, and current activities"
+    }
+}</pre>
+                    <p>This comprehensive understanding allows the system to provide a response that is tailored to the student's actual interests and background knowledge.</p>
                 </div>
             </div>
         </div>
@@ -168,7 +249,7 @@
                 <span class="modal-close" onclick="closeModal('knowledge-modal')">&times;</span>
                 <h2>2. Knowledge Retrieval</h2>
                 <div class="content">
-                    <p>This step gathers relevant background information based on the identified topic (e.g., "Rayleigh scattering") and related topics. The following prompt template is used:</p>
+                    <p>This step gathers relevant background information based on the identified topic and related topics. The following prompt template is used:</p>
                     <pre>{{ knowledge_prompt_template }}</pre>
                     <p>The LLM responds with relevant factual context. Here's an example output based on the topic "Rayleigh scattering":</p>
                     <pre>
@@ -202,12 +283,17 @@ The student asked: "{{ '{{' }}USER QUERY{{ '}}' }}"
 Use the following information to answer the question:
 {{ '{{' }}KNOWLEDGE CONTEXT{{ '}}' }}
 
+The student's context based on our conversation:
+- What they already know: {{ '{{' }}KNOWN_INFORMATION{{ '}}' }}
+- Why they're asking: {{ '{{' }}MOTIVATION{{ '}}' }}
+- What they want to learn: {{ '{{' }}LEARNING_GOAL{{ '}}' }}
+
 Now, generate a response that does the following:
 {{ '{{' }}DYNAMIC INTENT-BASED INSTRUCTIONS{{ '}}' }}
 
-Frame the response in a conversational tone aimed at a curious student aged 11–15.</pre>
+Frame the response in a conversational tone aimed at a curious student aged 10-12.</pre>
 
-                    <p>The <code>{{ '{{' }}DYNAMIC INTENT-BASED INSTRUCTIONS{{ '}}' }}</code> part is built by looking up the identified intents (from Step 1) in the following mapping. For each non-null intent found, the corresponding instruction line is added to the prompt:</p>
+                    <p>The <code>{{ '{{' }}DYNAMIC INTENT-BASED INSTRUCTIONS{{ '}}' }}</code> part is built by looking up the identified intents in the following mapping. For each non-null intent found, the corresponding instruction line is added to the prompt:</p>
                     <pre style="font-size: 0.9em; line-height: 1.4;">
 cognitive_intent:
     Concept Clarification: "- Define the term in very simple language, relate it to a real-world analogy, and ask: 'Have you come across something like this before?'"
@@ -233,11 +319,6 @@ emotional_identity_intent:
 
 recursive_intent:
     Curiosity about Curiosity: "- Say: 'Curiosity is like gravity for the mind.' Then ask: 'What's the last thing that really pulled your attention like that?'"</pre>
-                    <p>For example, if Step 1 identified <code>cognitive_intent: "Causal Exploration"</code> and <code>exploratory_intent: "Topic Hopping"</code>, the dynamic instructions section would become:</p>
-                    <pre>
-- Explain the reason behind the phenomenon step-by-step. Then end with a question like: 'Can you think of another place in the universe where this might also happen?'
-- Mention 2–3 related ideas and ask: 'Want to jump into those next?'</pre>
-                    <p>The LLM then uses this complete, dynamically generated prompt to formulate the initial response.</p>
                 </div>
             </div>
         </div>
@@ -248,94 +329,91 @@ recursive_intent:
                 <span class="modal-close" onclick="closeModal('enhancement-modal')">&times;</span>
                 <h2>4. Learning Enhancement</h2>
                 <div class="content">
-                    <p>This step analyzes the initial response and the context to suggest follow-up questions, related concepts, or deeper dives, aiming to foster further curiosity.</p>
-                    <p>The following prompt template is used, where <code>{{ '{{' }}original_response{{ '}}' }}</code> is replaced by the initial response text and <code>{{ '{{' }}context_info{{ '}}' }}</code> is replaced by the knowledge context retrieved in Step 2:</p>
+                    <p>This step takes the initial response and enhances it with pedagogical strategies to foster curiosity and deeper learning. The following template is used:</p>
                     <pre>{{ learning_prompt_template }}</pre>
-                    <!-- Add prompt template and example output here when available -->
+                    <p>This enhancement step transforms a straightforward explanatory response into one that actively engages the student's curiosity, invites further questions, and encourages exploration of the topic.</p>
                 </div>
             </div>
         </div>
 
-    </div>
+        <script>
+            // Initialize Mermaid
+            mermaid.initialize({
+                startOnLoad: true,
+                theme: 'default',
+                flowchart: {
+                    useMaxWidth: false, 
+                    htmlLabels: true,
+                    curve: 'basis'
+                }
+            });
 
-    <script>
-        // Function to show a modal
-        function showModal(modalId) {
-            console.log("Attempting to show modal:", modalId); // Add logging
-            const modal = document.getElementById(modalId);
-            if (modal) {
-                modal.style.display = "block";
-            } else {
-                console.error("Modal element not found:", modalId); // Add error logging
+            // After Mermaid has rendered, set up click handlers
+            document.addEventListener('DOMContentLoaded', function() {
+                setTimeout(function() {
+                    // Click handler for Intent Identification
+                    let intentNode = document.querySelector('.node:nth-child(3)'); // First node from the start
+                    if (intentNode) {
+                        intentNode.classList.add('clickable');
+                        intentNode.addEventListener('click', function() {
+                            openModal('intent-modal');
+                        });
+                    }
+
+                    // Click handler for Follow-up Questions
+                    let followupNode = document.querySelector('.node:nth-child(5)'); // Adjust as needed
+                    if (followupNode) {
+                        followupNode.classList.add('clickable');
+                        followupNode.addEventListener('click', function() {
+                            openModal('followup-modal');
+                        });
+                    }
+
+                    // Click handler for Knowledge Retrieval
+                    let knowledgeNode = document.querySelector('.node:nth-child(8)'); // Adjust based on your SVG structure
+                    if (knowledgeNode) {
+                        knowledgeNode.classList.add('clickable');
+                        knowledgeNode.addEventListener('click', function() {
+                            openModal('knowledge-modal');
+                        });
+                    }
+
+                    // Click handler for Initial Response
+                    let responseNode = document.querySelector('.node:nth-child(9)'); // Adjust based on your SVG structure
+                    if (responseNode) {
+                        responseNode.classList.add('clickable');
+                        responseNode.addEventListener('click', function() {
+                            openModal('response-modal');
+                        });
+                    }
+
+                    // Click handler for Learning Enhancement
+                    let enhancementNode = document.querySelector('.node:nth-child(10)'); // Last node
+                    if (enhancementNode) {
+                        enhancementNode.classList.add('clickable');
+                        enhancementNode.addEventListener('click', function() {
+                            openModal('enhancement-modal');
+                        });
+                    }
+                }, 1000); // Give time for Mermaid to render
+            });
+
+            // Functions to open and close modals
+            function openModal(modalId) {
+                document.getElementById(modalId).style.display = 'block';
             }
-        }
 
-        // Function to close a modal
-        function closeModal(modalId) {
-            const modal = document.getElementById(modalId);
-            if (modal) {
-                modal.style.display = "none";
+            function closeModal(modalId) {
+                document.getElementById(modalId).style.display = 'none';
             }
-        }
 
-        // Define the callback function globally *before* initializing Mermaid
-        window.showModal = showModal;
-        window.closeModal = closeModal; // Make close function globally accessible if needed elsewhere, good practice
-
-        // Ensure Mermaid initialization runs after the script is parsed
-        document.addEventListener('DOMContentLoaded', async (event) => {
-             try {
-                 // Initialize Mermaid without starting render automatically
-                 mermaid.initialize({ startOnLoad: false, securityLevel: 'loose' });
-                 console.log("Mermaid initialized."); // Confirm initialization
-
-                 // Explicitly render diagrams with class="mermaid"
-                 await mermaid.run();
-                 console.log("Mermaid rendering process triggered.");
-
-                 // Add click listeners after Mermaid has rendered
-                 // Wait a short moment for DOM updates after rendering finishes
-                 setTimeout(() => {
-                     console.log("Attempting to attach listeners...");
-                     const nodesToMakeClickable = {
-                         'B': 'intent-modal',
-                         'C': 'knowledge-modal',
-                         'D': 'response-modal',
-                         'E': 'enhancement-modal'
-                     };
-
-                     for (const nodeId in nodesToMakeClickable) {
-                         // Select the group element using the data-id attribute
-                         const nodeElement = document.querySelector(`.mermaid g[data-id="${nodeId}"]`);
-                         if (nodeElement) {
-                             console.log("Found node element with data-id:", nodeId);
-                             nodeElement.classList.add('clickable'); // Add class for visual feedback (optional)
-                             nodeElement.style.cursor = 'pointer'; // Explicitly set cursor
-                             nodeElement.addEventListener('click', () => {
-                                showModal(nodesToMakeClickable[nodeId]);
-                             });
-                         } else {
-                             // This might still appear if the timing is off, but hopefully less likely
-                             console.warn(`Could not find Mermaid node element with data-id: ${nodeId} after delay.`);
-                         }
-                     }
-                 }, 100); // Delay attachment slightly (e.g., 100ms)
-             } catch (error) {
-                console.error("Error during Mermaid initialization or attaching listeners:", error);
-             }
-        });
-
-
-        // Optional: Close modal if user clicks outside of it
-        window.onclick = function(event) {
-            const modals = document.getElementsByClassName('modal');
-            for (let i = 0; i < modals.length; i++) {
-                if (event.target == modals[i]) {
-                    // modals[i].style.display = "none"; // Use the close function for consistency
-                    closeModal(modals[i].id);
+            // Close modal when clicking outside of it
+            window.onclick = function(event) {
+                if (event.target.classList.contains('modal')) {
+                    event.target.style.display = 'none';
                 }
             }
-        }
-    </script>
+        </script>
+    </div>
 </body>
 </html> 
