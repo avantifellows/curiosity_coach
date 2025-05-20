@@ -124,9 +124,16 @@
                 H --> I[User Response];
                 I --> J(Process Follow-up);
                 J --> G;
-                G -->|No| C(2. Knowledge Retrieval);
-                C --> D{3. Initial Response Generation};
-                D --> E(4. Learning Enhancement);
+                G -->|No| K{Check Intent Category};
+                K -->|Educational| C(2. Knowledge Retrieval);
+                K -->|Conversational| D(3. Initial Response Generation);
+                K -->|Clarification| C(2. Knowledge Retrieval);
+                K -->|Administrative| D(3. Initial Response Generation);
+                K -->|Personal| D(3. Initial Response Generation);
+                C --> D(3. Initial Response Generation);
+                D --> L{Educational Intent?};
+                L -->|Yes| E(4. Learning Enhancement);
+                L -->|No| F[Send Response to Chat App];
                 E --> F[Send Response to Chat App];
 
                 %% Click interactions removed, will be added via JS
@@ -166,6 +173,7 @@
             "Sunset colors"
         ]
     },
+    "intent_category": "educational",
     "intents": {
         "primary_intent": {
             "category": "cognitive_intent",
@@ -184,6 +192,15 @@
         "learning_goal": "Understanding the scientific explanation for sky colors"
     }
 }</pre>
+
+                    <p><strong>Intent Categories:</strong></p>
+                    <ul>
+                        <li><strong>educational</strong>: Questions about academic topics that require knowledge retrieval and learning enhancement</li>
+                        <li><strong>conversational</strong>: Greetings, small talk, or social exchanges that don't need knowledge retrieval</li>
+                        <li><strong>clarification</strong>: Questions about previously discussed topics or asking for explanations of previous responses</li>
+                        <li><strong>administrative</strong>: Questions about how the system works or meta-questions about the interaction</li>
+                        <li><strong>personal</strong>: Questions about preferences, opinions, or identity that don't require factual retrieval</li>
+                    </ul>
                 </div>
             </div>
         </div>
@@ -249,7 +266,7 @@
                 <span class="modal-close" onclick="closeModal('knowledge-modal')">&times;</span>
                 <h2>2. Knowledge Retrieval</h2>
                 <div class="content">
-                    <p>This step gathers relevant background information based on the identified topic and related topics. The following prompt template is used:</p>
+                    <p>This step gathers relevant background information based on the identified topic and related topics. It is only executed for intent categories "educational" and "clarification". The following prompt template is used:</p>
                     <pre>{{ knowledge_prompt_template }}</pre>
                     <p>The LLM responds with relevant factual context. Here's an example output based on the topic "Rayleigh scattering":</p>
                     <pre>
@@ -329,7 +346,7 @@ recursive_intent:
                 <span class="modal-close" onclick="closeModal('enhancement-modal')">&times;</span>
                 <h2>4. Learning Enhancement</h2>
                 <div class="content">
-                    <p>This step takes the initial response and enhances it with pedagogical strategies to foster curiosity and deeper learning. The following template is used:</p>
+                    <p>This step takes the initial response and enhances it with pedagogical strategies to foster curiosity and deeper learning. It is only executed for intent category "educational". The following template is used:</p>
                     <pre>{{ learning_prompt_template }}</pre>
                     <p>This enhancement step transforms a straightforward explanatory response into one that actively engages the student's curiosity, invites further questions, and encourages exploration of the topic.</p>
                 </div>
