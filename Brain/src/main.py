@@ -143,7 +143,7 @@ async def dequeue(message: MessagePayload, background_tasks: Optional[Background
             if message.is_follow_up_response and message.original_query and message.follow_up_questions:
                 # This is a follow-up response, process it differently
                 logger.info(f"Processing follow-up response for original query: {message.original_query}")
-                response_data = process_follow_up(
+                response_data = await process_follow_up(
                     original_query=message.original_query, 
                     follow_up_questions=message.follow_up_questions,
                     student_response=user_input,
@@ -153,7 +153,7 @@ async def dequeue(message: MessagePayload, background_tasks: Optional[Background
             else:
                 # Process as a regular query
                 logger.info(f"Processing query with S3-loaded config (if available): {s3_config_dict}")
-                response_data = process_query(
+                response_data = await process_query(
                     user_input, 
                     config=flow_config_instance,
                     conversation_history=conversation_history_str
@@ -240,15 +240,15 @@ async def home(request: Request):
 async def show_rules(request: Request):
     try:
         # Call gather_initial_intent to get the intent gathering template
-        intent_gathering_template = gather_initial_intent(query="dummy", get_prompt_template_only=True)
+        intent_gathering_template = await gather_initial_intent(query="dummy", get_prompt_template_only=True)
         
         # Call retrieve_knowledge to get only the template
         # Pass dummy topics as they are required by the signature but not used
-        knowledge_prompt_template = retrieve_knowledge(main_topic="dummy", related_topics=[], get_prompt_template_only=True)
+        knowledge_prompt_template = await retrieve_knowledge(main_topic="dummy", related_topics=[], get_prompt_template_only=True)
 
         # Call generate_enhanced_response to get only the template
         # Pass dummy initial response and context
-        learning_prompt_template = generate_enhanced_response(initial_response="dummy", context_info="dummy", get_prompt_template_only=True)
+        learning_prompt_template = await generate_enhanced_response(initial_response="dummy", context_info="dummy", get_prompt_template_only=True)
 
         return templates.TemplateResponse(
             "rules.html",

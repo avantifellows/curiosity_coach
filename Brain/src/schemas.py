@@ -20,6 +20,7 @@ class IntentData(BaseModel):
     subject: IntentSubject
     intents: Dict[str, Optional[IntentDetails]]
     context: Optional[IntentContext] = None
+    intent_category: Optional[str] = Field(None, description="The category of intent: 'educational', 'clarification', 'greeting', 'administrative', etc.")
 
 class IntentGatheringStepData(BaseModel):
     name: Literal["intent_gathering"]

@@ -36,6 +36,7 @@ Return a JSON object with one of two structures:
         "main_topic": "the main topic being discussed",
         "related_topics": ["list of related topics or subtopics"]
     },
+    "intent_category": "one of: educational, conversational, clarification, administrative, personal",
     "intents": {
         "primary_intent": {
             "category": "one of: cognitive_intent, exploratory_intent, metacognitive_intent, emotional_identity_intent, recursive_intent, conversational_intent",
@@ -55,6 +56,13 @@ Return a JSON object with one of two structures:
     }
 }
 ```
+
+Intent categories and their meaning:
+- "educational": Questions about academic topics that require knowledge retrieval and learning enhancement
+- "conversational": Greetings, small talk, or social exchanges that don't need knowledge retrieval
+- "clarification": Questions about previously discussed topics or asking for explanations of previous responses
+- "administrative": Questions about how the system works or meta-questions about the interaction
+- "personal": Questions about preferences, opinions, or identity that don't require factual retrieval
 
 Available intent categories and types:
 - cognitive_intent: ["Concept Clarification", "Causal Exploration", "Comparison Seeking", "Hypothetical Reasoning", "Application Inquiry", "Depth Expansion"]
