@@ -6,6 +6,7 @@ from src.auth.router import router as auth_router
 from src.messages.router import router as messages_router
 from src.conversations.router import router as conversations_router
 from src.health.router import router as health_router
+from src.prompts.router import router as prompts_router
 from src.config.settings import settings
 from src.database import init_db
 from mangum import Mangum
@@ -52,6 +53,7 @@ def create_app() -> FastAPI:
     app.include_router(messages_router)
     app.include_router(conversations_router)
     app.include_router(health_router)
+    app.include_router(prompts_router)
 
     
     # Initialize the database

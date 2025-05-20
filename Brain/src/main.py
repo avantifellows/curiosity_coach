@@ -16,15 +16,15 @@ import boto3 # Added for S3 interaction
 from botocore.exceptions import NoCredentialsError, PartialCredentialsError, ClientError # Added for S3 error handling
 from mangum import Mangum
 
-from src.process_query_entrypoint import process_query, ProcessQueryResponse
+from src.process_query_entrypoint import process_query, process_follow_up, ProcessQueryResponse
 from src.utils.logger import logger
-from src.core.intent_identifier import identify_intent, IntentIdentificationError # Import identify_intent
+from src.core.conversational_intent_gatherer import gather_initial_intent, process_follow_up_response, ConversationalIntentError
 from src.core.knowledge_retrieval import retrieve_knowledge, KnowledgeRetrievalError
-from src.core.learning_enhancement import generate_enhanced_response, LearningEnhancementError # Import learning enhancement
-from src.config_models import FlowConfig # Import FlowConfig from new location
+from src.core.learning_enhancement import generate_enhanced_response, LearningEnhancementError
+from src.config_models import FlowConfig
 
 # Load environment variables from .env file
-load_dotenv() # Added call
+load_dotenv()
 
 BACKEND_CALLBACK_BASE_URL = os.getenv("BACKEND_CALLBACK_BASE_URL", "http://localhost:5000")
 
@@ -45,9 +45,6 @@ app.add_middleware(
 # Setup templates
 templates = Jinja2Templates(directory="src/templates")
 
-# --- Configuration Models ---
-# FlowConfig class has been moved to src.config_models.py
-
 # --- Payload Models ---
 class MessagePayload(BaseModel):
     user_id: str
@@ -56,6 +53,9 @@ class MessagePayload(BaseModel):
     conversation_id: str
     message_content: str
     timestamp: float # Assuming timestamp is a float epoch time
+    is_follow_up_response: bool = False  # New field to indicate if this is a response to follow-up questions
+    original_query: Optional[str] = None  # Original query if this is a follow-up response
+    follow_up_questions: Optional[List[str]] = None  # Follow-up questions that were asked
 
 # Updated dequeue function containing the core logic
 async def dequeue(message: MessagePayload, background_tasks: Optional[BackgroundTasks] = None):
@@ -138,43 +138,63 @@ async def dequeue(message: MessagePayload, background_tasks: Optional[Background
                 except Exception as e:
                     logger.error(f"Unexpected error fetching or processing conversation history: {e}", exc_info=True)
 
-
-            # Process the query and get response only if purpose is 'chat'
-            logger.info(f"Processing query with S3-loaded config (if available): {s3_config_dict}")
-            response_data = process_query(
-                user_input, 
-                config=flow_config_instance,
-                conversation_history=conversation_history_str # Pass fetched history
-            )
-
-            # Prepare and schedule the callback if response was generated
-            if response_data and response_data.response:
-                callback_payload = {
-                    "user_id": int(message.user_id), # Ensure correct type
-                    "conversation_id": message.conversation_id,
-                    "original_message_id": int(message.message_id) if message.message_id.isdigit() else None, # Handle non-int IDs if needed
-                    "llm_response": response_data.response, # The final response string
-                    "pipeline_data": response_data.pipeline_data.model_dump() # The pipeline data
-                }
-                # Schedule callback differently based on context
-                if background_tasks:
-                    # Running in FastAPI context, use background task
-                    background_tasks.add_task(perform_backend_callback, callback_payload)
-                    logger.info(f"Scheduled background callback task for user_id: {message.user_id}")
-                else:
-                    # Running in non-FastAPI context (e.g., SQS Lambda path), run synchronously
-                    logger.info(f"Running callback synchronously for user_id: {message.user_id}")
-                    try:
-                        # Since dequeue is already run with asyncio.run() in the SQS path (lambda_function.py),
-                        # we should await the coroutine directly here.
-                        await perform_backend_callback(callback_payload)
-                    except Exception as cb_exc:
-                        # Log synchronous callback errors, but don't let them fail the main dequeue process necessarily
-                        logger.error(f"Error during awaited callback execution (SQS context): {cb_exc}", exc_info=True)
-                        # Depending on requirements, you might want to re-raise or handle differently
+            # Determine if this is a new query or a follow-up response
+            response_data = None
+            if message.is_follow_up_response and message.original_query and message.follow_up_questions:
+                # This is a follow-up response, process it differently
+                logger.info(f"Processing follow-up response for original query: {message.original_query}")
+                response_data = process_follow_up(
+                    original_query=message.original_query, 
+                    follow_up_questions=message.follow_up_questions,
+                    student_response=user_input,
+                    config=flow_config_instance,
+                    conversation_history=conversation_history_str
+                )
             else:
-                 logger.warning(f"No response generated for chat message, callback not scheduled for user_id: {message.user_id}")
+                # Process as a regular query
+                logger.info(f"Processing query with S3-loaded config (if available): {s3_config_dict}")
+                response_data = process_query(
+                    user_input, 
+                    config=flow_config_instance,
+                    conversation_history=conversation_history_str
+                )
 
+            # Check if the response needs clarification (has follow-up questions)
+            if response_data.needs_clarification and response_data.follow_up_questions:
+                # Prepare and schedule the callback with follow-up questions
+                callback_payload = {
+                    "user_id": int(message.user_id),
+                    "conversation_id": message.conversation_id,
+                    "original_message_id": int(message.message_id) if message.message_id.isdigit() else None,
+                    "llm_response": response_data.final_response,  # This contains the formatted follow-up questions
+                    "pipeline_data": response_data.model_dump(),  # Include all pipeline data
+                    "needs_clarification": True,
+                    "follow_up_questions": response_data.follow_up_questions,
+                    "original_query": message.original_query if message.is_follow_up_response else user_input
+                }
+            else:
+                # Prepare and schedule the callback with the final response
+                callback_payload = {
+                    "user_id": int(message.user_id),
+                    "conversation_id": message.conversation_id,
+                    "original_message_id": int(message.message_id) if message.message_id.isdigit() else None,
+                    "llm_response": response_data.final_response,
+                    "pipeline_data": response_data.model_dump(),
+                    "needs_clarification": False
+                }
+
+            # Schedule callback
+            if background_tasks:
+                # Running in FastAPI context, use background task
+                background_tasks.add_task(perform_backend_callback, callback_payload)
+                logger.info(f"Scheduled background callback task for user_id: {message.user_id}")
+            else:
+                # Running in non-FastAPI context (e.g., SQS Lambda path), run synchronously
+                logger.info(f"Running callback synchronously for user_id: {message.user_id}")
+                try:
+                    await perform_backend_callback(callback_payload)
+                except Exception as cb_exc:
+                    logger.error(f"Error during awaited callback execution (SQS context): {cb_exc}", exc_info=True)
 
             return response_data.model_dump()
         else:
@@ -219,9 +239,9 @@ async def home(request: Request):
 @app.get("/rules", response_class=HTMLResponse)
 async def show_rules(request: Request):
     try:
-        # Call identify_intent to get only the template
-        intent_prompt_template = identify_intent(query="dummy", get_prompt_template_only=True)
-
+        # Call gather_initial_intent to get the intent gathering template
+        intent_gathering_template = gather_initial_intent(query="dummy", get_prompt_template_only=True)
+        
         # Call retrieve_knowledge to get only the template
         # Pass dummy topics as they are required by the signature but not used
         knowledge_prompt_template = retrieve_knowledge(main_topic="dummy", related_topics=[], get_prompt_template_only=True)
@@ -234,12 +254,12 @@ async def show_rules(request: Request):
             "rules.html",
             {
                 "request": request,
-                "intent_prompt_template": intent_prompt_template,
+                "intent_gathering_template": intent_gathering_template,
                 "knowledge_prompt_template": knowledge_prompt_template,
-                "learning_prompt_template": learning_prompt_template # Pass learning template
+                "learning_prompt_template": learning_prompt_template
             }
         )
-    except (IntentIdentificationError, KnowledgeRetrievalError, LearningEnhancementError) as e: # Catch both errors
+    except (ConversationalIntentError, KnowledgeRetrievalError, LearningEnhancementError) as e:
         logger.error(f"Failed to get prompt template(s) for /rules page: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Could not load rules information.")
     except Exception as e:
@@ -313,9 +333,6 @@ async def handle_query(message: MessagePayload, background_tasks: BackgroundTask
         # Dequeue handles processing and schedules the callback if needed.
         result = await dequeue(message, background_tasks) # await dequeue call
 
-        # The callback scheduling logic is now inside dequeue.
-        # We just return the immediate result from dequeue.
-
         # Return the immediate result from dequeue (could be success/error/non-chat info)
         # Use JSONResponse to ensure correct content type and structure
         return JSONResponse(content=result)
@@ -326,6 +343,31 @@ async def handle_query(message: MessagePayload, background_tasks: BackgroundTask
     except Exception as e:
         # Catch any other unexpected errors during the call to dequeue
         logger.error(f"Unexpected error in /query endpoint calling dequeue: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+@app.post("/follow-up")
+async def handle_follow_up(message: MessagePayload, background_tasks: BackgroundTasks):
+    """
+    Endpoint specifically for handling follow-up responses to previous questions.
+    """
+    if not message.is_follow_up_response:
+        raise HTTPException(status_code=400, detail="This endpoint is only for follow-up responses. Set is_follow_up_response to true.")
+    
+    if not message.original_query:
+        raise HTTPException(status_code=400, detail="original_query is required for follow-up responses")
+    
+    if not message.follow_up_questions:
+        raise HTTPException(status_code=400, detail="follow_up_questions is required for follow-up responses")
+    
+    # Use the same dequeue function, which now handles both regular queries and follow-ups
+    try:
+        result = await dequeue(message, background_tasks)
+        return JSONResponse(content=result)
+    except HTTPException as http_exc:
+        logger.error(f"HTTPException during follow-up dequeue: {http_exc.detail}")
+        raise http_exc
+    except Exception as e:
+        logger.error(f"Unexpected error in /follow-up endpoint: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 if __name__ == '__main__':
