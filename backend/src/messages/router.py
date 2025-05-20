@@ -50,25 +50,18 @@ async def send_message_to_conversation(
     purpose = request.purpose # Still optional
     user_id = current_user.id # Get user_id from authenticated user
 
-    print(f"Processing message for conversation_id: {conversation_id}, user_id: {user_id}")
-    print(f"Request data: {request}")
-    
     try:
-        # Service function needs modification to accept conversation_id
-        print(f"Router: Calling message_service.send_message with user_id={user_id}, content='{content}', purpose='{purpose}', conversation_id={conversation_id}")
         saved_message = await message_service.send_message(
-            user_id=user_id, # Keep user_id if service layer needs it for context/logging
-            conversation_id=conversation_id, # Pass conversation_id explicitly
+            user_id=user_id,
+            conversation_id=conversation_id,
             content=content,
             purpose=purpose,
             db=db
         )
         
-        print(f"Router: Received saved_message from service: {saved_message}")
-        print(f"Router: Successfully processed message for conversation_id: {conversation_id}. Returning success response.")
         return {
             'success': True,
-            'message': MessageData.model_validate(saved_message) # Use model_validate
+            'message': MessageData.model_validate(saved_message)
         }
     except Exception as e:
         error_details = traceback.format_exc()
@@ -90,14 +83,10 @@ async def get_conversation_messages(
     user_id = current_user.id # For logging or potential use in service
 
     try:
-        # Service function needs modification to accept conversation_id
-        print(f"Router: Calling message_service.get_chat_history for conversation_id: {conversation_id}")
         messages = await message_service.get_chat_history(
             conversation_id=conversation_id,
             db=db
-            # user_id=user_id # Pass user_id only if service strictly needs it
         )
-        print(f"Router: Retrieved history for conversation_id: {conversation_id}")
         return {
             'success': True,
             'messages': messages
@@ -134,20 +123,6 @@ async def get_ai_response(
             # If ownership verified, return the data
             return MessageData.model_validate(ai_response)
         else:
-            # AI response doesn't exist (yet)
-            # Optional: Verify the original user message exists and belongs to the user's conversation
-            # original_message = db.query(models.Message).get(user_message_id)
-            # if original_message:
-            #     try: 
-            #         await verify_conversation_ownership(original_message.conversation_id, current_user, db)
-            #     except HTTPException:
-            #         # Original message exists but doesn't belong to user, return 404
-            #         raise HTTPException(status_code=404, detail="Message not found")
-            # else:
-            #     # Original message doesn't exist at all
-            #      raise HTTPException(status_code=404, detail="Message not found")
-            
-            # If original message check passed (or wasn't done), return None for pending
             return None
 
     except Exception as e:
@@ -163,41 +138,19 @@ async def receive_brain_response(payload: BrainResponsePayload, db: Session = De
     Receives the processed response from the Brain service and saves it 
     to the correct conversation.
     """
-    print(f"Received brain response for conversation_id: {payload.conversation_id}, original_message_id: {payload.original_message_id}")
-    # print(f"Brain payload: {payload.dict()}")
-
     try:
         # Verify the target conversation exists (optional but good practice)
         conversation = models.get_conversation(db, payload.conversation_id)
         if not conversation:
-            # Log error and maybe return 404 if the Brain should know?
             print(f"Error: Brain response received for non-existent conversation_id: {payload.conversation_id}")
             raise HTTPException(status_code=404, detail=f"Conversation {payload.conversation_id} not found.")
             
-        # # --- Save BrainResponsePayload to a JSON file ---
-        # brain_responses_dir = "brain_responses"
-        # os.makedirs(brain_responses_dir, exist_ok=True)
-
-        # timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-        # filename = os.path.join(brain_responses_dir, f"brain_response_{payload.conversation_id}_{timestamp}.json")
-
-        # try:
-        #     with open(filename, "w") as f:
-        #         json.dump(payload.dict(), f, indent=4)
-        #     print(f"Saved brain response payload to {filename}")
-        # except Exception as e:
-        #     print(f"Error saving brain response payload to file for conversation {payload.conversation_id}: {e}")
-        #     # Optionally, re-raise or handle this error appropriately if saving is critical
-        #     # For now, we'll just print and continue processing the message
-
-        # Prepare pipeline_data for saving
         pipeline_data_to_save = None
         if payload.pipeline_data:
             pipeline_data_to_save = payload.pipeline_data.copy() # Create a copy to modify
             pipeline_data_to_save.pop('query', None) # Remove 'query' if it exists
             pipeline_data_to_save.pop('final_response', None) # Remove 'final_response' if it exists
 
-        # Save the AI's response to the database using the new model function signature
         saved_response = models.save_message(
             db=db,
             conversation_id=payload.conversation_id, # Use conversation_id from payload
@@ -207,7 +160,6 @@ async def receive_brain_response(payload: BrainResponsePayload, db: Session = De
         )
         print(f"Saved brain response with ID: {saved_response.id} to conversation ID: {payload.conversation_id}")
 
-        # Now, save the pipeline data to the new table if it exists
         if pipeline_data_to_save: # This is the filtered data from before
             models.save_message_pipeline_data(
                 db=db,
@@ -216,14 +168,8 @@ async def receive_brain_response(payload: BrainResponsePayload, db: Session = De
             )
             print(f"Saved pipeline data for message ID: {saved_response.id}")
 
-        # --- TODO: Trigger notification to frontend (e.g., via SSE) --- 
-        # Signal needs conversation_id and potentially user_id (fetch from conversation object)
-        # await notify_frontend(user_id=conversation.user_id, conversation_id=payload.conversation_id, message=saved_response)
-
         return {"status": "received", "message_id": saved_response.id}
 
-    except HTTPException as he:
-        raise he # Re-raise validation errors
     except Exception as e:
         error_details = traceback.format_exc()
         print(f"Error processing brain response for conversation {payload.conversation_id}: {e}")
@@ -291,17 +237,10 @@ async def get_conversation_messages_for_brain(
     This endpoint does not perform user ownership checks.
     """
     try:
-        print(f"Router (Internal): Calling message_service.get_chat_history for conversation_id: {conversation_id} (for Brain)")
-        # Assuming message_service.get_chat_history can handle calls without a user_id
-        # or that the service layer can determine it's an internal call.
-        # If get_chat_history strictly requires user_id for ownership, this service call might need adjustment
-        # or a new service function specific for internal use.
         messages = await message_service.get_chat_history(
             conversation_id=conversation_id,
             db=db
-            # user_id is intentionally omitted for this internal endpoint
         )
-        print(f"Router (Internal): Retrieved history for conversation_id: {conversation_id} (for Brain)")
         return {
             'success': True,
             'messages': messages
