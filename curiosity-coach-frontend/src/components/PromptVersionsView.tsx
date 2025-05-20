@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { getPrompts, getPromptVersions } from '../services/api';
-import { Prompt, PromptSimple, PromptVersion } from '../types';
+import { PromptSimple, PromptVersion } from '../types';
 
 const PromptVersionsView: React.FC = () => {
   const [prompts, setPrompts] = useState<PromptSimple[]>([]);
@@ -48,13 +48,41 @@ const PromptVersionsView: React.FC = () => {
     return selected?.active_version_number || null;
   };
 
+  // Get the active version number
+  const activeVersionNumber = getActiveVersion();
+
   return (
     <div className="p-4">
       <h2 className="text-2xl font-bold mb-4">Prompt Versions</h2>
       
       {error && (
-        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
-          {error}
+        <div className="bg-red-100 border border-red-400 text-red-700 p-4 rounded mb-4">
+          <p className="font-semibold text-lg mb-2">Unable to load prompts</p>
+          <p className="mb-3">This may occur if:</p>
+          <ul className="list-disc text-left ml-6 mb-4">
+            <li>The backend server is not running</li>
+            <li>No prompts have been added to the database yet</li>
+            <li>There's a network connection issue</li>
+          </ul>
+          <p className="text-sm mb-4">{error}</p>
+          <button 
+            onClick={() => {
+              setError(null);
+              setLoading(true);
+              getPrompts()
+                .then(data => {
+                  setPrompts(data);
+                  setLoading(false);
+                })
+                .catch(err => {
+                  setError('Failed to load prompts');
+                  setLoading(false);
+                });
+            }} 
+            className="bg-blue-500 hover:bg-blue-600 text-white font-semibold py-2 px-4 rounded"
+          >
+            Retry
+          </button>
         </div>
       )}
       
@@ -64,8 +92,11 @@ const PromptVersionsView: React.FC = () => {
           className="border rounded py-2 px-3 w-full"
           onChange={(e) => handlePromptSelect(e.target.value)}
           value={selectedPrompt || ''}
+          disabled={loading || prompts.length === 0}
         >
-          <option value="">Select a prompt...</option>
+          <option value="">
+            {loading ? "Loading prompts..." : prompts.length === 0 ? "No prompts available" : "Select a prompt..."}
+          </option>
           {prompts.map((prompt) => (
             <option key={prompt.id} value={prompt.id}>
               {prompt.name} {prompt.active_version_number ? `(v${prompt.active_version_number})` : ''}
@@ -74,12 +105,19 @@ const PromptVersionsView: React.FC = () => {
         </select>
       </div>
 
-      {selectedPrompt && (
+      {loading && !error && (
+        <div className="flex justify-center p-8">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
+        </div>
+      )}
+
+      {selectedPrompt && !loading && (
         <>
-          <h3 className="text-xl font-semibold mb-2">Versions</h3>
-          {loading ? (
-            <p>Loading versions...</p>
-          ) : versions.length > 0 ? (
+          <h3 className="text-xl font-semibold mb-2">
+            Versions {activeVersionNumber ? `(Active: v${activeVersionNumber})` : ''}
+          </h3>
+          
+          {versions.length > 0 ? (
             <div className="space-y-4">
               {versions.map((version) => (
                 <div 

@@ -56,12 +56,22 @@ class LearningEnhancementStepData(BaseModel):
     prompt: Optional[str] = None
     result: Optional[str] = None # Assuming enhanced_response_val is a string
 
+# Add SimplifiedConversationStepData model
+class SimplifiedConversationStepData(BaseModel):
+    name: Literal["simplified_conversation"]
+    enabled: bool
+    prompt: Optional[str] = None
+    result: Optional[str] = None
+    response_data: Optional[Dict[str, Any]] = None
+    needs_clarification: bool = False
+
 PipelineStepData = Union[
     IntentGatheringStepData, 
     FollowUpProcessingStepData,
     KnowledgeStepData, 
     InitialResponseStepData, 
-    LearningEnhancementStepData
+    LearningEnhancementStepData,
+    SimplifiedConversationStepData  # Add to the union
 ]
 
 class PipelineData(BaseModel):
@@ -80,4 +90,4 @@ class ProcessQueryResponse(BaseModel):
     final_response: Optional[str] = Field(None, description="The final response or follow-up questions")
     follow_up_questions: Optional[List[str]] = Field(None, description="List of follow-up questions if clarification is needed")
     needs_clarification: bool = Field(False, description="Whether clarification is needed from the user")
-    partial_understanding: Optional[str] = Field(None, description="Partial understanding of the query when clarification is needed") 
+    partial_understanding: Optional[str] = Field(None, description="Partial understanding of the query when clarification is needed")
