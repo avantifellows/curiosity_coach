@@ -11,6 +11,11 @@ router = APIRouter(
     responses={404: {"description": "Not found"}},
 )
 
+@router.get("/promptHealth")
+def prompt_health():
+    return {"status": "healthy"}
+
+
 # --- Prompt Endpoints ---
 @router.post("/prompts", response_model=schemas.PromptInDB, status_code=status.HTTP_201_CREATED)
 def create_prompt(prompt_in: schemas.PromptCreate, db: Session = Depends(get_db)):
