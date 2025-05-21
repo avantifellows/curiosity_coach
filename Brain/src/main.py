@@ -77,7 +77,7 @@ async def init_prompts():
     
     # Get the backend URL
     backend_url = os.getenv("BACKEND_CALLBACK_BASE_URL", "http://localhost:5000")
-    api_url = f"{backend_url}/prompts"
+    api_url = f"{backend_url}/api/prompts"
     
     # Add each prompt to the database
     async with httpx.AsyncClient() as client:
@@ -364,7 +364,7 @@ async def perform_backend_callback(payload: dict):
 async def get_active_prompt_version_id(client, backend_url, prompt_name):
     """Fetch the active prompt version ID for a given prompt name."""
     try:
-        active_version_url = f"{backend_url}/prompts/{prompt_name}/versions/active/"
+        active_version_url = f"{backend_url}/api/prompts/{prompt_name}/versions/active/"
         response = await client.get(active_version_url)
         if response.status_code == 200:
             data = response.json()
@@ -399,7 +399,7 @@ async def show_rules(request: Request):
         
         for prompt_name in prompts_to_fetch:
             try:
-                active_version_url = f"{backend_url}/prompts/{prompt_name}/versions/active/"
+                active_version_url = f"{backend_url}/api/prompts/{prompt_name}/versions/active/"
                 logger.info(f"Fetching active prompt version for '{prompt_name}' from: {active_version_url}")
                 
                 async with httpx.AsyncClient() as client:
@@ -444,7 +444,7 @@ async def show_simplified_rules(request: Request):
         prompt_name = "simplified_conversation"
         
         try:
-            active_version_url = f"{backend_url}/prompts/{prompt_name}/versions/active/"
+            active_version_url = f"{backend_url}/api/prompts/{prompt_name}/versions/active/"
             logger.info(f"Fetching active prompt version for '{prompt_name}' from: {active_version_url}")
             
             async with httpx.AsyncClient() as client:
