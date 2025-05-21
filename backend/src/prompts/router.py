@@ -14,10 +14,15 @@ router = APIRouter(
 # --- Prompt Endpoints ---
 @router.post("/", response_model=schemas.PromptInDB, status_code=status.HTTP_201_CREATED)
 def create_prompt(prompt_in: schemas.PromptCreate, db: Session = Depends(get_db)):
+    print(f"Received request to create prompt: {prompt_in}")
     try:
         created_prompt = service.prompt_service.create_prompt(db=db, prompt_create=prompt_in)
-        return service.prompt_service.get_prompt_by_id(db, created_prompt.id)
+        print(f"Prompt created with ID: {created_prompt.id}")
+        fetched_prompt = service.prompt_service.get_prompt_by_id(db, created_prompt.id)
+        print(f"Successfully fetched prompt for return: {fetched_prompt}")
+        return fetched_prompt
     except ValueError as e:
+        print(f"Error creating prompt: {e}")
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 @router.get("/", response_model=List[schemas.PromptSimple])
