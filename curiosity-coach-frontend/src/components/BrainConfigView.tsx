@@ -1,10 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { CircularProgress, Button, Alert, Box, Tabs, Tab } from '@mui/material';
+import { CircularProgress, Tabs, Tab } from '@mui/material';
 import { useChat } from '../context/ChatContext';
 import PromptVersionsView from './PromptVersionsView';
-
-// Set this to true to re-enable editing functionality
-const ENABLE_CONFIG_EDITING = false;
 
 interface StepConfig {
   name: string;
@@ -13,10 +10,6 @@ interface StepConfig {
   is_use_conversation_history_valid: boolean;
   is_allowed_to_change_enabled: boolean;
   // [key: string]: any; // Allow other properties if any, though we primarily care about the above
-}
-
-interface BrainConfigFormData {
-  steps: StepConfig[];
 }
 
 interface BrainConfigViewProps {
@@ -60,17 +53,8 @@ const BrainConfigView: React.FC<BrainConfigViewProps> = ({
   brainConfigSchema, 
   brainConfigError 
 }) => {
-  const { 
-    updateBrainConfig, 
-    isSavingBrainConfig, 
-    saveBrainConfigError: contextSaveError
-  } = useChat();
+  const { fetchBrainConfigSchema } = useChat();
 
-  const [formData, setFormData] = useState<BrainConfigFormData>({ steps: [] });
-  const [initialFormData, setInitialFormData] = useState<BrainConfigFormData>({ steps: [] });
-  const [isDirty, setIsDirty] = useState(false);
-  const [localSaveSuccess, setLocalSaveSuccess] = useState<string | null>(null);
-  const [localSaveError, setLocalSaveError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState(0);
 
   const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
@@ -78,60 +62,10 @@ const BrainConfigView: React.FC<BrainConfigViewProps> = ({
   };
 
   useEffect(() => {
-    if (brainConfigSchema && brainConfigSchema.current_values && Array.isArray(brainConfigSchema.current_values.steps)) {
-      const initialData = { steps: JSON.parse(JSON.stringify(brainConfigSchema.current_values.steps)) };
-      setFormData(initialData);
-      setInitialFormData(JSON.parse(JSON.stringify(initialData))); // Deep copy for comparison
-      setIsDirty(false);
-      setLocalSaveSuccess(null);
-      setLocalSaveError(null);
-    } else {
-      // Reset if schema is not as expected or null
-      setFormData({ steps: [] });
-      setInitialFormData({ steps: [] });
+    if (brainConfigSchema === null && !isLoadingBrainConfig && !brainConfigError) {
+      fetchBrainConfigSchema();
     }
-  }, [brainConfigSchema]);
-
-  useEffect(() => {
-    // Deep comparison for isDirty, formData.steps could be undefined initially or if schema is bad
-    setIsDirty(JSON.stringify(formData.steps || []) !== JSON.stringify(initialFormData.steps || []));
-  }, [formData, initialFormData]);
-
-  useEffect(() => {
-    if(contextSaveError) {
-        setLocalSaveError(contextSaveError);
-        setLocalSaveSuccess(null);
-    }
-  }, [contextSaveError]);
-
-  const handleStepInputChange = (stepIndex: number, key: string, value: any) => {
-    setFormData(prev => {
-      const newSteps = prev.steps ? [...prev.steps] : [];
-      if (newSteps[stepIndex]) {
-        newSteps[stepIndex] = { ...newSteps[stepIndex], [key]: value };
-      }
-      return { ...prev, steps: newSteps };
-    });
-    setLocalSaveSuccess(null);
-    setLocalSaveError(null);
-  };
-
-  const handleSave = async () => {
-    setLocalSaveSuccess(null);
-    setLocalSaveError(null);
-    // Ensure formData (and formData.steps) is what updateBrainConfig expects
-    // The backend expects the whole current_values structure or just the part that changed.
-    // Assuming updateBrainConfig expects the same structure as current_values for simplicity.
-    const configToSave = { steps: formData.steps };
-    const success = await updateBrainConfig(configToSave); 
-    if (success) {
-      setLocalSaveSuccess("Configuration saved successfully!");
-      // Update initialFormData to match the saved state
-      setInitialFormData(JSON.parse(JSON.stringify(formData)));
-      setIsDirty(false);
-    }
-    // No explicit 'else' needed here as contextSaveError effect handles API errors
-  };
+  }, [brainConfigSchema, isLoadingBrainConfig, brainConfigError, fetchBrainConfigSchema]);
 
   if (isLoadingBrainConfig) {
     return (
@@ -179,145 +113,6 @@ const BrainConfigView: React.FC<BrainConfigViewProps> = ({
       </div>
     );
   }
-
-  const renderStepsConfig = () => {
-    // Simplified view for display only
-    if (!ENABLE_CONFIG_EDITING) {
-      return (
-        <div className="space-y-4">
-          {currentValues.steps.map((step, index) => {
-            const stepName = step.name || `Step ${index + 1}`;
-            
-            return (
-              <div key={step.name || index} className="p-4 border rounded-md bg-gray-50">
-                <h4 className="text-lg font-medium text-gray-800 capitalize">
-                  {stepName.replace(/_/g, ' ')}
-                </h4>
-                
-                <div className="mt-2 grid grid-cols-2 gap-2 text-sm">
-                  <div className="flex items-center">
-                    <span className="font-semibold mr-2">Status:</span>
-                    <span className={`px-2 py-1 rounded ${step.enabled ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
-                      {step.enabled ? 'Enabled' : 'Disabled'}
-                    </span>
-                  </div>
-                  
-                  {step.is_use_conversation_history_valid && (
-                    <div className="flex items-center">
-                      <span className="font-semibold mr-2">Uses History:</span>
-                      <span className={`px-2 py-1 rounded ${step.use_conversation_history ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-800'}`}>
-                        {step.use_conversation_history ? 'Yes' : 'No'}
-                      </span>
-                    </div>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      );
-    }
-
-    // Original editable view
-    return (
-      <>
-        {formData.steps && formData.steps.map((step, index) => {
-          const stepName = step.name || `Step ${index + 1}`;
-          const enabledTitle = stepSchemaDefinition?.enabled?.title || "Enable Step";
-          const enabledDescription = stepSchemaDefinition?.enabled?.description;
-          const historyTitle = stepSchemaDefinition?.use_conversation_history?.title || "Use Conversation History";
-          const historyDescription = stepSchemaDefinition?.use_conversation_history?.description;
-
-          return (
-            <div key={step.name || index} className="p-4 border rounded-md hover:shadow-md transition-shadow space-y-3">
-              <h4 className="text-lg font-medium text-gray-800 capitalize">
-                {stepSchemaDefinition?.name?.title || "Step Name"}: {stepName.replace(/_/g, ' ')}
-              </h4>
-
-              {/* Enabled Checkbox */}
-              <div className="pl-4">
-                <label 
-                  htmlFor={`step-${index}-enabled`} 
-                  className={`flex items-center ${!step.is_allowed_to_change_enabled ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}>
-                  <input 
-                    type="checkbox" 
-                    id={`step-${index}-enabled`}
-                    checked={!!step.enabled} // Ensure boolean
-                    onChange={(e) => handleStepInputChange(index, 'enabled', e.target.checked)}
-                    className="mr-3 h-5 w-5 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded disabled:opacity-70"
-                    disabled={isSavingBrainConfig || !step.is_allowed_to_change_enabled}
-                  />
-                  <div className="flex-grow">
-                    <span className="font-medium text-gray-800">
-                      {enabledTitle}
-                    </span>
-                    {enabledDescription && (
-                      <p className="text-sm text-gray-500 mt-1">{enabledDescription}</p>
-                    )}
-                    {!step.is_allowed_to_change_enabled && (
-                      <p className="text-xs text-amber-700 mt-1 italic">
-                        (Cannot be disabled as it's essential for the flow)
-                      </p>
-                    )}
-                  </div>
-                </label>
-              </div>
-
-              {/* Use Conversation History Checkbox */}
-              <div className="pl-4">
-                <label 
-                  htmlFor={`step-${index}-use_conversation_history`} 
-                  className={`flex items-center ${!step.is_use_conversation_history_valid ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}
-                >
-                  <input 
-                    type="checkbox" 
-                    id={`step-${index}-use_conversation_history`}
-                    checked={!!step.use_conversation_history} // Ensure boolean
-                    onChange={(e) => handleStepInputChange(index, 'use_conversation_history', e.target.checked)}
-                    className="mr-3 h-5 w-5 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded disabled:opacity-70"
-                    disabled={isSavingBrainConfig || !step.is_use_conversation_history_valid}
-                  />
-                  <div className="flex-grow">
-                    <span className="font-medium text-gray-800">
-                      {historyTitle}
-                    </span>
-                    {historyDescription && (
-                      <p className="text-sm text-gray-500 mt-1">{historyDescription}</p>
-                    )}
-                    {!step.is_use_conversation_history_valid && (
-                      <p className="text-xs text-amber-700 mt-1 italic">
-                          (Not applicable for this step)
-                      </p>
-                    )}
-                  </div>
-                </label>
-              </div>
-            </div>
-          );
-        })}
-        
-        {(localSaveError || localSaveSuccess) && (
-          <Box mt={2} mb={2}>
-            {localSaveSuccess && <Alert severity="success">{localSaveSuccess}</Alert>}
-            {localSaveError && <Alert severity="error">Error: {localSaveError}</Alert>}
-          </Box>
-        )}
-
-        {formData.steps && formData.steps.length > 0 && (
-          <div className="mt-6 flex justify-end">
-            <Button 
-              variant="contained" 
-              color="primary" 
-              onClick={handleSave}
-              disabled={!isDirty || isSavingBrainConfig}
-            >
-              {isSavingBrainConfig ? <CircularProgress size={24} color="inherit" /> : 'Save Changes'}
-            </Button>
-          </div>
-        )}
-      </>
-    );
-  };
 
   return (
     <div className="p-6 space-y-6 bg-white shadow rounded-lg m-4">
