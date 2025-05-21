@@ -126,7 +126,7 @@ export const getPipelineSteps = async (aiMessageId: number | string): Promise<an
 // Get a list of all prompts
 export const getPrompts = async () => {
   try {
-    const response = await axios.get(`${process.env.REACT_APP_BACKEND_BASE_URL}/prompts`);
+    const response = await axios.get(`${process.env.REACT_APP_BACKEND_BASE_URL}/api/prompts`);
     return response.data;
   } catch (error) {
     console.error("Error fetching prompts:", error);
@@ -137,7 +137,7 @@ export const getPrompts = async () => {
 // Get a specific prompt by name or ID
 export const getPrompt = async (nameOrId: string | number) => {
   try {
-    const response = await axios.get(`${process.env.REACT_APP_BACKEND_BASE_URL}/prompts/${nameOrId}`);
+    const response = await axios.get(`${process.env.REACT_APP_BACKEND_BASE_URL}/api/prompts/${nameOrId}`);
     return response.data;
   } catch (error) {
     console.error(`Error fetching prompt ${nameOrId}:`, error);
@@ -148,7 +148,7 @@ export const getPrompt = async (nameOrId: string | number) => {
 // Get all versions of a specific prompt
 export const getPromptVersions = async (nameOrId: string | number) => {
   try {
-    const response = await axios.get(`${process.env.REACT_APP_BACKEND_BASE_URL}/prompts/${nameOrId}/versions`);
+    const response = await axios.get(`${process.env.REACT_APP_BACKEND_BASE_URL}/api/prompts/${nameOrId}/versions`);
     return response.data;
   } catch (error) {
     console.error(`Error fetching versions for prompt ${nameOrId}:`, error);
@@ -159,7 +159,7 @@ export const getPromptVersions = async (nameOrId: string | number) => {
 // Get the active version of a specific prompt
 export const getActivePromptVersion = async (nameOrId: string | number) => {
   try {
-    const response = await axios.get(`${process.env.REACT_APP_BACKEND_BASE_URL}/prompts/${nameOrId}/versions/active`);
+    const response = await axios.get(`${process.env.REACT_APP_BACKEND_BASE_URL}/api/prompts/${nameOrId}/versions/active`);
     return response.data;
   } catch (error) {
     console.error(`Error fetching active version for prompt ${nameOrId}:`, error);
