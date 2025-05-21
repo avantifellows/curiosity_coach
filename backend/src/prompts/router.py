@@ -49,112 +49,112 @@ def list_prompts(
         ))
     return results
 
-# @router.get("/{prompt_id_or_name}", response_model=schemas.PromptInDB)
-# def get_prompt(prompt_id_or_name: str, db: Session = Depends(get_db)):
-#     db_prompt = None
-#     if prompt_id_or_name.isdigit():
-#         db_prompt = service.prompt_service.get_prompt_by_id(db, int(prompt_id_or_name))
-#     else:
-#         db_prompt = service.prompt_service.get_prompt_by_name(db, prompt_id_or_name)
+@router.get("/prompts/{prompt_id_or_name}", response_model=schemas.PromptInDB)
+def get_prompt(prompt_id_or_name: str, db: Session = Depends(get_db)):
+    db_prompt = None
+    if prompt_id_or_name.isdigit():
+        db_prompt = service.prompt_service.get_prompt_by_id(db, int(prompt_id_or_name))
+    else:
+        db_prompt = service.prompt_service.get_prompt_by_name(db, prompt_id_or_name)
     
-#     if db_prompt is None:
-#         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Prompt not found")
-#     return db_prompt
+    if db_prompt is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Prompt not found")
+    return db_prompt
 
-# @router.put("/{prompt_id}", response_model=schemas.PromptInDB)
-# def update_prompt(prompt_id: int, prompt_in: schemas.PromptUpdate, db: Session = Depends(get_db)):
-#     try:
-#         updated_prompt = service.prompt_service.update_prompt(db=db, prompt_id=prompt_id, prompt_update=prompt_in)
-#         if updated_prompt is None:
-#             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Prompt not found")
-#         return service.prompt_service.get_prompt_by_id(db, updated_prompt.id) # Re-fetch for full relations
-#     except ValueError as e:
-#         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+@router.put("/prompts/{prompt_id}", response_model=schemas.PromptInDB)
+def update_prompt(prompt_id: int, prompt_in: schemas.PromptUpdate, db: Session = Depends(get_db)):
+    try:
+        updated_prompt = service.prompt_service.update_prompt(db=db, prompt_id=prompt_id, prompt_update=prompt_in)
+        if updated_prompt is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Prompt not found")
+        return service.prompt_service.get_prompt_by_id(db, updated_prompt.id) # Re-fetch for full relations
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
-# @router.delete("/{prompt_id}", status_code=status.HTTP_204_NO_CONTENT)
-# def delete_prompt(prompt_id: int, db: Session = Depends(get_db)):
-#     deleted_prompt = service.prompt_service.delete_prompt(db=db, prompt_id=prompt_id)
-#     if deleted_prompt is None:
-#         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Prompt not found")
-#     return
+@router.delete("/prompts/{prompt_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_prompt(prompt_id: int, db: Session = Depends(get_db)):
+    deleted_prompt = service.prompt_service.delete_prompt(db=db, prompt_id=prompt_id)
+    if deleted_prompt is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Prompt not found")
+    return
 
-# # --- Prompt Version Endpoints ---
-# @router.post("/{prompt_id_or_name}/versions/", response_model=schemas.PromptVersionInDB, status_code=status.HTTP_201_CREATED)
-# def add_prompt_version(
-#     prompt_id_or_name: str, 
-#     version_in: schemas.PromptVersionCreate, 
-#     set_active: Optional[bool] = Query(False, description="Set this new version as active for the prompt."),
-#     db: Session = Depends(get_db)
-# ):
-#     db_prompt = None
-#     if prompt_id_or_name.isdigit():
-#         db_prompt = service.prompt_service.get_prompt_by_id(db, int(prompt_id_or_name))
-#     else:
-#         db_prompt = service.prompt_service.get_prompt_by_name(db, prompt_id_or_name)
+# --- Prompt Version Endpoints ---
+@router.post("/prompts/{prompt_id_or_name}/versions/", response_model=schemas.PromptVersionInDB, status_code=status.HTTP_201_CREATED)
+def add_prompt_version(
+    prompt_id_or_name: str, 
+    version_in: schemas.PromptVersionCreate, 
+    set_active: Optional[bool] = Query(False, description="Set this new version as active for the prompt."),
+    db: Session = Depends(get_db)
+):
+    db_prompt = None
+    if prompt_id_or_name.isdigit():
+        db_prompt = service.prompt_service.get_prompt_by_id(db, int(prompt_id_or_name))
+    else:
+        db_prompt = service.prompt_service.get_prompt_by_name(db, prompt_id_or_name)
 
-#     if not db_prompt:
-#         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Prompt '{prompt_id_or_name}' not found")
+    if not db_prompt:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Prompt '{prompt_id_or_name}' not found")
     
-#     try:
-#         created_version = service.prompt_service.add_prompt_version(
-#             db=db, 
-#             prompt_id=db_prompt.id, 
-#             version_create=version_in,
-#             set_active=set_active
-#         )
-#         return created_version
-#     except ValueError as e:
-#         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    try:
+        created_version = service.prompt_service.add_prompt_version(
+            db=db, 
+            prompt_id=db_prompt.id, 
+            version_create=version_in,
+            set_active=set_active
+        )
+        return created_version
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
-# @router.post("/{prompt_id_or_name}/versions/set-active/", response_model=schemas.PromptInDB)
-# def set_active_version(
-#     prompt_id_or_name: str,
-#     request_body: schemas.SetActivePromptVersionRequest,
-#     db: Session = Depends(get_db)
-# ):
-#     db_prompt = None
-#     if prompt_id_or_name.isdigit():
-#         db_prompt = service.prompt_service.get_prompt_by_id(db, int(prompt_id_or_name))
-#     else:
-#         db_prompt = service.prompt_service.get_prompt_by_name(db, prompt_id_or_name)
+@router.post("/prompts/{prompt_id_or_name}/versions/set-active/", response_model=schemas.PromptInDB)
+def set_active_version(
+    prompt_id_or_name: str,
+    request_body: schemas.SetActivePromptVersionRequest,
+    db: Session = Depends(get_db)
+):
+    db_prompt = None
+    if prompt_id_or_name.isdigit():
+        db_prompt = service.prompt_service.get_prompt_by_id(db, int(prompt_id_or_name))
+    else:
+        db_prompt = service.prompt_service.get_prompt_by_name(db, prompt_id_or_name)
 
-#     if not db_prompt:
-#         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Prompt '{prompt_id_or_name}' not found")
+    if not db_prompt:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Prompt '{prompt_id_or_name}' not found")
 
-#     try:
-#         updated_prompt = service.prompt_service.set_active_prompt_version(
-#             db=db,
-#             prompt_id=db_prompt.id,
-#             version_id_to_set_active=request_body.version_id
-#         )
-#         if updated_prompt is None: # Should not happen if previous checks pass
-#             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Prompt or version not found during activation")
-#         return service.prompt_service.get_prompt_by_id(db, updated_prompt.id) # Re-fetch for full relations
-#     except ValueError as e:
-#         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    try:
+        updated_prompt = service.prompt_service.set_active_prompt_version(
+            db=db,
+            prompt_id=db_prompt.id,
+            version_id_to_set_active=request_body.version_id
+        )
+        if updated_prompt is None: # Should not happen if previous checks pass
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Prompt or version not found during activation")
+        return service.prompt_service.get_prompt_by_id(db, updated_prompt.id) # Re-fetch for full relations
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
-# @router.get("/{prompt_id_or_name}/versions/active/", response_model=schemas.PromptVersionInDB)
-# def get_active_prompt_version(prompt_id_or_name: str, db: Session = Depends(get_db)):
-#     active_version = None
-#     if prompt_id_or_name.isdigit():
-#         prompt = service.prompt_service.get_prompt_by_id(db, int(prompt_id_or_name))
-#         if prompt:
-#             active_version = prompt.active_prompt_version
-#     else:
-#         active_version = service.prompt_service.get_active_version_for_prompt(db, prompt_name=prompt_id_or_name)
+@router.get("/prompts/{prompt_id_or_name}/versions/active/", response_model=schemas.PromptVersionInDB)
+def get_active_prompt_version(prompt_id_or_name: str, db: Session = Depends(get_db)):
+    active_version = None
+    if prompt_id_or_name.isdigit():
+        prompt = service.prompt_service.get_prompt_by_id(db, int(prompt_id_or_name))
+        if prompt:
+            active_version = prompt.active_prompt_version
+    else:
+        active_version = service.prompt_service.get_active_version_for_prompt(db, prompt_name=prompt_id_or_name)
     
-#     if active_version is None:
-#         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Active prompt version for '{prompt_id_or_name}' not found")
-#     return active_version
+    if active_version is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Active prompt version for '{prompt_id_or_name}' not found")
+    return active_version
 
-# @router.get("/{prompt_id_or_name}/versions/", response_model=List[schemas.PromptVersionInDB])
-# def list_prompt_versions(prompt_id_or_name: str, db: Session = Depends(get_db)):
-#     db_prompt = None
-#     if prompt_id_or_name.isdigit():
-#         db_prompt = service.prompt_service.get_prompt_by_id(db, int(prompt_id_or_name))
-#     else:
-#         db_prompt = service.prompt_service.get_prompt_by_name(db, prompt_id_or_name)
+@router.get("/prompts/{prompt_id_or_name}/versions/", response_model=List[schemas.PromptVersionInDB])
+def list_prompt_versions(prompt_id_or_name: str, db: Session = Depends(get_db)):
+    db_prompt = None
+    if prompt_id_or_name.isdigit():
+        db_prompt = service.prompt_service.get_prompt_by_id(db, int(prompt_id_or_name))
+    else:
+        db_prompt = service.prompt_service.get_prompt_by_name(db, prompt_id_or_name)
     
-#     if db_prompt is None:
-#         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Prompt '{prompt_id_or_name}' not found")
-#     return db_prompt.versions 
+    if db_prompt is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Prompt '{prompt_id_or_name}' not found")
+    return db_prompt.versions 
