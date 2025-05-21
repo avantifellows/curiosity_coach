@@ -11,6 +11,8 @@ export interface PipelineStep {
   result?: string | null;
   main_topic?: string | null;
   related_topics?: string[];
+  prompt_name?: string | null;
+  prompt_version?: number | null;
   // Add other potential fields from your pipeline steps here
 }
 
@@ -94,7 +96,17 @@ const PipelineStepsModal: React.FC<PipelineStepsModalProps> = ({
                     className="flex justify-between items-center cursor-pointer py-2"
                     onClick={() => toggleStepCollapse(idx)}
                   >
-                    <p className="text-lg font-bold text-gray-900">Step {idx + 1}: {step.name}</p>
+                    <div>
+                      <p className="text-lg font-bold text-gray-900">
+                        Step {idx + 1}: {step.name}
+                      </p>
+                      {step.prompt_name && (
+                        <p className="text-sm text-gray-600">
+                          Prompt: {step.prompt_name} 
+                          {step.prompt_version ? ` (Version ${step.prompt_version})` : ''}
+                        </p>
+                      )}
+                    </div>
                     {collapsedSteps[idx] ? <KeyboardArrowDown /> : <KeyboardArrowUp />}
                   </div>
                   

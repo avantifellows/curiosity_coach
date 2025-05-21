@@ -4,6 +4,7 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import { ChatProvider } from './context/ChatContext';
 import Login from './components/Login';
 import ChatInterface from './components/ChatInterface';
+import TestPromptInterface from './components/TestPromptInterface';
 import PromptVersionsView from './components/PromptVersionsView';
 
 // Protected route component
@@ -34,6 +35,14 @@ const App: React.FC = () => {
                 element={
                   <ProtectedRoute>
                     <ChatInterface />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/test-prompt"
+                element={
+                  <ProtectedRoute>
+                    <TestPromptInterface />
                   </ProtectedRoute>
                 }
               />
