@@ -80,7 +80,7 @@ async def init_prompts():
     api_url = f"{backend_url}/prompts"
     
     # Add each prompt to the database
-    async with httpx.AsyncClient(follow_redirects=True) as client:
+    async with httpx.AsyncClient() as client:
         for prompt_file in prompt_files:
             try:
                 prompt_name = prompt_names.get(prompt_file.name, prompt_file.stem)
