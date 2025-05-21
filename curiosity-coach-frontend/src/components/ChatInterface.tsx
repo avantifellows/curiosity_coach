@@ -4,7 +4,7 @@ import ChatMessage from './ChatMessage';
 import ConversationSidebar from './ConversationSidebar';
 import BrainConfigView from './BrainConfigView';
 import { useChat } from '../context/ChatContext';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { LogoutOutlined, Send, Visibility } from '@mui/icons-material';
 import { getPipelineSteps } from '../services/api';
