@@ -143,7 +143,7 @@ async def init_prompts():
                 # Try to create a version with set_active=true query param
                 if prompt_exists:
                     try:
-                        create_version_url = f"{api_url}/{prompt_name}/versions/?set_active=true"
+                        create_version_url = f"{api_url}/{prompt_name}/versions?set_active=true"
                         logger.info(f"Creating prompt version with POST to {create_version_url}")
                         version_response = await client.post(
                             create_version_url,
@@ -364,7 +364,7 @@ async def perform_backend_callback(payload: dict):
 async def get_active_prompt_version_id(client, backend_url, prompt_name):
     """Fetch the active prompt version ID for a given prompt name."""
     try:
-        active_version_url = f"{backend_url}/api/prompts/{prompt_name}/versions/active/"
+        active_version_url = f"{backend_url}/api/prompts/{prompt_name}/versions/active"
         response = await client.get(active_version_url)
         if response.status_code == 200:
             data = response.json()
@@ -399,7 +399,7 @@ async def show_rules(request: Request):
         
         for prompt_name in prompts_to_fetch:
             try:
-                active_version_url = f"{backend_url}/api/prompts/{prompt_name}/versions/active/"
+                active_version_url = f"{backend_url}/api/prompts/{prompt_name}/versions/active"
                 logger.info(f"Fetching active prompt version for '{prompt_name}' from: {active_version_url}")
                 
                 async with httpx.AsyncClient() as client:
@@ -444,7 +444,7 @@ async def show_simplified_rules(request: Request):
         prompt_name = "simplified_conversation"
         
         try:
-            active_version_url = f"{backend_url}/api/prompts/{prompt_name}/versions/active/"
+            active_version_url = f"{backend_url}/api/prompts/{prompt_name}/versions/active"
             logger.info(f"Fetching active prompt version for '{prompt_name}' from: {active_version_url}")
             
             async with httpx.AsyncClient() as client:

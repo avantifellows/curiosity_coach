@@ -28,7 +28,7 @@ async def _get_prompt_from_backend(prompt_name: str) -> Optional[str]:
         Optional[str]: The prompt text if found, None otherwise
     """
     try:
-        url = f"{_BACKEND_URL}{_PROMPT_API_PATH}/{prompt_name}/versions/active/"
+        url = f"{_BACKEND_URL}{_PROMPT_API_PATH}/{prompt_name}/versions/active"
         logger.info(f"Fetching active prompt version for '{prompt_name}' from: {url}")
         
         async with httpx.AsyncClient(timeout=10.0) as client:

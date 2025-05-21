@@ -297,7 +297,7 @@ async def _get_prompt_from_backend(prompt_name: str) -> Optional[str]:
         backend_url = os.getenv("BACKEND_CALLBACK_BASE_URL", "http://localhost:5000")
         
         # Build the full URL to fetch the active version
-        active_version_url = f"{backend_url}/api/prompts/{prompt_name}/versions/active/"
+        active_version_url = f"{backend_url}/api/prompts/{prompt_name}/versions/active"
         logger.debug(f"Fetching active prompt version from: {active_version_url}")
         
         # Make the request
