@@ -13,7 +13,7 @@ _RESPONSE_CONVERSATIONAL_TEMPLATE_PATH = os.path.join(_PROMPT_DIR, "response_gen
 _RESPONSE_PERSONAL_TEMPLATE_PATH = os.path.join(_PROMPT_DIR, "response_generator_personal_prompt.txt")
 
 # Backend API config for prompt versioning
-_BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:5000")
+_BACKEND_URL = os.getenv("BACKEND_CALLBACK_BASE_URL", "http://localhost:5000")
 _PROMPT_API_PATH = "/api/prompts"
 
 # Mapping of prompt names to file paths

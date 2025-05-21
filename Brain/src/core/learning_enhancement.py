@@ -10,7 +10,7 @@ _PROMPT_DIR = os.path.join(os.path.dirname(__file__), "..", "prompts")
 _LEARNING_PROMPT_PATH = os.path.join(_PROMPT_DIR, "learning_prompt.txt")
 
 # Backend API config for prompt versioning
-_BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:5000")
+_BACKEND_URL = os.getenv("BACKEND_CALLBACK_BASE_URL", "http://localhost:5000")
 _PROMPT_API_PATH = "/api/prompts"
 
 class LearningEnhancementError(Exception):

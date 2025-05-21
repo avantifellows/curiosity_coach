@@ -11,7 +11,7 @@ _INTENT_GATHERING_TEMPLATE_PATH = os.path.join(_PROMPT_DIR, "intent_gathering_pr
 _FOLLOW_UP_RESPONSE_TEMPLATE_PATH = os.path.join(_PROMPT_DIR, "follow_up_response_prompt.txt")
 
 # Backend API config for prompt versioning
-_BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:5000")
+_BACKEND_URL = os.getenv("BACKEND_CALLBACK_BASE_URL", "http://localhost:5000")
 _PROMPT_API_PATH = "/api/prompts"
 
 class ConversationalIntentError(Exception):
