@@ -165,4 +165,30 @@ export const getActivePromptVersion = async (nameOrId: string | number) => {
     console.error(`Error fetching active version for prompt ${nameOrId}:`, error);
     throw new Error(`Failed to fetch active version for prompt ${nameOrId}`);
   }
+};
+
+// Create a new version of a prompt
+export const createPromptVersion = async (promptId: number | string, promptText: string) => {
+  try {
+    const response = await axios.post(`${process.env.REACT_APP_BACKEND_BASE_URL}/api/prompts/${promptId}/versions`, {
+      prompt_text: promptText
+    });
+    return response.data;
+  } catch (error) {
+    console.error(`Error creating new version for prompt ${promptId}:`, error);
+    throw new Error(`Failed to create new version for prompt ${promptId}`);
+  }
+};
+
+// Set a specific version as active
+export const setActivePromptVersion = async (promptId: number | string, versionId: number) => {
+  try {
+    const response = await axios.post(`${process.env.REACT_APP_BACKEND_BASE_URL}/api/prompts/${promptId}/versions/set-active/`, {
+      version_id: versionId
+    });
+    return response.data;
+  } catch (error) {
+    console.error(`Error setting active version ${versionId} for prompt ${promptId}:`, error);
+    throw new Error(`Failed to set active version for prompt ${promptId}`);
+  }
 }; 
