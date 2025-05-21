@@ -118,7 +118,7 @@ async def init_prompts():
                 if not prompt_exists:
                     try:
                         logger.info(f"Creating prompt {prompt_name}")
-                        prompt_create_url = f"{api_url}"
+                        prompt_create_url = f"{api_url}/"  # Ensure trailing slash
                         prompt_create_response = await client.post(
                             prompt_create_url,
                             json={
