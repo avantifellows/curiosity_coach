@@ -11,16 +11,16 @@ from src.config.settings import settings
 from src.database import init_db
 from mangum import Mangum
 
-# Configure logging to prevent duplicate logs
-logging.getLogger("uvicorn.access").propagate = False
-logging.getLogger("uvicorn.error").propagate = False
+# # Configure logging to prevent duplicate logs
+# logging.getLogger("uvicorn.access").propagate = False
+# logging.getLogger("uvicorn.error").propagate = False
 
-# Configure root logger
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[logging.StreamHandler()]
-)
+# # Configure root logger
+# logging.basicConfig(
+#     level=logging.INFO,
+#     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+#     handlers=[logging.StreamHandler()]
+# )
 
 def create_app() -> FastAPI:
     """Create and configure a FastAPI application."""
