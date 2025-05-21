@@ -284,7 +284,7 @@ async def _get_prompt_template(filepath: str, prompt_name: str) -> str:
 
 async def _get_prompt_from_backend(prompt_name: str) -> Optional[str]:
     """
-    Attempts to retrieve a prompt template from the backend versioning system.
+    Attempts to retrieve the active prompt version template from the backend versioning system.
     
     Args:
         prompt_name (str): The name of the prompt to retrieve
@@ -295,25 +295,28 @@ async def _get_prompt_from_backend(prompt_name: str) -> Optional[str]:
     try:
         # Get backend URL from environment
         backend_url = os.getenv("BACKEND_URL", "http://localhost:5000")
-        prompt_api_path = "/api/prompts"
         
-        # Build the full URL
-        url = f"{backend_url}{prompt_api_path}/{prompt_name}"
-        logger.debug(f"Fetching prompt from: {url}")
+        # Build the full URL to fetch the active version
+        active_version_url = f"{backend_url}/prompts/{prompt_name}/versions/active/"
+        logger.debug(f"Fetching active prompt version from: {active_version_url}")
         
         # Make the request
         async with httpx.AsyncClient() as client:
-            response = await client.get(url, timeout=5.0)
+            response = await client.get(active_version_url, timeout=5.0)
             
             if response.status_code == 200:
                 data = response.json()
-                return data.get("prompt_text")
+                prompt_text = data.get("prompt_text")
+                version_id = data.get("id")
+                version_number = data.get("version_number")
+                logger.info(f"Retrieved active version {version_number} (ID: {version_id}) for prompt '{prompt_name}'")
+                return prompt_text
                 
-            logger.warning(f"Failed to get prompt from backend: Status {response.status_code}")
+            logger.warning(f"Failed to get active prompt version from backend: Status {response.status_code}")
             return None
             
     except Exception as e:
-        logger.warning(f"Error getting prompt from backend: {e}")
+        logger.warning(f"Error getting active prompt version from backend: {e}")
         return None
 
 async def process_query(query: str, config: Optional[FlowConfig] = None, conversation_history: Optional[str] = None) -> ProcessQueryResponse:
