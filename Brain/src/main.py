@@ -76,7 +76,7 @@ async def init_prompts():
     logger.info(f"Found {len(prompt_files)} prompt files")
     
     # Get the backend URL
-    backend_url = os.getenv("BACKEND_URL", "http://localhost:5000")
+    backend_url = os.getenv("BACKEND_CALLBACK_BASE_URL", "http://localhost:5000")
     api_url = f"{backend_url}/prompts"
     
     # Add each prompt to the database
@@ -287,7 +287,7 @@ async def dequeue(message: MessagePayload, background_tasks: Optional[Background
                 )
 
             # Create a client for fetching the prompt version ID
-            backend_url = os.getenv("BACKEND_URL", "http://localhost:5000")
+            backend_url = os.getenv("BACKEND_CALLBACK_BASE_URL", "http://localhost:5000")
             async with httpx.AsyncClient() as client:
                 # Check if the response needs clarification (has follow-up questions)
                 if response_data.needs_clarification and response_data.follow_up_questions:
@@ -387,7 +387,7 @@ async def show_rules(request: Request):
     """
     try:
         # Attempt to fetch active prompt versions for all relevant prompts
-        backend_url = os.getenv("BACKEND_URL", "http://localhost:5000")
+        backend_url = os.getenv("BACKEND_CALLBACK_BASE_URL", "http://localhost:5000")
         prompts_to_fetch = [
             "intent_gathering", 
             "knowledge_retrieval", 
@@ -440,7 +440,7 @@ async def show_simplified_rules(request: Request):
     """
     try:
         # Attempt to fetch the simplified conversation prompt template
-        backend_url = os.getenv("BACKEND_URL", "http://localhost:5000")
+        backend_url = os.getenv("BACKEND_CALLBACK_BASE_URL", "http://localhost:5000")
         prompt_name = "simplified_conversation"
         
         try:
