@@ -79,7 +79,7 @@ def delete_prompt(prompt_id: int, db: Session = Depends(get_db)):
     return
 
 # --- Prompt Version Endpoints ---
-@router.post("/prompts/{prompt_id_or_name}/versions/", response_model=schemas.PromptVersionInDB, status_code=status.HTTP_201_CREATED)
+@router.post("/prompts/{prompt_id_or_name}/versions", response_model=schemas.PromptVersionInDB, status_code=status.HTTP_201_CREATED)
 def add_prompt_version(
     prompt_id_or_name: str, 
     version_in: schemas.PromptVersionCreate, 
@@ -106,7 +106,7 @@ def add_prompt_version(
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
-@router.post("/prompts/{prompt_id_or_name}/versions/set-active/", response_model=schemas.PromptInDB)
+@router.post("/prompts/{prompt_id_or_name}/versions/set-active", response_model=schemas.PromptInDB)
 def set_active_version(
     prompt_id_or_name: str,
     request_body: schemas.SetActivePromptVersionRequest,
@@ -133,7 +133,7 @@ def set_active_version(
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
-@router.get("/prompts/{prompt_id_or_name}/versions/active/", response_model=schemas.PromptVersionInDB)
+@router.get("/prompts/{prompt_id_or_name}/versions/active", response_model=schemas.PromptVersionInDB)
 def get_active_prompt_version(prompt_id_or_name: str, db: Session = Depends(get_db)):
     active_version = None
     if prompt_id_or_name.isdigit():
@@ -147,7 +147,7 @@ def get_active_prompt_version(prompt_id_or_name: str, db: Session = Depends(get_
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Active prompt version for '{prompt_id_or_name}' not found")
     return active_version
 
-@router.get("/prompts/{prompt_id_or_name}/versions/", response_model=List[schemas.PromptVersionInDB])
+@router.get("/prompts/{prompt_id_or_name}/versions", response_model=List[schemas.PromptVersionInDB])
 def list_prompt_versions(prompt_id_or_name: str, db: Session = Depends(get_db)):
     db_prompt = None
     if prompt_id_or_name.isdigit():
