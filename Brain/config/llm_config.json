@@ -14,8 +14,8 @@
             "max_tokens": 500
         },
         "simplified_conversation": {
-            "provider": "groq",
-            "model": "llama-3.3-70b-versatile",
+            "provider": "openai",
+            "model": "gpt-4.1",
             "temperature": 0.7,
             "max_tokens": 500
         },
