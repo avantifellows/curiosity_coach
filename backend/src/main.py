@@ -42,6 +42,7 @@ def create_app() -> FastAPI:
             "http://localhost:3000", # Common port for local React dev
             "http://localhost:5173", # Common port for local Vite dev
             "http://curiosity-coach-frontend-dev.s3-website.ap-south-1.amazonaws.com", # Explicitly add S3 origin
+            "https://dbvw72bcf4bb.cloudfront.net/",
         ],
         allow_credentials=True,
         allow_methods=["*"], # Or specify methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
