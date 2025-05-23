@@ -25,7 +25,6 @@ const ChatInterface: React.FC = () => {
     isLoadingBrainConfig,
     brainConfigError,
     fetchBrainConfigSchema,
-    handleCreateConversation,
     conversations,
     isLoadingConversations,
   } = useChat();
