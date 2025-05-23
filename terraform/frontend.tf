@@ -1,5 +1,11 @@
 # terraform/frontend.tf
 
+# --- Cloudflare Provider Configuration ---
+provider "cloudflare" {
+  email   = var.cloudflare_email
+  api_key = var.cloudflare_api_key
+}
+
 # --- Frontend S3 Bucket ---
 
 resource "aws_s3_bucket" "frontend_bucket" {
@@ -136,6 +142,9 @@ resource "aws_cloudfront_distribution" "frontend_distribution" {
   comment             = "CloudFront distribution for ${var.project_name}-frontend-${var.environment}"
   default_root_object = "index.html"
 
+  # Add custom domain alias if configured
+  aliases = var.cloudflare_domain_name != "" ? ["${var.cloudflare_subdomain}.${var.cloudflare_domain_name}"] : []
+
   # Custom error pages for SPA routing
   custom_error_response {
     error_code         = 403
@@ -224,10 +233,13 @@ resource "aws_cloudfront_distribution" "frontend_distribution" {
     }
   }
 
-  # SSL certificate (using default CloudFront cert)
+  # SSL certificate configuration
   viewer_certificate {
-    cloudfront_default_certificate = true
+    # Use custom SSL certificate if provided, otherwise use default CloudFront certificate
+    acm_certificate_arn            = var.acm_certificate_arn != "" ? var.acm_certificate_arn : null
+    cloudfront_default_certificate = var.acm_certificate_arn == "" ? true : false
     minimum_protocol_version       = "TLSv1.2_2021"
+    ssl_support_method             = var.acm_certificate_arn != "" ? "sni-only" : null
   }
 
   tags = {
@@ -270,4 +282,39 @@ output "frontend_cloudfront_domain_name" {
 output "frontend_url" {
   description = "The HTTPS URL for the frontend."
   value       = "https://${aws_cloudfront_distribution.frontend_distribution.domain_name}"
+}
+
+# --- Cloudflare DNS Configuration ---
+
+# Data source to get the Cloudflare zone information by domain name
+data "cloudflare_zone" "domain" {
+  count = var.cloudflare_domain_name != "" ? 1 : 0
+  name  = var.cloudflare_domain_name
+}
+
+# Create CNAME record pointing to CloudFront distribution
+resource "cloudflare_record" "frontend_subdomain" {
+  count   = var.cloudflare_domain_name != "" ? 1 : 0
+  zone_id = data.cloudflare_zone.domain[0].id
+  name    = var.cloudflare_subdomain
+  content = aws_cloudfront_distribution.frontend_distribution.domain_name
+  type    = "CNAME"
+  proxied = false # Disable Cloudflare proxy, let CloudFront handle SSL
+  ttl     = 300   # 5 minutes TTL
+
+  comment = "Frontend subdomain pointing to CloudFront distribution"
+
+  depends_on = [aws_cloudfront_distribution.frontend_distribution]
+}
+
+# --- Cloudflare Outputs ---
+
+output "custom_domain_url" {
+  description = "The custom domain URL for the frontend (if Cloudflare is configured)."
+  value       = var.cloudflare_domain_name != "" ? "https://${var.cloudflare_subdomain}.${var.cloudflare_domain_name}" : null
+}
+
+output "cloudflare_record_hostname" {
+  description = "The full hostname of the Cloudflare DNS record created."
+  value       = var.cloudflare_domain_name != "" ? "${var.cloudflare_subdomain}.${var.cloudflare_domain_name}" : null
 } 

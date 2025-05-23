@@ -60,3 +60,37 @@ variable "flow_config_s3_key" {
 
 # Default values for ecr_repo_name and lambda_function_name are set in locals block in main.tf
 # to use the app_name variable for consistency. 
+
+# --- Cloudflare Configuration Variables ---
+variable "cloudflare_email" {
+  description = "The Cloudflare email address for account authentication."
+  type        = string
+  sensitive   = true
+  default     = "" # Will be provided via .tfvars or environment variable
+}
+
+variable "cloudflare_api_key" {
+  description = "The Cloudflare Global API Key for account authentication."
+  type        = string
+  sensitive   = true
+  default     = "" # Will be provided via .tfvars or environment variable
+}
+
+variable "cloudflare_domain_name" {
+  description = "The base domain name managed by Cloudflare (e.g., avantifellows.org)."
+  type        = string
+  default     = "" # Will be provided via .tfvars or environment variable
+}
+
+variable "cloudflare_subdomain" {
+  description = "The subdomain to create for the frontend (e.g., 'cc' for cc.example.com)."
+  type        = string
+  default     = "cc"
+}
+
+# --- SSL Certificate Configuration ---
+variable "acm_certificate_arn" {
+  description = "The ARN of the SSL certificate in AWS Certificate Manager (must be in us-east-1 region for CloudFront)."
+  type        = string
+  default     = "" # Will be provided via .tfvars or environment variable
+} 
