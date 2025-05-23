@@ -36,7 +36,6 @@ const ChatInterface: React.FC = () => {
   const [isLoadingSteps, setIsLoadingSteps] = useState(false);
   const [pipelineError, setPipelineError] = useState<string | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [hasAutoStarted, setHasAutoStarted] = useState(false);
 
   const { user, logout } = useAuth();
 
@@ -58,21 +57,19 @@ const ChatInterface: React.FC = () => {
     }
   }, [isConfigViewActive, brainConfigSchema, isLoadingBrainConfig, brainConfigError, fetchBrainConfigSchema]);
 
-  // Auto-start a new chat when the component loads and no conversation is selected
+  // Auto-select the most recent conversation if none is selected
   useEffect(() => {
     if (
       user && 
-      !hasAutoStarted && 
       !isLoadingConversations && 
+      conversations.length > 0 && 
       currentConversationId === null && 
       !isConfigViewActive
     ) {
-      const existingConversations = conversations.length;
-      const newChatTitle = `newchat_${existingConversations + 1}`;
-      handleCreateConversation(newChatTitle);
-      setHasAutoStarted(true);
+      // Select the most recent conversation (first in the list)
+      selectConversation(conversations[0].id);
     }
-  }, [user, hasAutoStarted, isLoadingConversations, currentConversationId, isConfigViewActive, conversations.length, handleCreateConversation]);
+  }, [user, isLoadingConversations, conversations, currentConversationId, isConfigViewActive, selectConversation]);
 
   // Auto-focus the textarea when ready for input
   useEffect(() => {
