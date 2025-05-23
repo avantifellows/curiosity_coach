@@ -398,12 +398,15 @@ resource "aws_lambda_function" "backend_lambda" {
       },
       # Then merge/overwrite with dynamic variables defined in Terraform
       {
-        DB_HOST       = aws_db_instance.rds_instance.address
-        DB_PORT       = aws_db_instance.rds_instance.port
-        DB_NAME       = aws_db_instance.rds_instance.db_name
-        DB_USER       = aws_db_instance.rds_instance.username
-        DB_PASSWORD   = random_password.db_password.result
-        SQS_QUEUE_URL = aws_sqs_queue.app_queue.id # Ensure brain.tf defines aws_sqs_queue.app_queue
+        DB_HOST         = aws_db_instance.rds_instance.address
+        DB_PORT         = aws_db_instance.rds_instance.port
+        DB_NAME         = aws_db_instance.rds_instance.db_name
+        DB_USER         = aws_db_instance.rds_instance.username
+        DB_PASSWORD     = random_password.db_password.result
+        SQS_QUEUE_URL     = aws_sqs_queue.app_queue.id # Ensure brain.tf defines aws_sqs_queue.app_queue
+        FRONTEND_URL      = "https://${aws_cloudfront_distribution.frontend_distribution.domain_name}"
+        S3_WEBSITE_URL    = "http://${aws_s3_bucket_website_configuration.frontend_website.website_endpoint}"
+        ALLOW_ALL_ORIGINS = "true" # For now, allow all origins as requested
       }
     )
   }
@@ -426,7 +429,9 @@ resource "aws_lambda_function" "backend_lambda" {
     aws_security_group.lambda_sg,
     data.external.backend_dotenv_prod,
     aws_vpc_endpoint.sqs_endpoint,
-    aws_vpc_endpoint.sts_endpoint
+    aws_vpc_endpoint.sts_endpoint,
+    aws_cloudfront_distribution.frontend_distribution,
+    aws_s3_bucket_website_configuration.frontend_website
   ]
 }
 

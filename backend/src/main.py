@@ -33,17 +33,38 @@ def create_app() -> FastAPI:
         openapi_url=settings.API_OPENAPI_URL
     )
     
+    # Get CORS origins from environment
+    frontend_url = os.getenv("FRONTEND_URL", "")
+    s3_website_url = os.getenv("S3_WEBSITE_URL", "")
+    
+    # Build allowed origins list
+    allowed_origins = [
+        "http://localhost:8001",
+        "http://localhost:3000", # Common port for local React dev
+        "http://localhost:5173", # Common port for local Vite dev
+    ]
+    
+    # Add production URLs if they exist
+    if frontend_url:
+        allowed_origins.append(frontend_url)
+        # Also add without trailing slash if it exists
+        if frontend_url.endswith("/"):
+            allowed_origins.append(frontend_url.rstrip("/"))
+    
+    if s3_website_url:
+        allowed_origins.append(s3_website_url)
+        # Also add without trailing slash if it exists
+        if s3_website_url.endswith("/"):
+            allowed_origins.append(s3_website_url.rstrip("/"))
+    
+    # For development/testing, allow all origins if specified
+    if os.getenv("ALLOW_ALL_ORIGINS", "false").lower() == "true":
+        allowed_origins = ["*"]
+    
     # Enable CORS
     app.add_middleware(
         CORSMiddleware,
-        # Use allow_origins for exact matches like localhost and deployed frontend
-        allow_origins=[
-            "http://localhost:8001",
-            "http://localhost:3000", # Common port for local React dev
-            "http://localhost:5173", # Common port for local Vite dev
-            "http://curiosity-coach-frontend-dev.s3-website.ap-south-1.amazonaws.com", # Explicitly add S3 origin
-            "https://dbvw72bcf4bb.cloudfront.net/",
-        ],
+        allow_origins=allowed_origins,
         allow_credentials=True,
         allow_methods=["*"], # Or specify methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
         allow_headers=["*"], # Or specify headers: ["Content-Type", "Authorization"]
