@@ -23,8 +23,19 @@
 }
 
 @layer base {
+  html {
+    /* Prevent iOS zoom on form fields */
+    -webkit-text-size-adjust: 100%;
+    /* Smooth scrolling */
+    scroll-behavior: smooth;
+  }
+  
   body {
     @apply bg-gray-50 text-gray-900 min-h-screen font-sans;
+    /* Prevent horizontal scroll on mobile */
+    overflow-x: hidden;
+    /* Improve touch scrolling on iOS */
+    -webkit-overflow-scrolling: touch;
   }
   
   h1 {
@@ -37,6 +48,15 @@
   
   input, textarea {
     @apply border border-gray-300 rounded-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent;
+    /* Prevent iOS zoom on form fields */
+    font-size: 16px;
+  }
+  
+  /* Better button touch targets for mobile */
+  button, [role="button"] {
+    min-height: 44px;
+    min-width: 44px;
+    touch-action: manipulation;
   }
 
   /*
@@ -56,6 +76,8 @@
 @layer components {
   .btn {
     @apply px-4 py-2 rounded-sm font-medium focus:outline-none focus:ring-2 focus:ring-opacity-50 transition-colors;
+    min-height: 44px;
+    touch-action: manipulation;
   }
   .btn-primary {
     @apply btn bg-primary text-white hover:bg-primary-dark focus:ring-primary;
@@ -67,7 +89,7 @@
     @apply bg-white rounded-lg shadow-md p-4;
   }
   .chat-bubble {
-    @apply max-w-[75%] p-3 rounded-lg;
+    @apply max-w-[85%] sm:max-w-[75%] p-3 rounded-lg break-words;
   }
   .chat-bubble-user {
     @apply chat-bubble bg-primary-dark text-white ml-auto;
@@ -75,10 +97,70 @@
   .chat-bubble-bot {
     @apply chat-bubble bg-gray-lightest text-gray-darkest;
   }
+  
+  /* Mobile-friendly modal */
+  .mobile-modal {
+    @apply fixed inset-0 z-50 overflow-y-auto;
+    /* Support for iOS safe areas */
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
+  
+  /* Touch-friendly scrollbars */
+  .custom-scrollbar {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(156, 163, 175, 0.5) transparent;
+  }
+  
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 6px;
+  }
+  
+  .custom-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    background-color: rgba(156, 163, 175, 0.5);
+    border-radius: 3px;
+  }
+  
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background-color: rgba(156, 163, 175, 0.8);
+  }
 }
 
 @layer utilities {
   .text-shadow {
     text-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  }
+  
+  /* Touch-specific utilities */
+  .touch-manipulation {
+    touch-action: manipulation;
+  }
+  
+  .touch-pan-x {
+    touch-action: pan-x;
+  }
+  
+  .touch-pan-y {
+    touch-action: pan-y;
+  }
+  
+  /* Disable text selection for better touch UX */
+  .select-none-touch {
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+  }
+  
+  /* Responsive text sizing for better mobile readability */
+  .text-responsive {
+    font-size: clamp(0.875rem, 2.5vw, 1rem);
   }
 }

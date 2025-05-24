@@ -131,13 +131,13 @@ const PromptVersionsView: React.FC = () => {
   };
 
   return (
-    <div className="p-4">
+    <div className="p-2 sm:p-4 max-w-full">
       <h2 className="text-xl font-bold mb-4">Simplified Conversation Prompt Editor</h2>
       
       {/* Error message */}
       {error && (
-        <div className="bg-red-100 border border-red-400 text-red-700 p-4 rounded mb-4">
-          <p className="font-bold">Error: {error}</p>
+        <div className="bg-red-100 border border-red-400 text-red-700 p-3 sm:p-4 rounded mb-4">
+          <p className="font-bold text-sm sm:text-base">Error: {error}</p>
           <button 
             onClick={() => window.location.reload()} 
             className="mt-2 bg-red-500 hover:bg-red-600 text-white font-semibold py-1 px-3 rounded text-sm"
@@ -149,8 +149,8 @@ const PromptVersionsView: React.FC = () => {
       
       {/* Success message */}
       {successMessage && (
-        <div className="bg-green-100 border border-green-400 text-green-700 p-4 rounded mb-4">
-          <p className="font-bold">{successMessage}</p>
+        <div className="bg-green-100 border border-green-400 text-green-700 p-3 sm:p-4 rounded mb-4">
+          <p className="font-bold text-sm sm:text-base">{successMessage}</p>
           <button 
             onClick={() => setSuccessMessage(null)} 
             className="mt-2 bg-green-500 hover:bg-green-600 text-white font-semibold py-1 px-3 rounded text-sm"
@@ -163,15 +163,15 @@ const PromptVersionsView: React.FC = () => {
       {loading ? (
         <div className="flex justify-center p-4">
           <CircularProgress size={24} />
-          <span className="ml-2">Loading...</span>
+          <span className="ml-2 text-sm sm:text-base">Loading...</span>
         </div>
       ) : (
         <>
           {/* Version selector */}
           <div className="mb-4">
-            <label className="block text-gray-700 mb-2 font-medium">Version:</label>
+            <label className="block text-gray-700 mb-2 font-medium text-sm sm:text-base">Version:</label>
             <select
-              className="border rounded py-2 px-3 w-full"
+              className="border rounded py-2 px-3 w-full text-sm sm:text-base"
               onChange={(e) => {
                 const versionId = parseInt(e.target.value);
                 const selectedVersion = versions.find((v: PromptVersion) => v.id === versionId);
@@ -199,42 +199,99 @@ const PromptVersionsView: React.FC = () => {
           
           {/* Code editor */}
           <div className="mb-4">
-            <label className="block text-gray-700 mb-2 font-medium">Prompt Text:</label>
+            <label className="block text-gray-700 mb-2 font-medium text-sm sm:text-base">Prompt Text:</label>
             <textarea
-              className="w-full border border-gray-300 rounded-md p-3 font-mono text-sm h-96 bg-gray-50"
+              className="border rounded py-2 px-3 w-full h-64 sm:h-80 resize-none font-mono text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
               value={editedPromptText}
               onChange={(e) => setEditedPromptText(e.target.value)}
-              disabled={loading || saving}
-              spellCheck={false}
-              style={{ tabSize: 2 }}
-            ></textarea>
-            
-            {saveError && (
-              <p className="text-red-500 text-sm mt-1">{saveError}</p>
-            )}
-            
-            <div className="mt-4 flex justify-end">
-              <button
-                onClick={handleSaveNewVersion}
-                disabled={loading || saving || !editedPromptText.trim()}
-                className={`
-                  px-4 py-2 rounded text-white font-medium
-                  ${loading || saving || !editedPromptText.trim() 
-                    ? 'bg-gray-300 cursor-not-allowed' 
-                    : 'bg-blue-500 hover:bg-blue-600'}
-                `}
-              >
-                {saving ? (
-                  <span className="flex items-center">
-                    <CircularProgress size={16} className="mr-2" />
-                    Saving...
-                  </span>
-                ) : (
-                  'Save as New Version & Activate'
-                )}
-              </button>
-            </div>
+              placeholder="Enter prompt text here..."
+              disabled={saving}
+            />
           </div>
+          
+          {/* Save error message */}
+          {saveError && (
+            <div className="bg-red-100 border border-red-400 text-red-700 p-3 sm:p-4 rounded mb-4">
+              <p className="font-bold text-sm sm:text-base">Save Error: {saveError}</p>
+            </div>
+          )}
+          
+          {/* Action buttons */}
+          <div className="flex flex-col sm:flex-row gap-3 sm:gap-0 sm:space-x-4">
+            <button
+              onClick={handleSaveNewVersion}
+              disabled={saving || !editedPromptText.trim()}
+              className="flex-1 sm:flex-none bg-indigo-500 hover:bg-indigo-600 disabled:bg-gray-400 text-white font-semibold py-2 px-4 rounded text-sm sm:text-base disabled:cursor-not-allowed"
+            >
+              {saving ? (
+                <div className="flex items-center justify-center">
+                  <CircularProgress size={16} color="inherit" className="mr-2" />
+                  Saving...
+                </div>
+              ) : (
+                'Save as New Version'
+              )}
+            </button>
+            
+            <button
+              onClick={() => {
+                if (activeVersionId) {
+                  const activeVersion = versions.find((v: PromptVersion) => v.id === activeVersionId);
+                  if (activeVersion) {
+                    setEditedPromptText(activeVersion.prompt_text);
+                  }
+                }
+              }}
+              disabled={saving}
+              className="flex-1 sm:flex-none bg-gray-500 hover:bg-gray-600 disabled:bg-gray-400 text-white font-semibold py-2 px-4 rounded text-sm sm:text-base disabled:cursor-not-allowed"
+            >
+              Reset to Active Version
+            </button>
+          </div>
+          
+          {/* Version history */}
+          {versions.length > 0 && (
+            <div className="mt-6">
+              <h3 className="text-lg font-semibold mb-3 text-sm sm:text-lg">Version History:</h3>
+              <div className="space-y-2">
+                {versions
+                  .sort((a: PromptVersion, b: PromptVersion) => b.version_number - a.version_number)
+                  .map((version) => (
+                    <div
+                      key={version.id}
+                      className={`border rounded p-3 ${
+                        version.is_active ? 'border-green-500 bg-green-50' : 'border-gray-300'
+                      }`}
+                    >
+                      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center">
+                        <div className="mb-2 sm:mb-0">
+                          <span className="font-medium text-sm sm:text-base">
+                            Version {version.version_number}
+                          </span>
+                          {version.is_active && (
+                            <span className="ml-2 bg-green-500 text-white px-2 py-1 rounded text-xs">
+                              Active
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-xs sm:text-sm text-gray-500">
+                          Created: {new Date(version.created_at).toLocaleString()}
+                        </div>
+                      </div>
+                      {!version.is_active && (
+                        <button
+                          onClick={() => handleSetActiveVersion(version.id)}
+                          disabled={loading || saving}
+                          className="mt-2 bg-blue-500 hover:bg-blue-600 disabled:bg-gray-400 text-white font-semibold py-1 px-3 rounded text-xs sm:text-sm disabled:cursor-not-allowed"
+                        >
+                          Set as Active
+                        </button>
+                      )}
+                    </div>
+                  ))}
+              </div>
+            </div>
+          )}
         </>
       )}
     </div>
