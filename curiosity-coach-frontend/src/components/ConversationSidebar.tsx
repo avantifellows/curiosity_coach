@@ -2,7 +2,11 @@ import React from 'react';
 import { useChat } from '../context/ChatContext';
 import { useLocation } from 'react-router-dom';
 
-const ConversationSidebar: React.FC = () => {
+interface ConversationSidebarProps {
+  onConversationSelect?: () => void;
+}
+
+const ConversationSidebar: React.FC<ConversationSidebarProps> = ({ onConversationSelect }) => {
   const {
     conversations,
     currentConversationId,
@@ -66,6 +70,17 @@ const ConversationSidebar: React.FC = () => {
   const handleBrainConfigClick = () => {
     selectConversation(null);
     setIsConfigViewActive(true);
+    onConversationSelect?.();
+  };
+
+  const handleConversationClick = (convId: number) => {
+    selectConversation(convId);
+    onConversationSelect?.();
+  };
+
+  const handleNewChatClick = () => {
+    handleCreateConversation();
+    onConversationSelect?.();
   };
 
   return (
@@ -73,7 +88,7 @@ const ConversationSidebar: React.FC = () => {
       {/* Header / New Chat Button */}
       <div className="p-4 border-b border-gray-700">
         <button 
-          onClick={() => handleCreateConversation()} 
+          onClick={handleNewChatClick} 
           className="w-full bg-indigo-500 hover:bg-indigo-600 text-white font-bold py-2 px-4 rounded transition duration-150 ease-in-out"
         >
           + New Chat
@@ -124,7 +139,7 @@ const ConversationSidebar: React.FC = () => {
                   </div>
                 ) : (
                   <button
-                    onClick={() => selectConversation(conv.id)}
+                    onClick={() => handleConversationClick(conv.id)}
                     onDoubleClick={() => handleDoubleClick(conv)}
                     className={`w-full text-left px-4 py-3 hover:bg-gray-700 focus:outline-none focus:bg-gray-700 transition duration-150 ease-in-out ${
                       conv.id === currentConversationId && !isConfigViewActive ? 'bg-gray-900 font-semibold' : ''

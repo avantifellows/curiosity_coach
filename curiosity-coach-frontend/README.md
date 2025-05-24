@@ -20,6 +20,7 @@ The application follows a layered architecture:
 - **Processing Lambda**: Processes messages from the queue (currently simulated)
 - **Database**: PostgreSQL for message and user storage
 
+
 ## Setup
 
 ### Prerequisites

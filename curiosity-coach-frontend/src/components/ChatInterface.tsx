@@ -6,7 +6,7 @@ import BrainConfigView from './BrainConfigView';
 import { useChat } from '../context/ChatContext';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { LogoutOutlined, Send, Visibility } from '@mui/icons-material';
+import { LogoutOutlined, Send, Visibility, Menu, Close } from '@mui/icons-material';
 import { getPipelineSteps } from '../services/api';
 import PipelineStepsModal, { PipelineStep } from './PipelineStepsModal';
 
@@ -25,6 +25,8 @@ const ChatInterface: React.FC = () => {
     isLoadingBrainConfig,
     brainConfigError,
     fetchBrainConfigSchema,
+    conversations,
+    isLoadingConversations,
   } = useChat();
 
   const [newMessage, setNewMessage] = useState('');
@@ -32,10 +34,12 @@ const ChatInterface: React.FC = () => {
   const [pipelineSteps, setPipelineSteps] = useState<PipelineStep[]>([]);
   const [isLoadingSteps, setIsLoadingSteps] = useState(false);
   const [pipelineError, setPipelineError] = useState<string | null>(null);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   const { user, logout } = useAuth();
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -51,6 +55,36 @@ const ChatInterface: React.FC = () => {
       fetchBrainConfigSchema();
     }
   }, [isConfigViewActive, brainConfigSchema, isLoadingBrainConfig, brainConfigError, fetchBrainConfigSchema]);
+
+  // Auto-select the most recent conversation if none is selected
+  useEffect(() => {
+    if (
+      user && 
+      !isLoadingConversations && 
+      conversations.length > 0 && 
+      currentConversationId === null && 
+      !isConfigViewActive
+    ) {
+      // Select the most recent conversation (first in the list)
+      selectConversation(conversations[0].id);
+    }
+  }, [user, isLoadingConversations, conversations, currentConversationId, isConfigViewActive, selectConversation]);
+
+  // Auto-focus the textarea when ready for input
+  useEffect(() => {
+    if (
+      !isConfigViewActive && 
+      !isSendingMessage && 
+      !isLoadingMessages && 
+      currentConversationId !== null &&
+      textareaRef.current
+    ) {
+      // Small delay to ensure everything is rendered
+      setTimeout(() => {
+        textareaRef.current?.focus();
+      }, 100);
+    }
+  }, [isConfigViewActive, isSendingMessage, isLoadingMessages, currentConversationId]);
 
   const handleFormSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -91,20 +125,51 @@ const ChatInterface: React.FC = () => {
 
   return (
     <div className="flex h-screen bg-gray-100">
-      <ConversationSidebar />
+      {/* Mobile overlay */}
+      {isSidebarOpen && (
+        <div 
+          className="fixed inset-0 bg-black bg-opacity-50 z-40 lg:hidden"
+          onClick={() => setIsSidebarOpen(false)}
+        />
+      )}
+
+      {/* Sidebar */}
+      <div className={`
+        ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} 
+        lg:translate-x-0 
+        fixed lg:static 
+        inset-y-0 left-0 
+        z-50 lg:z-auto
+        w-64 
+        transition-transform duration-300 ease-in-out
+        lg:transition-none
+      `}>
+        <ConversationSidebar onConversationSelect={() => setIsSidebarOpen(false)} />
+      </div>
       
-      <div className="flex-1 flex flex-col h-screen">
+      <div className="flex-1 flex flex-col h-screen lg:ml-0">
         <header className="bg-white shadow-xs border-b border-gray-200">
           <div className="px-6 py-3 flex justify-between items-center">
-            <div>
-              <h2 className="text-lg font-semibold text-gray-800">
-                {isConfigViewActive ? 'Brain Configuration' : (currentConversationId ? `Chat` : 'Curiosity Coach')}
-              </h2>
-              {user && !isConfigViewActive && (
-                <p className="text-xs text-gray-500">
-                  Logged in as: {user.phone_number}
-                </p>
-              )}
+            <div className="flex items-center">
+              {/* Hamburger menu button */}
+              <button
+                onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+                className="lg:hidden mr-3 p-2 rounded-md text-gray-600 hover:text-gray-800 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                aria-label="Toggle sidebar"
+              >
+                {isSidebarOpen ? <Close /> : <Menu />}
+              </button>
+              
+              <div>
+                <h2 className="text-lg font-semibold text-gray-800">
+                  {isConfigViewActive ? 'Brain Configuration' : (currentConversationId ? `Chat` : 'Curiosity Coach')}
+                </h2>
+                {user && !isConfigViewActive && (
+                  <p className="text-xs text-gray-500">
+                    Logged in as: {user.phone_number}
+                  </p>
+                )}
+              </div>
             </div>
             <div className="flex items-center space-x-3">
               <button 
@@ -126,10 +191,6 @@ const ChatInterface: React.FC = () => {
               brainConfigSchema={brainConfigSchema}
               brainConfigError={brainConfigError}
             />
-          ) : currentConversationId === null ? (
-             <div className="flex justify-center items-center h-full">
-                <p className="text-gray-500">Select a conversation or start a new one.</p>
-             </div>
           ) : isLoadingMessages ? (
             <div className="flex justify-center items-center h-full">
               <CircularProgress />
@@ -174,9 +235,10 @@ const ChatInterface: React.FC = () => {
           <footer className="bg-white p-4 border-t border-gray-200">
             <form onSubmit={handleFormSubmit} className="flex items-center space-x-3">
               <textarea
+                ref={textareaRef}
                 className="flex-1 resize-none border rounded-md p-2 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed"
                 rows={1}
-                placeholder={currentConversationId === null ? "Select a conversation first..." : "Type your message..."}
+                placeholder="Type your message..."
                 value={newMessage}
                 onChange={(e) => setNewMessage(e.target.value)}
                 onKeyDown={(e) => {
@@ -185,12 +247,12 @@ const ChatInterface: React.FC = () => {
                     handleFormSubmit(e);
                   }
                 }}
-                disabled={isSendingMessage || currentConversationId === null}
+                disabled={isSendingMessage}
               />
               <button
                 type="submit"
                 className={`px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed ${isSendingMessage ? 'animate-pulse' : ''}`}
-                disabled={!newMessage.trim() || isSendingMessage || currentConversationId === null}
+                disabled={!newMessage.trim() || isSendingMessage}
               >
                 {isSendingMessage ? (
                     <CircularProgress size={20} color="inherit" />

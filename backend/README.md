@@ -23,6 +23,7 @@ Key features and modules include:
 - [**Optional**] `.env.prod` file in the `backend` directory. If you want to apply the DB migrations to the production database.
 - AWS CLI configured (if planning to deploy from your local machine)
 
+
 ## Environment Setup
 
 1.  **Clone the repository (if not already done):**
