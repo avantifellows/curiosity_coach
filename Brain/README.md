@@ -90,6 +90,7 @@ The service is designed to be deployed as an AWS Lambda function, as configured 
 - The Docker image uses `public.ecr.aws/lambda/python:3.11`.
 - Application code from `src/` and configurations from `config/` are included in the deployment package.
 
+
 ## Project Structure
 
 ```
