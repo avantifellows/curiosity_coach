@@ -28,6 +28,22 @@ module.exports = {
       fontFamily: {
         sans: ['Inter', 'system-ui', 'sans-serif'],
       },
+      screens: {
+        'xs': '475px',
+        'touch': { 'raw': '(hover: none)' },
+      },
+      spacing: {
+        'safe-area-inset-top': 'env(safe-area-inset-top)',
+        'safe-area-inset-bottom': 'env(safe-area-inset-bottom)',
+        'safe-area-inset-left': 'env(safe-area-inset-left)',
+        'safe-area-inset-right': 'env(safe-area-inset-right)',
+      },
+      minHeight: {
+        'touch-target': '44px',
+      },
+      minWidth: {
+        'touch-target': '44px',
+      },
     },
   },
   plugins: [],
