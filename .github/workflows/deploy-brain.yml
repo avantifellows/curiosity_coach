@@ -6,6 +6,7 @@ on:
       - main # Or your default branch
     paths:
       - 'Brain/**' # Trigger only on changes within the Brain directory
+      - '.github/workflows/deploy-brain.yml'
   pull_request:
     # branches:
     #   - main # Or your default branch

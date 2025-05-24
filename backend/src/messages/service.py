@@ -43,7 +43,6 @@ class MessageService:
         saved_message = {c.name: getattr(saved_message_obj, c.name) for c in saved_message_obj.__table__.columns}
 
         # Trigger asynchronous message processing via queue
-        print(f"MessageService: Calling queue_service.send_message with: conversation_id={conversation_id}, message_id={saved_message['id']}, user_id={user_id}, purpose={purpose}")
         queue_response = await queue_service.send_message(
             conversation_id=conversation_id,
             message_id=saved_message['id'], 
@@ -51,12 +50,10 @@ class MessageService:
             user_id=user_id,
             purpose=purpose
         )
-        print(f"MessageService: Response from queue_service.send_message: {queue_response}")
 
         if isinstance(queue_response, dict) and queue_response.get('error'):
             print(f"MessageService: Warning - Queue service reported an error: {queue_response['error']}. Proceeding as message is saved.")
 
-        print(f"MessageService: Returning saved message: {saved_message}")
         return saved_message
     
     @staticmethod
@@ -76,13 +73,11 @@ class MessageService:
         Returns:
             list: List of Message objects (SQLAlchemy models)
         """
-        print(f"MessageService: Fetching history for conversation_id: {conversation_id} with limit {limit}")
         messages = get_conversation_history(
             db=db,
             conversation_id=conversation_id,
             limit=limit
         )
-        print(f"MessageService: Fetched {len(messages)} messages for conversation_id: {conversation_id}")
         return messages
 
 message_service = MessageService() 

@@ -19,7 +19,6 @@ async def login(request: PhoneNumberRequest, db: Session = Depends(get_db)):
     Injects SQLAlchemy Session using Depends(get_db).
     """
     phone_number = request.phone_number
-    print(f"Received phone number: {phone_number}")
     
     try:
         # Get or create user, passing the db session

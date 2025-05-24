@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Curiosity Coach - Simplified Rules</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            margin: 20px;
+            background-color: #f4f4f9;
+            color: #333;
+            line-height: 1.6;
+        }
+        .container {
+            max-width: 900px; /* Increased width for flowchart */
+            margin: auto;
+            background: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #5a5a5a;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        /* Styles for Mermaid flowchart */
+        .mermaid {
+            text-align: center; /* Center the flowchart */
+            margin-bottom: 30px;
+        }
+        /* Make flowchart nodes clickable */
+        .mermaid .node {
+             cursor: pointer;
+        }
+        .mermaid .node rect, .mermaid .node circle, .mermaid .node polygon, .mermaid .node ellipse {
+            stroke: #333;
+            fill: #eee;
+        }
+        .mermaid .node.clickable:hover rect,
+        .mermaid .node.clickable:hover circle,
+        .mermaid .node.clickable:hover polygon,
+        .mermaid .node.clickable:hover ellipse {
+             fill: #ddd;
+        }
+
+        /* Modal Styles */
+        .modal {
+            display: none; /* Hidden by default */
+            position: fixed; /* Stay in place */
+            z-index: 1000; /* Sit on top */
+            left: 0;
+            top: 0;
+            width: 100%; /* Full width */
+            height: 100%; /* Full height */
+            background-color: rgba(0,0,0,0.6); /* Black w/ opacity */
+        }
+        .modal-content {
+            background-color: #fefefe;
+            margin: 5% auto; /* 5% from the top and centered */
+            padding: 30px;
+            border: 1px solid #888;
+            width: 90%; /* Changed from 70% */
+            max-width: none; /* Removed 700px limit */
+            max-height: 80vh; /* Limit height to 80% of viewport height */
+            overflow-y: auto; /* Allow scrolling within the content area if needed */
+            border-radius: 8px;
+            position: relative;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+        }
+        .modal-close {
+            color: #aaa;
+            position: absolute;
+            top: 10px;
+            right: 20px;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        .modal-close:hover,
+        .modal-close:focus {
+            color: black;
+            text-decoration: none;
+        }
+        .modal h2 {
+            margin-top: 0;
+            color: #5a5a5a;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 10px;
+            margin-bottom: 20px;
+        }
+
+        /* Content styling within modal */
+        .content {
+            padding: 0; /* Remove padding as modal-content has padding */
+        }
+        pre {
+            background-color: #e9e9e9;
+            padding: 15px; /* Slightly more padding */
+            border-radius: 4px;
+            overflow-x: auto;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            font-family: monospace;
+            line-height: 1.5; /* Adjust line height */
+            margin-top: 10px;
+            margin-bottom: 15px;
+        }
+
+        /* View toggle button */
+        .view-toggle {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        .view-toggle a {
+            display: inline-block;
+            padding: 8px 16px;
+            background-color: #5a5a5a;
+            color: white;
+            text-decoration: none;
+            border-radius: 4px;
+            transition: background-color 0.3s;
+        }
+        .view-toggle a:hover {
+            background-color: #444;
+        }
+    </style>
+    <!-- Include Mermaid JS library -->
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <h1>Curiosity Coach - Simplified Processing Flow</h1>
+
+        <!-- View toggle button -->
+        <div class="view-toggle">
+            <a href="/rules">Switch to Original View</a>
+        </div>
+
+        <!-- Mermaid Flowchart Definition -->
+        <div class="mermaid">
+graph TD
+    A[User Query] --> B(Simplified Conversation Handler);
+    B --> C{Needs Clarification?};
+    C -->|Yes| D[Ask Follow-up Questions];
+    D --> E[User Response];
+    E --> B;
+    C -->|No| F[Generate Response];
+    F --> G[Send Response to Chat App];
+        </div>
+
+        <div style="background-color: #f8f9fa; padding: 20px; border-radius: 8px; margin-top: 30px;">
+            <h3>About Simplified Mode</h3>
+            <p>The simplified conversation mode replaces the multi-step pipeline with a single, streamlined process that:</p>
+            <ul>
+                <li>Uses one consolidated prompt with examples and guidelines</li>
+                <li>Returns structured JSON responses with clarification handling</li>
+                <li>Maintains conversation history for context-aware responses</li>
+                <li>Focuses on fostering curiosity through interactive dialogue</li>
+            </ul>
+            <p>The response format includes:</p>
+            <pre style="font-size: 0.9em;">
+{
+    "needs_clarification": boolean,
+    "follow_up_questions": [] or null,
+    "response": string,
+    "ended_with_question": boolean,
+    "educational_concepts": []
+}</pre>
+            <p>This approach is designed to create natural, engaging conversations with students while preserving the pedagogical effectiveness of the original pipeline.</p>
+        </div>
+
+        <!-- Modal for Simplified Conversation Handler -->
+        <div id="simplified-modal" class="modal">
+            <div class="modal-content">
+                <span class="modal-close" onclick="closeModal('simplified-modal')">&times;</span>
+                <h2>Simplified Conversation Handler</h2>
+                <div class="content">
+                    <p>The simplified conversation handler uses a single prompt-based approach to generate engaging responses that foster curiosity.</p>
+                    
+                    {% if simplified_conversation_template %}
+                    <p>Here's an excerpt from the prompt template:</p>
+                    <pre>{{ simplified_conversation_template }}</pre>
+                    {% else %}
+                    <p>Template example (preview):</p>
+                    <pre>You are a Curiosity Coach, designed to engage students in grades 5-10 in thought-provoking conversations that foster critical thinking, curiosity, and active learning.
+
+CONVERSATION EXAMPLES:
+- Example conversations showing interactive dialogue patterns
+- Demonstrating how to build on student responses
+- Showing progression from simple questions to deeper exploration
+
+CONVERSATION GUIDELINES:
+1. Ask open-ended questions to encourage deeper thinking
+2. Build on student's responses to foster exploration
+3. Connect abstract concepts to personal experiences
+4. Focus on the student's perspective rather than providing direct answers
+5. End with a question or task that extends learning
+
+RESPONSE FORMAT:
+Return a JSON object with the following structure:
+{
+    "needs_clarification": boolean,
+    "follow_up_questions": [] or null,
+    "response": string,
+    "ended_with_question": boolean,
+    "educational_concepts": []
+}</pre>
+                    {% endif %}
+                    
+                    <p><strong>Example Conversations:</strong></p>
+                    <p>The template includes example conversations like:</p>
+                    <pre>
+Example: Mountains
+Kid: How are mountains formed?
+AI: What do you think — do mountains grow like trees or are they made some other way?
+Kid: maybe the earth pushes them up?
+AI: You're on the right track! Have you heard of something called tectonic plates?
+Kid: Nope, what's that?
+AI: They're huge slabs under the earth that move very slowly. When they crash into each other, they push up land — and that's how many mountains are made!
+Kid: So they're still moving?
+AI: Yep! Very slowly though. Can you guess which is the tallest mountain in the world?
+Kid: Mount Everest!
+AI: Correct! Do you know where it is?
+Kid: Somewhere in Nepal, right?
+AI: Exactly. Want to draw your own imaginary mountain range and name your peaks? Make up a story about who lives on top!</pre>
+
+                    <p><strong>Conversation Guidelines:</strong></p>
+                    <ul>
+                        <li>Ask open-ended questions to encourage deeper thinking</li>
+                        <li>Build on student's responses to foster exploration</li>
+                        <li>Connect abstract concepts to personal experiences</li>
+                        <li>Focus on the student's perspective rather than providing direct answers</li>
+                        <li>End with a question or task that extends learning beyond the conversation</li>
+                        <li>Keep responses concise and appropriate for the age level</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <script>
+            // Initialize Mermaid
+            mermaid.initialize({
+                startOnLoad: true,
+                securityLevel: 'loose',
+                theme: 'default'
+            });
+
+            // After Mermaid has rendered, set up click handlers
+            document.addEventListener('DOMContentLoaded', function() {
+                setTimeout(function() {
+                    // Click handler for Simplified Conversation Handler
+                    let simplifiedHandlerNode = document.querySelector('.node:nth-child(3)');
+                    if (simplifiedHandlerNode) {
+                        simplifiedHandlerNode.classList.add('clickable');
+                        simplifiedHandlerNode.addEventListener('click', function() {
+                            openModal('simplified-modal');
+                        });
+                    }
+                }, 1000); // Give time for Mermaid to render
+            });
+
+            // Functions to open and close modals
+            function openModal(modalId) {
+                document.getElementById(modalId).style.display = 'block';
+            }
+
+            function closeModal(modalId) {
+                document.getElementById(modalId).style.display = 'none';
+            }
+
+            // Close modal when clicking outside of it
+            window.onclick = function(event) {
+                if (event.target.classList.contains('modal')) {
+                    event.target.style.display = 'none';
+                }
+            }
+        </script>
+    </div>
+</body>
+</html> 

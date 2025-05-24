@@ -31,8 +31,8 @@ const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
   const errorStyle = status === 'error' ? 'border border-red-500' : '';
 
   return (
-    <div className={`flex ${alignment} ${opacity}`}>
-      <div className={`rounded-lg px-4 py-2 max-w-xs lg:max-w-md shadow ${bgColor} ${textColor} ${errorStyle} whitespace-pre-wrap`}>
+    <div className={`flex ${alignment} ${opacity} px-1 sm:px-0`}>
+      <div className={`rounded-lg px-3 sm:px-4 py-2 max-w-[85%] sm:max-w-xs lg:max-w-md shadow ${bgColor} ${textColor} ${errorStyle} whitespace-pre-wrap break-words`}>
         {content}
         {status === 'sending' && (
           <span className="text-xs italic ml-2 block opacity-80">
