@@ -82,13 +82,16 @@ class PromptVersion(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     prompt_id = Column(Integer, ForeignKey("prompts.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
     version_number = Column(Integer, nullable=False)
     prompt_text = Column(Text, nullable=False)
     is_active = Column(Boolean, default=False, nullable=False, index=True)
+    is_production = Column(Boolean, default=False, nullable=False, index=True)
     
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     prompt = relationship("Prompt", back_populates="versions")
+    user = relationship("User")
 
     __table_args__ = (
         # Ensure version_number is unique per prompt_id
@@ -99,7 +102,7 @@ class PromptVersion(Base):
     )
 
     def __repr__(self):
-        return f"<PromptVersion(id={self.id}, prompt_id={self.prompt_id}, version={self.version_number}, active={self.is_active})>"
+        return f"<PromptVersion(id={self.id}, prompt_id={self.prompt_id}, version={self.version_number}, active={self.is_active}, production={self.is_production}, user_id={self.user_id})>"
 
 # --- CRUD Helper Functions ---
 

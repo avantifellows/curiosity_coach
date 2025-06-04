@@ -275,7 +275,8 @@ async def dequeue(message: MessagePayload, background_tasks: Optional[Background
                     follow_up_questions=message.follow_up_questions,
                     student_response=user_input,
                     config=flow_config_instance,
-                    conversation_history=conversation_history_str
+                    conversation_history=conversation_history_str,
+                    purpose=message.purpose
                 )
             else:
                 # Process as a regular query
@@ -283,7 +284,8 @@ async def dequeue(message: MessagePayload, background_tasks: Optional[Background
                 response_data = await process_query(
                     user_input, 
                     config=flow_config_instance,
-                    conversation_history=conversation_history_str
+                    conversation_history=conversation_history_str,
+                    purpose=message.purpose
                 )
 
             # Create a client for fetching the prompt version ID
@@ -301,7 +303,7 @@ async def dequeue(message: MessagePayload, background_tasks: Optional[Background
                         "needs_clarification": True,
                         "follow_up_questions": response_data.follow_up_questions,
                         "original_query": message.original_query if message.is_follow_up_response else user_input,
-                        "prompt_version_id": await get_active_prompt_version_id(client, backend_url, "simplified_conversation")
+                        "prompt_version_id": await get_prompt_version_id(client, backend_url, "simplified_conversation", message.purpose)
                     }
                 else:
                     # Prepare and schedule the callback with the final response
@@ -312,7 +314,7 @@ async def dequeue(message: MessagePayload, background_tasks: Optional[Background
                         "llm_response": response_data.final_response,
                         "pipeline_data": response_data.model_dump(),
                         "needs_clarification": False,
-                        "prompt_version_id": await get_active_prompt_version_id(client, backend_url, "simplified_conversation")
+                        "prompt_version_id": await get_prompt_version_id(client, backend_url, "simplified_conversation", message.purpose)
                     }
 
             # Schedule callback
@@ -361,16 +363,25 @@ async def perform_backend_callback(payload: dict):
     except Exception as e:
         logger.error(f"Unexpected error during callback: {e}", exc_info=True)
 
-async def get_active_prompt_version_id(client, backend_url, prompt_name):
-    """Fetch the active prompt version ID for a given prompt name."""
+async def get_prompt_version_id(client, backend_url, prompt_name, purpose="chat"):
+    """Fetch the appropriate prompt version ID for a given prompt name based on purpose."""
     try:
-        active_version_url = f"{backend_url}/api/prompts/{prompt_name}/versions/active"
-        response = await client.get(active_version_url)
+        if purpose == "chat":
+            # For chat endpoint, use production version
+            version_url = f"{backend_url}/api/prompts/{prompt_name}/versions/production"
+        else:
+            # For test-prompt and others, use active version
+            version_url = f"{backend_url}/api/prompts/{prompt_name}/versions/active"
+            
+        response = await client.get(version_url)
         if response.status_code == 200:
             data = response.json()
+            version_type = "production" if purpose == "chat" else "active"
+            is_production = data.get("is_production", False)
+            logger.info(f"Retrieved {version_type} version {data.get('version_number')} (ID: {data.get('id')}, production: {is_production}) for prompt '{prompt_name}' (purpose: {purpose})")
             return data.get("id")
     except Exception as e:
-        logger.error(f"Error fetching active prompt version ID for {prompt_name}: {e}")
+        logger.error(f"Error fetching prompt version ID for {prompt_name} (purpose: {purpose}): {e}")
     return None
 
 class QueryRequest(BaseModel):

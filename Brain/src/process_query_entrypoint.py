@@ -171,25 +171,26 @@ def _get_default_prompt_name(step_name: str) -> str:
         logger.warning(f"Unknown step name: {step_name}, returning the step name as prompt name")
         return step_name
 
-async def generate_simplified_response(query: str, conversation_history: Optional[str] = None) -> Tuple[str, str, Dict[str, Any]]:
+async def generate_simplified_response(query: str, conversation_history: Optional[str] = None, purpose: str = "chat") -> Tuple[str, str, Dict[str, Any]]:
     """
     Generate a simplified response using a single prompt approach.
     
     Args:
         query (str): The user's query
         conversation_history (Optional[str]): Previous conversation history if available
+        purpose (str): The purpose of the query
         
     Returns:
         Tuple[str, str, Dict[str, Any]]: The response, the prompt used, and the full structured response data
     """
-    logger.info(f"Generating simplified response for query: {query}")
+    logger.info(f"Generating simplified response for query: {query} (purpose: {purpose})")
     
     # Define prompt file path
     prompt_file_path = os.path.join(os.path.dirname(__file__), "prompts", "simplified_conversation_prompt.txt")
     
     try:
         # Get prompt template - try from backend first, then fallback to local file
-        prompt_template = await _get_prompt_template(prompt_file_path, "simplified_conversation")
+        prompt_template = await _get_prompt_template(prompt_file_path, "simplified_conversation", purpose)
         
         # Format the prompt with query and conversation history
         formatted_prompt = prompt_template.replace("{{QUERY}}", query)
@@ -245,13 +246,14 @@ async def generate_simplified_response(query: str, conversation_history: Optiona
         logger.error(f"Error in generate_simplified_response: {str(e)}", exc_info=True)
         raise
 
-async def _get_prompt_template(filepath: str, prompt_name: str) -> str:
+async def _get_prompt_template(filepath: str, prompt_name: str, purpose: str = "chat") -> str:
     """
     Gets a prompt template from a local file or the backend versioning system.
     
     Args:
         filepath (str): The local file path to use as fallback
         prompt_name (str): The name to use when querying the backend
+        purpose (str): The purpose/endpoint ("chat" uses earliest, others use active)
         
     Returns:
         str: The prompt template text
@@ -261,11 +263,11 @@ async def _get_prompt_template(filepath: str, prompt_name: str) -> str:
     """
     try:
         # First, try to get from the backend (asynchronously)
-        logger.info(f"Attempting to fetch '{prompt_name}' prompt from backend versioning system")
-        prompt_text = await _get_prompt_from_backend(prompt_name)
+        logger.info(f"Attempting to fetch '{prompt_name}' prompt from backend versioning system (purpose: {purpose})")
+        prompt_text = await _get_prompt_from_backend(prompt_name, purpose)
         
         if prompt_text:
-            logger.info(f"Using versioned prompt '{prompt_name}' from backend")
+            logger.info(f"Using versioned prompt '{prompt_name}' from backend (purpose: {purpose})")
             return prompt_text
         
         # Fallback to local file
@@ -282,12 +284,13 @@ async def _get_prompt_template(filepath: str, prompt_name: str) -> str:
         logger.error(f"Failed to get prompt template: {e}", exc_info=True)
         raise Exception(f"Failed to get prompt template: {e}")
 
-async def _get_prompt_from_backend(prompt_name: str) -> Optional[str]:
+async def _get_prompt_from_backend(prompt_name: str, purpose: str = "chat") -> Optional[str]:
     """
-    Attempts to retrieve the active prompt version template from the backend versioning system.
+    Attempts to retrieve the prompt version template from the backend versioning system.
     
     Args:
         prompt_name (str): The name of the prompt to retrieve
+        purpose (str): The purpose/endpoint ("chat" uses production, others use active)
         
     Returns:
         Optional[str]: The prompt template text if found, None otherwise
@@ -296,30 +299,38 @@ async def _get_prompt_from_backend(prompt_name: str) -> Optional[str]:
         # Get backend URL from environment
         backend_url = os.getenv("BACKEND_CALLBACK_BASE_URL", "http://localhost:5000")
         
-        # Build the full URL to fetch the active version
-        active_version_url = f"{backend_url}/api/prompts/{prompt_name}/versions/active"
-        logger.debug(f"Fetching active prompt version from: {active_version_url}")
+        # Build the appropriate URL based on purpose
+        if purpose == "chat":
+            # For chat endpoint, use production version
+            version_url = f"{backend_url}/api/prompts/{prompt_name}/versions/production"
+        else:
+            # For test-prompt and others, use active version
+            version_url = f"{backend_url}/api/prompts/{prompt_name}/versions/active"
+            
+        logger.debug(f"Fetching prompt version from: {version_url} (purpose: {purpose})")
         
         # Make the request
         async with httpx.AsyncClient() as client:
-            response = await client.get(active_version_url, timeout=5.0)
+            response = await client.get(version_url, timeout=5.0)
             
             if response.status_code == 200:
                 data = response.json()
                 prompt_text = data.get("prompt_text")
                 version_id = data.get("id")
                 version_number = data.get("version_number")
-                logger.info(f"Retrieved active version {version_number} (ID: {version_id}) for prompt '{prompt_name}'")
+                is_production = data.get("is_production", False)
+                version_type = "production" if purpose == "chat" else "active"
+                logger.info(f"Retrieved {version_type} version {version_number} (ID: {version_id}, production: {is_production}) for prompt '{prompt_name}' (purpose: {purpose})")
                 return prompt_text
                 
-            logger.warning(f"Failed to get active prompt version from backend: Status {response.status_code}")
+            logger.warning(f"Failed to get prompt version from backend: Status {response.status_code}")
             return None
             
     except Exception as e:
-        logger.warning(f"Error getting active prompt version from backend: {e}")
+        logger.warning(f"Error getting prompt version from backend: {e}")
         return None
 
-async def process_query(query: str, config: Optional[FlowConfig] = None, conversation_history: Optional[str] = None) -> ProcessQueryResponse:
+async def process_query(query: str, config: Optional[FlowConfig] = None, conversation_history: Optional[str] = None, purpose: str = "chat") -> ProcessQueryResponse:
     """
     Process a user query through the intent identification and response generation pipeline.
     
@@ -328,6 +339,7 @@ async def process_query(query: str, config: Optional[FlowConfig] = None, convers
         config (Optional[FlowConfig]): Configuration object for the processing pipeline.
             If None, default configuration will be used.
         conversation_history (Optional[str]): The conversation history between the user and the system.
+        purpose (str): The purpose of the query
         
     Returns:
         ProcessQueryResponse: A response object containing the final response and intermediate prompts/responses
@@ -361,7 +373,7 @@ async def process_query(query: str, config: Optional[FlowConfig] = None, convers
             logger.info("Using simplified conversation mode")
             
             # Generate simplified response
-            response, prompt, response_data = await generate_simplified_response(query, conversation_history)
+            response, prompt, response_data = await generate_simplified_response(query, conversation_history, purpose)
             
             # Check if we need clarification
             needs_clarification = response_data.get("needs_clarification", False)
@@ -567,7 +579,8 @@ async def process_follow_up(
     follow_up_questions: List[str],
     student_response: str,
     config: Optional[FlowConfig] = None,
-    conversation_history: Optional[str] = None
+    conversation_history: Optional[str] = None,
+    purpose: str = "chat"
 ) -> ProcessQueryResponse:
     """
     Process a follow-up response from the student to determine intent and generate a final response.
@@ -578,6 +591,7 @@ async def process_follow_up(
         student_response (str): The student's response to the follow-up questions
         config (Optional[FlowConfig]): Configuration object for the processing pipeline
         conversation_history (Optional[str]): Previous conversation history
+        purpose (str): The purpose of the query
         
     Returns:
         ProcessQueryResponse: A response object containing the final response and pipeline data
@@ -586,7 +600,7 @@ async def process_follow_up(
         Exception: If any part of the pipeline fails
     """
     try:
-        logger.info(f"Processing follow-up. Original query: '{original_query}', Student response: '{student_response}'")
+        logger.info(f"Processing follow-up. Original query: '{original_query}', Student response: '{student_response}' (purpose: {purpose})")
         
         effective_config = config if config is not None else FlowConfig()
         if config is None:
@@ -616,7 +630,7 @@ async def process_follow_up(
                 enhanced_conversation_history = f"User: {original_query}\nAI: {', '.join(follow_up_questions)}\nUser: {student_response}"
             
             # Generate simplified response
-            response, prompt, response_data = await generate_simplified_response(student_response, enhanced_conversation_history)
+            response, prompt, response_data = await generate_simplified_response(student_response, enhanced_conversation_history, purpose)
             
             # Check if we need clarification (again)
             needs_clarification = response_data.get("needs_clarification", False)

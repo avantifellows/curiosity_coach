@@ -6,18 +6,26 @@ from datetime import datetime
 class PromptVersionBase(BaseModel):
     prompt_text: str = Field(..., description="The text content of the prompt version.")
     version_number: Optional[int] = Field(None, description="Version number, typically auto-incremented.")
+    user_id: Optional[int] = Field(None, description="ID of the user who created this version.")
+    is_production: Optional[bool] = Field(False, description="Whether this version is marked for production use.")
 
 class PromptVersionCreate(PromptVersionBase):
-    pass
+    prompt_text: str
+    user_id: Optional[int] = None  # Will be set from authenticated user
+    is_production: Optional[bool] = False
 
 class PromptVersionUpdate(BaseModel):
     prompt_text: Optional[str] = None
+    is_production: Optional[bool] = None
     # is_active flag is typically handled by a dedicated endpoint, not direct update here
 
 class PromptVersionInDB(PromptVersionBase):
     id: int
     prompt_id: int
+    version_number: int
     is_active: bool
+    is_production: bool
+    user_id: Optional[int] = None
     created_at: datetime
 
     class Config:

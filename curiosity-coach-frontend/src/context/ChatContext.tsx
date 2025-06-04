@@ -21,8 +21,8 @@ interface ChatContextState {
   error: string | null;
   fetchConversations: () => Promise<void>;
   selectConversation: (conversationId: number | null) => void;
-  handleSendMessage: (content: string) => Promise<void>;
-  handleSendMessageWithAutoConversation: (content: string) => Promise<void>;
+  handleSendMessage: (content: string, purpose: string) => Promise<void>;
+  handleSendMessageWithAutoConversation: (content: string, purpose: string) => Promise<void>;
   handleCreateConversation: (title?: string) => Promise<number | null>;
 
   // New state for Brain Config View
@@ -185,7 +185,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   }, []);
 
   // --- Send Message --- 
-  const handleSendMessage = useCallback(async (content: string) => {
+  const handleSendMessage = useCallback(async (content: string, purpose: string = "chat") => {
     if (currentConversationId === null) {
       setError('No conversation selected');
       return;
@@ -212,7 +212,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setMessages(prev => [...prev, tempUserMessage]);
 
     try {
-      const response = await sendMessage(currentConversationId, content);
+      const response = await sendMessage(currentConversationId, content, purpose);
       
       if (!response.success || !response.message || typeof response.message.id !== 'number') {
           console.error("Invalid response from sendMessage:", response);
@@ -266,7 +266,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   }, [user]);
 
   // --- Send Message with Auto-Conversation Creation --- 
-  const handleSendMessageWithAutoConversation = useCallback(async (content: string) => {
+  const handleSendMessageWithAutoConversation = useCallback(async (content: string, purpose: string = "chat") => {
     if (!user) {
       setError('User not authenticated');
       return;
@@ -310,7 +310,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setMessages(prev => [...prev, tempUserMessage]);
 
     try {
-      const response = await sendMessage(conversationId, content);
+      const response = await sendMessage(conversationId, content, purpose);
       
       if (!response.success || !response.message || typeof response.message.id !== 'number') {
           console.error("Invalid response from sendMessage:", response);
