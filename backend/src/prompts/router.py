@@ -3,6 +3,8 @@ from sqlalchemy.orm import Session
 from typing import List, Optional
 
 from src.database import get_db
+from src.auth.dependencies import get_current_user
+from src.models import User
 from . import schemas, service
 
 router = APIRouter(
@@ -84,7 +86,8 @@ def add_prompt_version(
     prompt_id_or_name: str, 
     version_in: schemas.PromptVersionCreate, 
     set_active: Optional[bool] = Query(False, description="Set this new version as active for the prompt."),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     db_prompt = None
     if prompt_id_or_name.isdigit():
@@ -100,7 +103,8 @@ def add_prompt_version(
             db=db, 
             prompt_id=db_prompt.id, 
             version_create=version_in,
-            set_active=set_active
+            set_active=set_active,
+            user_id=current_user.id  # Associate with current user
         )
         return created_version
     except ValueError as e:
@@ -110,7 +114,8 @@ def add_prompt_version(
 def set_active_version(
     prompt_id_or_name: str,
     request_body: schemas.SetActivePromptVersionRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     db_prompt = None
     if prompt_id_or_name.isdigit():
@@ -147,8 +152,100 @@ def get_active_prompt_version(prompt_id_or_name: str, db: Session = Depends(get_
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Active prompt version for '{prompt_id_or_name}' not found")
     return active_version
 
+# New endpoint to get production prompt version (for chat endpoint)
+@router.get("/prompts/{prompt_id_or_name}/versions/production", response_model=schemas.PromptVersionInDB)
+def get_production_prompt_version(prompt_id_or_name: str, db: Session = Depends(get_db)):
+    production_version = None
+    if prompt_id_or_name.isdigit():
+        prompt = service.prompt_service.get_prompt_by_id(db, int(prompt_id_or_name))
+        if prompt:
+            production_version = service.prompt_service.get_production_prompt_version(db, prompt.name)
+    else:
+        production_version = service.prompt_service.get_production_prompt_version(db, prompt_name=prompt_id_or_name)
+    
+    if production_version is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"No production version found for '{prompt_id_or_name}'")
+    return production_version
+
+# New endpoint to set production flag on a version
+@router.post("/prompts/{prompt_id_or_name}/versions/{version_id}/set-production", response_model=schemas.PromptVersionInDB)
+def set_production_version(
+    prompt_id_or_name: str,
+    version_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    db_prompt = None
+    if prompt_id_or_name.isdigit():
+        db_prompt = service.prompt_service.get_prompt_by_id(db, int(prompt_id_or_name))
+    else:
+        db_prompt = service.prompt_service.get_prompt_by_name(db, prompt_id_or_name)
+
+    if not db_prompt:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Prompt '{prompt_id_or_name}' not found")
+
+    try:
+        updated_version = service.prompt_service.set_production_prompt_version(
+            db=db,
+            prompt_id=db_prompt.id,
+            version_id=version_id
+        )
+        if updated_version is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Version not found during production flag setting")
+        return updated_version
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+# New endpoint to remove production flag from a version
+@router.delete("/prompts/{prompt_id_or_name}/versions/{version_id}/unset-production", response_model=schemas.PromptVersionInDB)
+def unset_production_version(
+    prompt_id_or_name: str,
+    version_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    db_prompt = None
+    if prompt_id_or_name.isdigit():
+        db_prompt = service.prompt_service.get_prompt_by_id(db, int(prompt_id_or_name))
+    else:
+        db_prompt = service.prompt_service.get_prompt_by_name(db, prompt_id_or_name)
+
+    if not db_prompt:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Prompt '{prompt_id_or_name}' not found")
+
+    try:
+        updated_version = service.prompt_service.unset_production_prompt_version(
+            db=db,
+            prompt_id=db_prompt.id,
+            version_id=version_id
+        )
+        if updated_version is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Version not found during production flag removal")
+        return updated_version
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+# New endpoint to get earliest prompt version (for fallback)
+@router.get("/prompts/{prompt_id_or_name}/versions/earliest", response_model=schemas.PromptVersionInDB)
+def get_earliest_prompt_version(prompt_id_or_name: str, db: Session = Depends(get_db)):
+    earliest_version = None
+    if prompt_id_or_name.isdigit():
+        prompt = service.prompt_service.get_prompt_by_id(db, int(prompt_id_or_name))
+        if prompt:
+            earliest_version = service.prompt_service.get_earliest_prompt_version(db, prompt.name)
+    else:
+        earliest_version = service.prompt_service.get_earliest_prompt_version(db, prompt_name=prompt_id_or_name)
+    
+    if earliest_version is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"No prompt versions found for '{prompt_id_or_name}'")
+    return earliest_version
+
 @router.get("/prompts/{prompt_id_or_name}/versions", response_model=List[schemas.PromptVersionInDB])
-def list_prompt_versions(prompt_id_or_name: str, db: Session = Depends(get_db)):
+def list_prompt_versions(
+    prompt_id_or_name: str, 
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
     db_prompt = None
     if prompt_id_or_name.isdigit():
         db_prompt = service.prompt_service.get_prompt_by_id(db, int(prompt_id_or_name))
@@ -157,4 +254,7 @@ def list_prompt_versions(prompt_id_or_name: str, db: Session = Depends(get_db)):
     
     if db_prompt is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Prompt '{prompt_id_or_name}' not found")
-    return db_prompt.versions 
+    
+    # Return user-specific versions (user's own + global versions)
+    versions = service.prompt_service.get_prompt_versions_for_user(db, db_prompt.id, current_user.id)
+    return versions 

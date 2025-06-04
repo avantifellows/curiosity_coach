@@ -28,9 +28,12 @@ export const loginUser = async (phoneNumber: string): Promise<LoginResponse> => 
   }
 };
 
-export const sendMessage = async (conversationId: number, content: string): Promise<SendMessageResponse> => {
+export const sendMessage = async (conversationId: number, content: string, purpose: string = "chat"): Promise<SendMessageResponse> => {
   try {
-    const response = await API.post<SendMessageResponse>(`/conversations/${conversationId}/messages`, { content });
+    const response = await API.post<SendMessageResponse>(`/conversations/${conversationId}/messages`, { 
+      content,
+      purpose 
+    });
     return response.data;
   } catch (error: any) {
     console.error("Error sending message:", error.response?.data || error.message);
@@ -126,7 +129,7 @@ export const getPipelineSteps = async (aiMessageId: number | string): Promise<an
 // Get a list of all prompts
 export const getPrompts = async () => {
   try {
-    const response = await axios.get(`${process.env.REACT_APP_BACKEND_BASE_URL}/api/prompts`);
+    const response = await API.get('/prompts');
     return response.data;
   } catch (error) {
     console.error("Error fetching prompts:", error);
@@ -137,7 +140,7 @@ export const getPrompts = async () => {
 // Get a specific prompt by name or ID
 export const getPrompt = async (nameOrId: string | number) => {
   try {
-    const response = await axios.get(`${process.env.REACT_APP_BACKEND_BASE_URL}/api/prompts/${nameOrId}`);
+    const response = await API.get(`/prompts/${nameOrId}`);
     return response.data;
   } catch (error) {
     console.error(`Error fetching prompt ${nameOrId}:`, error);
@@ -148,7 +151,7 @@ export const getPrompt = async (nameOrId: string | number) => {
 // Get all versions of a specific prompt
 export const getPromptVersions = async (nameOrId: string | number) => {
   try {
-    const response = await axios.get(`${process.env.REACT_APP_BACKEND_BASE_URL}/api/prompts/${nameOrId}/versions`);
+    const response = await API.get(`/prompts/${nameOrId}/versions`);
     return response.data;
   } catch (error) {
     console.error(`Error fetching versions for prompt ${nameOrId}:`, error);
@@ -159,7 +162,7 @@ export const getPromptVersions = async (nameOrId: string | number) => {
 // Get the active version of a specific prompt
 export const getActivePromptVersion = async (nameOrId: string | number) => {
   try {
-    const response = await axios.get(`${process.env.REACT_APP_BACKEND_BASE_URL}/api/prompts/${nameOrId}/versions/active`);
+    const response = await API.get(`/prompts/${nameOrId}/versions/active`);
     return response.data;
   } catch (error) {
     console.error(`Error fetching active version for prompt ${nameOrId}:`, error);
@@ -170,7 +173,7 @@ export const getActivePromptVersion = async (nameOrId: string | number) => {
 // Create a new version of a prompt
 export const createPromptVersion = async (promptId: number | string, promptText: string) => {
   try {
-    const response = await axios.post(`${process.env.REACT_APP_BACKEND_BASE_URL}/api/prompts/${promptId}/versions`, {
+    const response = await API.post(`/prompts/${promptId}/versions`, {
       prompt_text: promptText
     });
     return response.data;
@@ -183,7 +186,7 @@ export const createPromptVersion = async (promptId: number | string, promptText:
 // Set a specific version as active
 export const setActivePromptVersion = async (promptId: number | string, versionId: number) => {
   try {
-    const response = await axios.post(`${process.env.REACT_APP_BACKEND_BASE_URL}/api/prompts/${promptId}/versions/set-active/`, {
+    const response = await API.post(`/prompts/${promptId}/versions/set-active/`, {
       version_id: versionId
     });
     return response.data;

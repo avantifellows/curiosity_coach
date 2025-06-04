@@ -76,7 +76,7 @@ const ChatInterface: React.FC = () => {
     const contentToSend = newMessage.trim();
     setNewMessage('');
 
-    await handleSendMessageWithAutoConversation(contentToSend);
+    await handleSendMessageWithAutoConversation(contentToSend, "chat");
   };
 
   const handleLogout = () => {

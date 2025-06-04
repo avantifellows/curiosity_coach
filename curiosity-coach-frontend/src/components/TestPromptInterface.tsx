@@ -77,7 +77,7 @@ const TestPromptInterface: React.FC = () => {
     const contentToSend = newMessage.trim();
     setNewMessage('');
 
-    await handleSendMessageContext(contentToSend);
+    await handleSendMessageContext(contentToSend, "test-prompt");
   };
 
   const handleLogout = () => {

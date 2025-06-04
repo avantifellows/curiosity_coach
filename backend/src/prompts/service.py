@@ -1,5 +1,5 @@
 from sqlalchemy.orm import Session, selectinload
-from sqlalchemy import func
+from sqlalchemy import func, and_, or_
 from typing import List, Optional
 
 from src.models import Prompt, PromptVersion
@@ -68,7 +68,7 @@ class PromptService:
     def get_prompt_version_by_id(self, db: Session, version_id: int) -> Optional[PromptVersion]:
         return db.query(PromptVersion).filter(PromptVersion.id == version_id).first()
 
-    def add_prompt_version(self, db: Session, prompt_id: int, version_create: schemas.PromptVersionCreate, set_active: bool = False) -> PromptVersion:
+    def add_prompt_version(self, db: Session, prompt_id: int, version_create: schemas.PromptVersionCreate, set_active: bool = False, user_id: Optional[int] = None, set_production: bool = False) -> PromptVersion:
         db_prompt = self.get_prompt_by_id(db, prompt_id)
         if not db_prompt:
             raise ValueError(f"Prompt with id {prompt_id} not found.")
@@ -81,7 +81,9 @@ class PromptService:
             prompt_id=prompt_id,
             prompt_text=version_create.prompt_text,
             version_number=next_version_number,
-            is_active=False # Initially set to false, then handle activation
+            user_id=user_id,
+            is_active=False, # Initially set to false, then handle activation
+            is_production=set_production or version_create.is_production or False
         )
         db.add(db_version)
         db.commit() # Commit to get an ID for db_version
@@ -123,5 +125,97 @@ class PromptService:
             .join(Prompt, PromptVersion.prompt_id == Prompt.id)\
             .filter(Prompt.name == prompt_name, PromptVersion.is_active == True)\
             .first()
+
+    # New methods for user-specific versioning
+    def get_user_prompt_versions(self, db: Session, prompt_id: int, user_id: int) -> List[PromptVersion]:
+        """Get all prompt versions created by a specific user for a specific prompt."""
+        return db.query(PromptVersion)\
+            .filter(PromptVersion.prompt_id == prompt_id, PromptVersion.user_id == user_id)\
+            .order_by(PromptVersion.version_number.desc())\
+            .all()
+
+    def get_earliest_prompt_version(self, db: Session, prompt_name: str) -> Optional[PromptVersion]:
+        """Get the earliest (lowest version number) prompt version for a prompt."""
+        return db.query(PromptVersion)\
+            .join(Prompt, PromptVersion.prompt_id == Prompt.id)\
+            .filter(Prompt.name == prompt_name)\
+            .order_by(PromptVersion.version_number.asc())\
+            .first()
+
+    def get_global_prompt_versions(self, db: Session, prompt_id: int) -> List[PromptVersion]:
+        """Get all prompt versions that are global (no user_id) for a specific prompt."""
+        return db.query(PromptVersion)\
+            .filter(PromptVersion.prompt_id == prompt_id, PromptVersion.user_id.is_(None))\
+            .order_by(PromptVersion.version_number.desc())\
+            .all()
+
+    def get_prompt_versions_for_user(self, db: Session, prompt_id: int, user_id: Optional[int] = None) -> List[PromptVersion]:
+        """
+        Get prompt versions visible to a user:
+        - If user_id is None, return only global versions
+        - If user_id is provided, return user's versions + global versions
+        """
+        if user_id is None:
+            # Return only global versions
+            return self.get_global_prompt_versions(db, prompt_id)
+        else:
+            # Return user's versions AND global versions
+            return db.query(PromptVersion)\
+                .filter(
+                    PromptVersion.prompt_id == prompt_id,
+                    or_(PromptVersion.user_id == user_id, PromptVersion.user_id.is_(None))
+                )\
+                .order_by(PromptVersion.version_number.desc())\
+                .all()
+
+    # New methods for production versioning
+    def get_production_prompt_version(self, db: Session, prompt_name: str) -> Optional[PromptVersion]:
+        """Get the production version for a prompt. Falls back to active version if no production version exists."""
+        # First try to get a production version
+        production_version = db.query(PromptVersion)\
+            .join(Prompt, PromptVersion.prompt_id == Prompt.id)\
+            .filter(Prompt.name == prompt_name, PromptVersion.is_production == True)\
+            .order_by(PromptVersion.version_number.desc())\
+            .first()
+            
+        if production_version:
+            return production_version
+            
+        # Fallback to active version if no production version exists
+        return self.get_active_version_for_prompt(db, prompt_name)
+
+    def set_production_prompt_version(self, db: Session, prompt_id: int, version_id: int) -> Optional[PromptVersion]:
+        """Set a specific version as production (can have multiple production versions)."""
+        db_prompt = self.get_prompt_by_id(db, prompt_id)
+        if not db_prompt:
+            raise ValueError(f"Prompt with id {prompt_id} not found.")
+
+        version_to_mark = self.get_prompt_version_by_id(db, version_id)
+        if not version_to_mark or version_to_mark.prompt_id != prompt_id:
+            raise ValueError(f"PromptVersion with id {version_id} not found or does not belong to prompt {prompt_id}.")
+
+        # Mark the version as production
+        version_to_mark.is_production = True
+        db.add(version_to_mark)
+        db.commit()
+        db.refresh(version_to_mark)
+        return version_to_mark
+
+    def unset_production_prompt_version(self, db: Session, prompt_id: int, version_id: int) -> Optional[PromptVersion]:
+        """Remove production flag from a specific version."""
+        db_prompt = self.get_prompt_by_id(db, prompt_id)
+        if not db_prompt:
+            raise ValueError(f"Prompt with id {prompt_id} not found.")
+
+        version_to_unmark = self.get_prompt_version_by_id(db, version_id)
+        if not version_to_unmark or version_to_unmark.prompt_id != prompt_id:
+            raise ValueError(f"PromptVersion with id {version_id} not found or does not belong to prompt {prompt_id}.")
+
+        # Remove production flag
+        version_to_unmark.is_production = False
+        db.add(version_to_unmark)
+        db.commit()
+        db.refresh(version_to_unmark)
+        return version_to_unmark
 
 prompt_service = PromptService() 
