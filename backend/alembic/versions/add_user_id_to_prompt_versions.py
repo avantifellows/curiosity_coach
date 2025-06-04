@@ -23,8 +23,14 @@ def upgrade() -> None:
     # Add user_id column to prompt_versions table
     op.add_column('prompt_versions', sa.Column('user_id', sa.Integer(), nullable=True))
     
-    # Add production flag column
-    op.add_column('prompt_versions', sa.Column('is_production', sa.Boolean(), default=False, nullable=False))
+    # Add production flag column as nullable first
+    op.add_column('prompt_versions', sa.Column('is_production', sa.Boolean(), nullable=True))
+    
+    # Update existing rows to set default value for is_production
+    op.execute("UPDATE prompt_versions SET is_production = false WHERE is_production IS NULL")
+    
+    # Now make the column NOT NULL
+    op.alter_column('prompt_versions', 'is_production', nullable=False)
     
     # Add foreign key constraint
     op.create_foreign_key(
