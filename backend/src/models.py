@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime, ForeignKey, Text, JSON
+from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime, ForeignKey, Text, JSON, ForeignKeyConstraint, UniqueConstraint
 from sqlalchemy.orm import relationship, sessionmaker, Session, declarative_base
 from sqlalchemy.sql import func
 from src.database import Base, get_db # Assuming Base and get_db will be defined in database.py
@@ -21,11 +21,13 @@ class Conversation(Base):
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     title = Column(String, nullable=True, default="New Chat")
+    prompt_version_id = Column(Integer, ForeignKey("prompt_versions.id"), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     user = relationship("User", back_populates="conversations")
     messages = relationship("Message", back_populates="conversation", cascade="all, delete-orphan", order_by="Message.timestamp")
+    prompt_version = relationship("PromptVersion")
 
 class Message(Base):
     __tablename__ = "messages"
@@ -51,6 +53,57 @@ class MessagePipelineData(Base):
 
     message = relationship("Message", back_populates="pipeline_info")
 
+# --- Prompt Versioning Models ---
+
+class Prompt(Base):
+    __tablename__ = "prompts"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, unique=True, index=True, nullable=False)
+    description = Column(Text, nullable=True)
+    
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    versions = relationship("PromptVersion", back_populates="prompt", cascade="all, delete-orphan")
+    
+    active_prompt_version = relationship(
+        "PromptVersion",
+        primaryjoin="and_(Prompt.id == PromptVersion.prompt_id, PromptVersion.is_active == True)",
+        uselist=False,
+        viewonly=True
+    )
+
+    def __repr__(self):
+        return f"<Prompt(id={self.id}, name='{self.name}')>"
+
+class PromptVersion(Base):
+    __tablename__ = "prompt_versions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    prompt_id = Column(Integer, ForeignKey("prompts.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    version_number = Column(Integer, nullable=False)
+    prompt_text = Column(Text, nullable=False)
+    is_active = Column(Boolean, default=False, nullable=False, index=True)
+    is_production = Column(Boolean, default=False, nullable=False, index=True)
+    
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    prompt = relationship("Prompt", back_populates="versions")
+    user = relationship("User")
+
+    __table_args__ = (
+        # Ensure version_number is unique per prompt_id
+        ForeignKeyConstraint(["prompt_id"], ["prompts.id"], name="fk_prompt_version_prompt_id"),
+        UniqueConstraint("prompt_id", "version_number", name="uq_prompt_id_version_number"),
+        # Note: The constraint for a single active version (is_active=True per prompt_id)
+        # will be handled by a partial unique index created via Alembic.
+    )
+
+    def __repr__(self):
+        return f"<PromptVersion(id={self.id}, prompt_id={self.prompt_id}, version={self.version_number}, active={self.is_active}, production={self.is_production}, user_id={self.user_id})>"
+
 # --- CRUD Helper Functions ---
 
 def get_or_create_user(db: Session, phone_number: str) -> User:
@@ -63,9 +116,9 @@ def get_or_create_user(db: Session, phone_number: str) -> User:
         db.refresh(user)
     return user
 
-def create_conversation(db: Session, user_id: int, title: Optional[str] = "New Chat") -> Conversation:
+def create_conversation(db: Session, user_id: int, title: Optional[str] = "New Chat", prompt_version_id: Optional[int] = None) -> Conversation:
     """Creates a new conversation for a user."""
-    conversation = Conversation(user_id=user_id, title=title)
+    conversation = Conversation(user_id=user_id, title=title, prompt_version_id=prompt_version_id)
     db.add(conversation)
     db.commit()
     db.refresh(conversation)

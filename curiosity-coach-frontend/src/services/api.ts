@@ -28,9 +28,12 @@ export const loginUser = async (phoneNumber: string): Promise<LoginResponse> => 
   }
 };
 
-export const sendMessage = async (conversationId: number, content: string): Promise<SendMessageResponse> => {
+export const sendMessage = async (conversationId: number, content: string, purpose: string = "chat"): Promise<SendMessageResponse> => {
   try {
-    const response = await API.post<SendMessageResponse>(`/conversations/${conversationId}/messages`, { content });
+    const response = await API.post<SendMessageResponse>(`/conversations/${conversationId}/messages`, { 
+      content,
+      purpose 
+    });
     return response.data;
   } catch (error: any) {
     console.error("Error sending message:", error.response?.data || error.message);
@@ -118,5 +121,77 @@ export const getPipelineSteps = async (aiMessageId: number | string): Promise<an
     // For other errors, we might want to throw or return a specific error object.
     // For now, let's re-throw to be handled by the caller, similar to other functions.
     throw new Error(error.response?.data?.detail || `Failed to fetch pipeline steps for message ${aiMessageId}`);
+  }
+};
+
+// --- Prompt Versioning API Methods ---
+
+// Get a list of all prompts
+export const getPrompts = async () => {
+  try {
+    const response = await API.get('/prompts');
+    return response.data;
+  } catch (error) {
+    console.error("Error fetching prompts:", error);
+    throw new Error("Failed to fetch prompts");
+  }
+};
+
+// Get a specific prompt by name or ID
+export const getPrompt = async (nameOrId: string | number) => {
+  try {
+    const response = await API.get(`/prompts/${nameOrId}`);
+    return response.data;
+  } catch (error) {
+    console.error(`Error fetching prompt ${nameOrId}:`, error);
+    throw new Error(`Failed to fetch prompt ${nameOrId}`);
+  }
+};
+
+// Get all versions of a specific prompt
+export const getPromptVersions = async (nameOrId: string | number) => {
+  try {
+    const response = await API.get(`/prompts/${nameOrId}/versions`);
+    return response.data;
+  } catch (error) {
+    console.error(`Error fetching versions for prompt ${nameOrId}:`, error);
+    throw new Error(`Failed to fetch versions for prompt ${nameOrId}`);
+  }
+};
+
+// Get the active version of a specific prompt
+export const getActivePromptVersion = async (nameOrId: string | number) => {
+  try {
+    const response = await API.get(`/prompts/${nameOrId}/versions/active`);
+    return response.data;
+  } catch (error) {
+    console.error(`Error fetching active version for prompt ${nameOrId}:`, error);
+    throw new Error(`Failed to fetch active version for prompt ${nameOrId}`);
+  }
+};
+
+// Create a new version of a prompt
+export const createPromptVersion = async (promptId: number | string, promptText: string) => {
+  try {
+    const response = await API.post(`/prompts/${promptId}/versions`, {
+      prompt_text: promptText
+    });
+    return response.data;
+  } catch (error) {
+    console.error(`Error creating new version for prompt ${promptId}:`, error);
+    throw new Error(`Failed to create new version for prompt ${promptId}`);
+  }
+};
+
+// Set a specific version as active
+export const setActivePromptVersion = async (promptId: number | string, versionId: number) => {
+  try {
+    const response = await API.post(`/prompts/${promptId}/versions/set-active/`, {
+      version_id: versionId
+    });
+    return response.data;
+  } catch (error) {
+    console.error(`Error setting active version ${versionId} for prompt ${promptId}:`, error);
+    throw new Error(`Failed to set active version for prompt ${promptId}`);
   }
 }; 

@@ -3,7 +3,7 @@ from pydantic_settings import BaseSettings
 from dotenv import load_dotenv
 
 # Load the appropriate environment file
-env_file = '.env.local' # if os.getenv('APP_ENV') == 'development' else '.env'
+env_file = '.env.prod' # if os.getenv('APP_ENV') == 'development' else '.env'
 load_dotenv(env_file)
 
 class Settings(BaseSettings):
@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     DB_PASSWORD: str = os.getenv('DB_PASSWORD', 'postgres')
     
     # Local Brain Endpoint (for development)
-    LOCAL_BRAIN_ENDPOINT_URL: str = os.getenv('LOCAL_BRAIN_ENDPOINT_URL', 'http://127.0.0.1:8001')
+    LOCAL_BRAIN_ENDPOINT_URL: str = os.getenv('LOCAL_BRAIN_ENDPOINT_URL', 'http://127.0.0.1:8000')
     
     # AWS settings
     AWS_ACCESS_KEY_ID: str = os.getenv('AWS_ACCESS_KEY_ID', '')

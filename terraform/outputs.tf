@@ -31,4 +31,9 @@ output "sqs_queue_url" {
 output "sqs_queue_arn" {
   description = "The ARN of the SQS queue."
   value       = aws_sqs_queue.app_queue.arn
+}
+
+output "cloudfront_distribution_id" {
+  description = "The ID of the CloudFront distribution for the frontend."
+  value       = aws_cloudfront_distribution.frontend_distribution.id
 } 
