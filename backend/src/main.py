@@ -23,6 +23,17 @@ logging.basicConfig(
     handlers=[logging.StreamHandler()]
 )
 
+# Force the root logger to INFO level explicitly
+logging.getLogger().setLevel(logging.INFO)
+
+print(f"=== LOGGING CONFIGURED - Root Level: {logging.getLogger().level} ===")
+print(f"=== LOGGING LEVEL CONSTANTS - INFO: {logging.INFO}, WARNING: {logging.WARNING} ===")
+sys.stdout.flush()
+
+# Test logging immediately
+test_logger = logging.getLogger("test")
+test_logger.info("=== TEST LOG MESSAGE - This should appear if logging works ===")
+
 print(f"=== LOGGING CONFIGURED - Level: {logging.getLogger().level} ===")
 sys.stdout.flush()
 

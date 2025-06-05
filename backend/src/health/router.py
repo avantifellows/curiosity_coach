@@ -17,7 +17,8 @@ def health_check():
     """Health check endpoint to verify the API is running"""
     # Use print for immediate CloudWatch output
     print(f"=== HEALTH CHECK CALLED - Environment: {settings.APP_ENV} ===")
-    print(f"=== Logger level: {logger.level}, Root logger level: {logging.getLogger().level} ===")
+    print(f"=== Root Logger level: {logging.getLogger().level}, Health Logger level: {logger.level} ===")
+    print(f"=== Logger effective level: {logger.getEffectiveLevel()} ===")
     sys.stdout.flush()  # Force immediate output
     
     # Also use logging
