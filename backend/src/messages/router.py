@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException, Depends, Body, status
 import traceback
+import logging
 from sqlalchemy.orm import Session
 from typing import Optional, List, Dict, Any # Added List and Dict
 from src.messages.schemas import MessageRequest, MessageData, ChatHistoryResponse, SendMessageResponse, BrainResponsePayload # Removed unused MessageResponse
@@ -14,6 +15,8 @@ from src.database import get_db
 import json
 from datetime import datetime
 import os
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(
     # Prefix remains /api/messages for now, but routes below are more specific
@@ -43,6 +46,8 @@ async def send_message_to_conversation(
     and triggers asynchronous AI response generation.
     Returns the saved user message immediately.
     """
+    logger.info(f"Sending message to conversation {conversation_id} for user {current_user.id}")
+    
     # Verify user owns the conversation
     await verify_conversation_ownership(conversation_id, current_user, db)
     
@@ -65,8 +70,8 @@ async def send_message_to_conversation(
         }
     except Exception as e:
         error_details = traceback.format_exc()
-        print(f"Router: Error in send_message for conversation_id: {conversation_id}. Error: {e}")
-        print(f"Router: Error traceback: {error_details}")
+        logger.error(f"Router: Error in send_message for conversation_id: {conversation_id}. Error: {e}")
+        logger.error(f"Router: Error traceback: {error_details}")
         raise HTTPException(status_code=500, detail=f"Error sending message: {str(e)}")
 
 @router.get("/conversations/{conversation_id}/messages", response_model=ChatHistoryResponse)
