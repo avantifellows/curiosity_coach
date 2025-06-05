@@ -63,22 +63,32 @@ class MessageService:
             logger.debug(f"Message object converted to dict - message_id: {saved_message['id']}")
 
             # Trigger asynchronous message processing via queue
-            logger.debug(f"Sending message to queue service - message_id: {saved_message['id']}")
-            queue_response = await queue_service.send_message(
-                conversation_id=conversation_id,
-                message_id=saved_message['id'], 
-                message_content=content,
-                user_id=user_id,
-                purpose=purpose
-            )
-
-            if isinstance(queue_response, dict) and queue_response.get('error'):
-                logger.warning(
-                    f"Queue service reported an error for message_id {saved_message['id']}: "
-                    f"{queue_response['error']}. Message is saved but processing may be delayed."
+            logger.info(f"About to send message to queue service - message_id: {saved_message['id']}")
+            try:
+                logger.info(f"Calling queue_service.send_message - message_id: {saved_message['id']}")
+                queue_response = await queue_service.send_message(
+                    conversation_id=conversation_id,
+                    message_id=saved_message['id'], 
+                    message_content=content,
+                    user_id=user_id,
+                    purpose=purpose
                 )
-            else:
-                logger.info(f"Message successfully queued for processing - message_id: {saved_message['id']}")
+                logger.info(f"Queue service call completed - message_id: {saved_message['id']}")
+
+                if isinstance(queue_response, dict) and queue_response.get('error'):
+                    logger.warning(
+                        f"Queue service reported an error for message_id {saved_message['id']}: "
+                        f"{queue_response['error']}. Message is saved but processing may be delayed."
+                    )
+                else:
+                    logger.info(f"Message successfully queued for processing - message_id: {saved_message['id']}")
+
+            except Exception as queue_error:
+                logger.error(
+                    f"Queue service failed for message_id {saved_message['id']}: "
+                    f"{str(queue_error)}. Message is saved but processing may be delayed."
+                )
+                # Continue execution even if queue fails - user message is already saved
 
             processing_time = time.time() - start_time
             logger.info(
