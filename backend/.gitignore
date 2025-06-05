@@ -126,3 +126,4 @@ Thumbs.db
 # Project Specific
 backend.log
 # requirements.lock # uncomment if you generate this locally and don't commit it 
+.env.staging
