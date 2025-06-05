@@ -160,49 +160,47 @@ resource "null_resource" "docker_build_push" {
 
   provisioner "local-exec" {
     command = <<EOF
-      set -e
-      echo "Setting AWS Profile..."
+      # set -e # Temporarily removed for better error reporting
+      echo "Setting AWS Profile for Brain..."
       export AWS_PROFILE=${var.aws_profile}
-      
-      echo "Attempting to get ECR login password for region ${var.aws_region}..."
-      ecr_password_output=$(aws ecr get-login-password --region ${var.aws_region} 2>&1)
-      ecr_password_exit_code=$?
 
-      if [ $ecr_password_exit_code -ne 0 ]; then
-        echo "ERROR: Failed to get ECR login password. AWS CLI command failed." >&2
-        echo "AWS CLI Output:" >&2
-        echo "$ecr_password_output" >&2
-        exit $ecr_password_exit_code
-      fi
-
-      echo "ECR password retrieved successfully. Logging into ECR for ${aws_ecr_repository.app_repo.name}..."
-      # Pipe the successfully retrieved password to docker login
-      # The ECR password output might contain the password itself, so avoid echoing it directly to logs unless necessary for debugging.
-      # We capture docker login output separately.
-      docker_login_full_output=$(echo "$ecr_password_output" | docker login --username AWS --password-stdin ${data.aws_caller_identity.current.account_id}.dkr.ecr.${var.aws_region}.amazonaws.com 2>&1)
-      docker_login_exit_code=$?
-      
-      if [ $docker_login_exit_code -ne 0 ]; then
+      echo "Logging into ECR for ${aws_ecr_repository.app_repo.name}..."
+      # Attempt login and capture output/error
+      login_output=$(aws ecr get-login-password --region ${var.aws_region} | docker login --username AWS --password-stdin ${data.aws_caller_identity.current.account_id}.dkr.ecr.${var.aws_region}.amazonaws.com 2>&1)
+      login_exit_code=$?
+      # Check if login failed
+      if [ $login_exit_code -ne 0 ]; then
         # Check if the failure was the specific keychain error
-        if echo "$docker_login_full_output" | grep -q "The specified item already exists in the keychain"; then
+        if echo "$login_output" | grep -q "The specified item already exists in the keychain"; then
           echo "Docker login skipped: Credentials already exist in keychain."
         else
-          echo "ERROR: Docker login failed." >&2
-          echo "Docker Login Output:" >&2
-          echo "$docker_login_full_output" >&2
-          exit $docker_login_exit_code
+          # If it was a different error, print the error and exit
+          echo "Docker login failed:" >&2
+          echo "$login_output" >&2
+          exit $login_exit_code
         fi
       else
-        echo "Docker login to ${aws_ecr_repository.app_repo.name} successful."
+        echo "Docker login successful or skipped."
       fi
-      
-      echo "Building Docker image ${aws_ecr_repository.app_repo.repository_url}:${var.docker_image_tag}..."
+
+      echo "Building Brain Docker image ${aws_ecr_repository.app_repo.repository_url}:${var.docker_image_tag}..."
+      # Ensure Dockerfile path and build context are correct
       docker build --platform linux/amd64 -t ${aws_ecr_repository.app_repo.repository_url}:${var.docker_image_tag} -f ${path.module}/../Brain/Dockerfile ${path.module}/../Brain
-      
-      echo "Pushing Docker image ${aws_ecr_repository.app_repo.repository_url}:${var.docker_image_tag}..."
+      build_exit_code=$?
+      if [ $build_exit_code -ne 0 ]; then
+        echo "Docker build failed with exit code $build_exit_code" >&2
+        exit $build_exit_code
+      fi
+
+      echo "Pushing Brain Docker image ${aws_ecr_repository.app_repo.repository_url}:${var.docker_image_tag}..."
       docker push ${aws_ecr_repository.app_repo.repository_url}:${var.docker_image_tag}
-      
-      echo "Docker build and push completed successfully."
+      push_exit_code=$?
+      if [ $push_exit_code -ne 0 ]; then
+        echo "Docker push failed with exit code $push_exit_code" >&2
+        exit $push_exit_code
+      fi
+
+      echo "Brain Docker build and push completed successfully."
     EOF
   }
 
@@ -276,7 +274,7 @@ resource "aws_sqs_queue" "app_queue" {
   max_message_size            = 262144 # 256 KiB
   message_retention_seconds   = 86400  # 1 day, adjust as needed
   receive_wait_time_seconds   = 10     # Enable long polling
-  visibility_timeout_seconds  = 60     # Should be >= lambda timeout + buffer
+  visibility_timeout_seconds  = 360    # Lambda timeout (300s) + buffer (60s)
 
   tags = local.tags
 }

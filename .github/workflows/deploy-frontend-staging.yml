@@ -1,29 +1,29 @@
-name: Deploy Frontend to AWS S3 and CloudFront (Production)
+name: Deploy Frontend to AWS S3 and CloudFront (Staging)
 
 on:
   push:
     branches:
-      - release # Production deploys only on release branch
+      - main
     paths:
       - 'curiosity-coach-frontend/**' # Trigger only on changes within the frontend directory
-      - '.github/workflows/deploy-frontend.yml'
+      - '.github/workflows/deploy-frontend-staging.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'curiosity-coach-frontend/**' # Trigger only on changes within the frontend directory
+      - '.github/workflows/deploy-frontend-staging.yml'
   workflow_dispatch: # Allows manual triggering
-  # Production doesn't deploy on PRs
-  # pull_request:
-  #   branches:
-  #     - release
-  #   paths:
-  #     - 'curiosity-coach-frontend/**'
 
 permissions:
   contents: read # Required to check out the code
 
 jobs:
   deploy:
-    name: Build and Deploy Frontend
+    name: Build and Deploy Frontend (Staging)
     runs-on: ubuntu-latest
     # Optional: Specify the environment if you use GitHub Environments
-    # environment: production
+    # environment: staging
 
     steps:
       - name: Checkout code
@@ -51,11 +51,11 @@ jobs:
       - name: Get Lambda Function URL
         id: get_lambda_url
         run: |
-          # Find the Lambda function containing the specified string
+          # Find the Lambda function containing the specified string for staging
           # Pipe to head -n 1 to ensure only the first line (the actual name) is captured
-          FUNCTION_NAME=$(aws lambda list-functions --region ap-south-1 --query 'Functions[?contains(FunctionName, `curiosity-coach-backend`)].FunctionName | [0]' --output text | head -n 1)
+          FUNCTION_NAME=$(aws lambda list-functions --region ap-south-1 --query 'Functions[?contains(FunctionName, `curiosity-coach-backend-staging`)].FunctionName | [0]' --output text | head -n 1)
           if [ -z "$FUNCTION_NAME" ] || [ "$FUNCTION_NAME" == "None" ]; then
-            echo "Error: Could not find Lambda function containing 'curiosity-coach-backend' in region ap-south-1."
+            echo "Error: Could not find Lambda function containing 'curiosity-coach-backend-staging' in region ap-south-1."
             exit 1
           fi
           echo "Found Lambda function: $FUNCTION_NAME"
@@ -98,10 +98,10 @@ jobs:
       - name: Get Brain Lambda Function URL
         id: get_brain_lambda_url
         run: |
-          # Find the Lambda function containing the specified string
-          BRAIN_FUNCTION_NAME=$(aws lambda list-functions --region ap-south-1 --query 'Functions[?contains(FunctionName, `curiosity-coach-brain`)].FunctionName | [0]' --output text | head -n 1)
+          # Find the Lambda function containing the specified string for staging
+          BRAIN_FUNCTION_NAME=$(aws lambda list-functions --region ap-south-1 --query 'Functions[?contains(FunctionName, `curiosity-coach-brain-staging`)].FunctionName | [0]' --output text | head -n 1)
           if [ -z "$BRAIN_FUNCTION_NAME" ] || [ "$BRAIN_FUNCTION_NAME" == "None" ]; then
-            echo "Error: Could not find Lambda function containing 'curiosity-coach-brain' in region ap-south-1."
+            echo "Error: Could not find Lambda function containing 'curiosity-coach-brain-staging' in region ap-south-1."
             exit 1
           fi
           echo "Found Brain Lambda function: $BRAIN_FUNCTION_NAME"
@@ -151,10 +151,10 @@ jobs:
 
       - name: Deploy to S3 Bucket
         run: |
-          aws s3 sync ./curiosity-coach-frontend/build s3://${{ secrets.AWS_S3_BUCKET_NAME }} --delete
+          aws s3 sync ./curiosity-coach-frontend/build s3://${{ secrets.AWS_S3_BUCKET_NAME_STAGING }} --delete
 
       - name: Invalidate CloudFront Cache
         run: |
           aws cloudfront create-invalidation \
-            --distribution-id E1PWT352WPN7AO \
+            --distribution-id ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID_STAGING }} \
             --paths "/*" # Invalidate everything 

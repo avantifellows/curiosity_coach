@@ -93,4 +93,24 @@ variable "acm_certificate_arn" {
   description = "The ARN of the SSL certificate in AWS Certificate Manager (must be in us-east-1 region for CloudFront)."
   type        = string
   default     = "" # Will be provided via .tfvars or environment variable
+}
+
+# --- RDS Configuration Variables ---
+variable "create_rds_instance" {
+  description = "Whether to create a new RDS instance or use an existing one"
+  type        = bool
+  default     = true
+}
+
+variable "existing_rds_instance_id" {
+  description = "ID of existing RDS instance to use (when create_rds_instance is false)"
+  type        = string
+  default     = ""
+}
+
+variable "existing_rds_password" {
+  description = "Password for existing RDS instance (when create_rds_instance is false)"
+  type        = string
+  sensitive   = true
+  default     = ""
 } 

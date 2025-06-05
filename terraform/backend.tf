@@ -77,6 +77,12 @@ locals {
   db_version  = "14" # Choose a suitable recent version
   db_username = "dbadmin"
   db_name     = "${replace(var.project_name, "-", "_")}_${var.environment}" # Ensure valid DB name format
+  
+  # RDS connection details (works for both new and existing RDS instances)
+  rds_address  = var.create_rds_instance ? aws_db_instance.rds_instance[0].address : data.aws_db_instance.existing_rds[0].address
+  rds_port     = var.create_rds_instance ? aws_db_instance.rds_instance[0].port : data.aws_db_instance.existing_rds[0].port
+  rds_username = var.create_rds_instance ? aws_db_instance.rds_instance[0].username : data.aws_db_instance.existing_rds[0].master_username
+  rds_password = var.create_rds_instance ? random_password.db_password[0].result : var.existing_rds_password
 }
 
 # --- ECR Repository for Backend ---
@@ -296,12 +302,16 @@ resource "aws_db_subnet_group" "rds_subnet_group" {
 }
 
 # --- RDS Password ---
+# --- Random Password for RDS (only create if creating new RDS instance) ---
 resource "random_password" "db_password" {
-  length           = 16
+  count  = var.create_rds_instance ? 1 : 0
+  length = 16
 }
 
-# --- RDS Database Instance ---
+# --- RDS Database Instance (conditional creation) ---
 resource "aws_db_instance" "rds_instance" {
+  count = var.create_rds_instance ? 1 : 0
+  
   identifier             = local.rds_instance_identifier
   engine                 = local.db_engine
   engine_version         = local.db_version
@@ -310,7 +320,7 @@ resource "aws_db_instance" "rds_instance" {
   storage_type           = "gp3"          # General Purpose SSD v3
   db_name                = local.db_name
   username               = local.db_username
-  password               = random_password.db_password.result
+  password               = random_password.db_password[0].result
   port                   = local.db_port
   db_subnet_group_name   = aws_db_subnet_group.rds_subnet_group.name
   vpc_security_group_ids = [aws_security_group.rds_sg.id]
@@ -321,6 +331,12 @@ resource "aws_db_instance" "rds_instance" {
   tags = merge(local.backend_tags, { Name = local.rds_instance_identifier })
 
   depends_on = [aws_db_subnet_group.rds_subnet_group]
+}
+
+# --- Data source for existing RDS instance ---
+data "aws_db_instance" "existing_rds" {
+  count                  = var.create_rds_instance ? 0 : 1
+  db_instance_identifier = var.existing_rds_instance_id
 }
 
 # --- Update backend/.env.prod with RDS Details ---
@@ -402,11 +418,11 @@ resource "aws_lambda_function" "backend_lambda" {
       },
       # Then merge/overwrite with dynamic variables defined in Terraform
       {
-        DB_HOST         = aws_db_instance.rds_instance.address
-        DB_PORT         = aws_db_instance.rds_instance.port
-        DB_NAME         = aws_db_instance.rds_instance.db_name
-        DB_USER         = aws_db_instance.rds_instance.username
-        DB_PASSWORD     = random_password.db_password.result
+        DB_HOST         = local.rds_address
+        DB_PORT         = local.rds_port
+        DB_NAME         = local.db_name
+        DB_USER         = local.rds_username
+        DB_PASSWORD     = local.rds_password
         SQS_QUEUE_URL     = aws_sqs_queue.app_queue.id # Ensure brain.tf defines aws_sqs_queue.app_queue
         FRONTEND_URL      = "https://${aws_cloudfront_distribution.frontend_distribution.domain_name}"
         S3_WEBSITE_URL    = "http://${aws_s3_bucket_website_configuration.frontend_website.website_endpoint}"
@@ -428,12 +444,9 @@ resource "aws_lambda_function" "backend_lambda" {
     aws_iam_role_policy_attachment.backend_lambda_policy_vpc_access,
     aws_iam_role_policy_attachment.backend_lambda_policy_sqs_send,
     null_resource.backend_docker_build_push,
-    aws_db_instance.rds_instance,
     aws_sqs_queue.app_queue,
     aws_security_group.lambda_sg,
     data.external.backend_dotenv_prod,
-    aws_vpc_endpoint.sqs_endpoint,
-    aws_vpc_endpoint.sts_endpoint,
     aws_cloudfront_distribution.frontend_distribution,
     aws_s3_bucket_website_configuration.frontend_website
   ]
@@ -475,27 +488,27 @@ output "backend_lambda_function_url" {
 # --- Output RDS Connection Details ---
 output "rds_instance_address" {
   description = "The hostname of the RDS instance"
-  value       = aws_db_instance.rds_instance.address
+  value       = local.rds_address
 }
 
 output "rds_instance_port" {
   description = "The port the RDS instance is listening on"
-  value       = aws_db_instance.rds_instance.port
+  value       = local.rds_port
 }
 
 output "rds_database_name" {
   description = "The name of the database created in the RDS instance"
-  value       = aws_db_instance.rds_instance.db_name
+  value       = local.db_name
 }
 
 output "rds_database_user" {
   description = "The master username for the RDS instance"
-  value       = aws_db_instance.rds_instance.username
+  value       = local.rds_username
 }
 
 output "rds_database_password" {
   description = "The generated master password for the RDS instance (store securely!)"
-  value       = random_password.db_password.result
+  value       = local.rds_password
   sensitive   = true # Mark the password output as sensitive
 }
 
@@ -530,6 +543,7 @@ resource "aws_security_group" "sqs_vpce_sg" {
 }
 
 resource "aws_vpc_endpoint" "sqs_endpoint" {
+  count             = var.environment == "dev" ? 1 : 0
   vpc_id            = data.aws_vpc.selected.id
   service_name      = "com.amazonaws.${data.aws_region.current.name}.sqs"
   vpc_endpoint_type = "Interface"
@@ -548,6 +562,13 @@ resource "aws_vpc_endpoint" "sqs_endpoint" {
     aws_security_group.lambda_sg,
     aws_security_group.sqs_vpce_sg
   ]
+}
+
+# Data source to reference existing SQS VPC endpoint for staging
+data "aws_vpc_endpoint" "existing_sqs_endpoint" {
+  count        = var.environment != "dev" ? 1 : 0
+  vpc_id       = data.aws_vpc.selected.id
+  service_name = "com.amazonaws.${data.aws_region.current.name}.sqs"
 }
 
 # --- STS VPC Endpoint Security Group ---
@@ -576,6 +597,7 @@ resource "aws_security_group" "sts_vpce_sg" {
 
 # --- STS VPC Endpoint ---
 resource "aws_vpc_endpoint" "sts_endpoint" {
+  count               = var.environment == "dev" ? 1 : 0
   vpc_id              = data.aws_vpc.selected.id
   service_name        = "com.amazonaws.${data.aws_region.current.name}.sts"
   vpc_endpoint_type   = "Interface"
@@ -590,4 +612,11 @@ resource "aws_vpc_endpoint" "sts_endpoint" {
     aws_security_group.lambda_sg,
     aws_security_group.sts_vpce_sg
   ]
+}
+
+# Data source to reference existing STS VPC endpoint for staging
+data "aws_vpc_endpoint" "existing_sts_endpoint" {
+  count        = var.environment != "dev" ? 1 : 0
+  vpc_id       = data.aws_vpc.selected.id
+  service_name = "com.amazonaws.${data.aws_region.current.name}.sts"
 }

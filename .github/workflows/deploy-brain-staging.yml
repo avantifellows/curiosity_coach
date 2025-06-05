@@ -1,18 +1,18 @@
-name: Deploy Brain Changes (Production)
+name: Deploy Brain Changes (Staging)
 
 on:
   push:
     branches:
-      - release # Production deploys only on release branch
+      - main
     paths:
       - 'Brain/**' # Trigger only on changes within the Brain directory
-      - '.github/workflows/deploy-brain.yml'
-  # Production doesn't deploy on PRs
-  # pull_request:
-  #   branches:
-  #     - release
-  #   paths:
-  #     - 'Brain/**'
+      - '.github/workflows/deploy-brain-staging.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'Brain/**' # Trigger only on changes within the Brain directory
+      - '.github/workflows/deploy-brain-staging.yml'
 
 permissions:
   contents: read
@@ -38,11 +38,11 @@ jobs:
       - name: Find Lambda Function Name
         id: find_lambda
         run: |
-          # Find the Lambda function containing 'curiosity-coach-brain'
+          # Find the Lambda function containing 'curiosity-coach-brain-staging'
           # Use the AWS_REGION secret or hardcode if preferred
-          FUNCTION_NAME=$(aws lambda list-functions --region ap-south-1 --query 'Functions[?contains(FunctionName, `curiosity-coach-brain`)].FunctionName | [0]' --output text | head -n 1)
+          FUNCTION_NAME=$(aws lambda list-functions --region ap-south-1 --query 'Functions[?contains(FunctionName, `curiosity-coach-brain-staging`)].FunctionName | [0]' --output text | head -n 1)
           if [ -z "$FUNCTION_NAME" ] || [ "$FUNCTION_NAME" == "None" ]; then
-            echo "Error: Could not find Lambda function containing 'curiosity-coach-brain' in region ap-south-1."
+            echo "Error: Could not find Lambda function containing 'curiosity-coach-brain-staging' in region ap-south-1."
             exit 1
           fi
           echo "Found Lambda function: $FUNCTION_NAME"
@@ -52,8 +52,8 @@ jobs:
         id: build-image
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          # ECR repository name based on Terraform config (default: curiosity-coach-brain-dev-repo)
-          ECR_REPOSITORY: curiosity-coach-brain-ecr # Adjust if you override the default in Terraform variables
+          # ECR repository name for staging environment
+          ECR_REPOSITORY: curiosity-coach-brain-staging-ecr
           IMAGE_TAG: ${{ github.sha }}
         working-directory: ./Brain # Set working directory to Brain
         run: |
@@ -79,10 +79,10 @@ jobs:
       - name: Find Backend Lambda Function Name
         id: find_backend_lambda
         run: |
-          # Find the Lambda function containing 'curiosity-coach-backend'
-          FUNCTION_NAME=$(aws lambda list-functions --region ap-south-1 --query 'Functions[?contains(FunctionName, `curiosity-coach-backend`)].FunctionName | [0]' --output text | head -n 1)
+          # Find the Lambda function containing 'curiosity-coach-backend-staging'
+          FUNCTION_NAME=$(aws lambda list-functions --region ap-south-1 --query 'Functions[?contains(FunctionName, `curiosity-coach-backend-staging`)].FunctionName | [0]' --output text | head -n 1)
           if [ -z "$FUNCTION_NAME" ] || [ "$FUNCTION_NAME" == "None" ]; then
-            echo "Error: Could not find Lambda function containing 'curiosity-coach-backend' in region ap-south-1."
+            echo "Error: Could not find Lambda function containing 'curiosity-coach-backend-staging' in region ap-south-1."
             exit 1
           fi
           echo "Found Backend Lambda function: $FUNCTION_NAME"
