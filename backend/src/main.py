@@ -2,7 +2,6 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import os
 import logging
-import sys
 from src.auth.router import router as auth_router
 from src.messages.router import router as messages_router
 from src.conversations.router import router as conversations_router
@@ -11,10 +10,6 @@ from src.prompts.router import router as prompts_router
 from src.config.settings import settings
 from src.database import init_db
 from mangum import Mangum
-
-# Add immediate debugging
-print("=== LAMBDA STARTING - MAIN.PY IMPORT ===")
-sys.stdout.flush()
 
 # Configure logging for Lambda
 logging.basicConfig(
@@ -26,17 +21,6 @@ logging.basicConfig(
 # Force the root logger to INFO level explicitly
 logging.getLogger().setLevel(logging.INFO)
 
-print(f"=== LOGGING CONFIGURED - Root Level: {logging.getLogger().level} ===")
-print(f"=== LOGGING LEVEL CONSTANTS - INFO: {logging.INFO}, WARNING: {logging.WARNING} ===")
-sys.stdout.flush()
-
-# Test logging immediately
-test_logger = logging.getLogger("test")
-test_logger.info("=== TEST LOG MESSAGE - This should appear if logging works ===")
-
-print(f"=== LOGGING CONFIGURED - Level: {logging.getLogger().level} ===")
-sys.stdout.flush()
-
 # Prevent duplicate logs from uvicorn when running locally
 if settings.APP_ENV != 'development':
     logging.getLogger("uvicorn.access").propagate = False
@@ -44,14 +28,8 @@ if settings.APP_ENV != 'development':
 
 logger = logging.getLogger(__name__)
 
-print(f"=== LOGGER CREATED - APP_ENV: {settings.APP_ENV} ===")
-sys.stdout.flush()
-
 def create_app() -> FastAPI:
     """Create and configure a FastAPI application."""
-    print(f"=== CREATE_APP CALLED - Environment: {settings.APP_ENV} ===")
-    sys.stdout.flush()
-    
     logger.info(f"Creating FastAPI app - Environment: {settings.APP_ENV}")
     
     app = FastAPI(
@@ -66,18 +44,12 @@ def create_app() -> FastAPI:
     @app.on_event("startup")
     async def startup_event():
         """Run initialization tasks on application startup"""
-        print("=== FASTAPI STARTUP EVENT TRIGGERED ===")
-        sys.stdout.flush()
         logger.info("FastAPI application starting up...")
         try:
             # Add any initialization tasks here
             logger.info("Application startup completed successfully")
-            print("=== FASTAPI STARTUP COMPLETED ===")
-            sys.stdout.flush()
         except Exception as e:
             logger.error(f"Error during startup: {str(e)}")
-            print(f"=== STARTUP ERROR: {str(e)} ===")
-            sys.stdout.flush()
             raise
     
     # Get CORS origins from environment
@@ -108,8 +80,6 @@ def create_app() -> FastAPI:
     if os.getenv("ALLOW_ALL_ORIGINS", "false").lower() == "true":
         allowed_origins = ["*"]
     
-    print(f"=== CORS ORIGINS: {allowed_origins} ===")
-    sys.stdout.flush()
     logger.info(f"CORS allowed origins: {allowed_origins}")
     
     # Enable CORS
@@ -128,28 +98,17 @@ def create_app() -> FastAPI:
     app.include_router(health_router)
     app.include_router(prompts_router)
     
-    print("=== FASTAPI APP CREATED SUCCESSFULLY ===")
-    sys.stdout.flush()
     logger.info("FastAPI app created successfully")
     return app
 
-print("=== CALLING CREATE_APP ===")
-sys.stdout.flush()
 _fastapi_app = create_app()
 
 # Conditionally wrap with Mangum for serverless deployment
 if settings.APP_ENV != 'development':
-    print("=== WRAPPING WITH MANGUM FOR LAMBDA ===")
-    sys.stdout.flush()
     logger.info("Wrapping FastAPI app with Mangum for Lambda")
     app = Mangum(_fastapi_app)
-    print("=== MANGUM WRAPPER CREATED ===")
-    sys.stdout.flush()
 else:
     app = _fastapi_app # Use the raw FastAPI app for local dev
-
-print("=== MAIN.PY INITIALIZATION COMPLETE ===")
-sys.stdout.flush()
 
 # For local development
 if __name__ == '__main__':
