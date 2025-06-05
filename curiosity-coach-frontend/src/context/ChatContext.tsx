@@ -21,8 +21,9 @@ interface ChatContextState {
   error: string | null;
   fetchConversations: () => Promise<void>;
   selectConversation: (conversationId: number | null) => void;
-  handleSendMessage: (content: string) => Promise<void>;
-  handleCreateConversation: (title?: string) => Promise<void>;
+  handleSendMessage: (content: string, purpose: string) => Promise<void>;
+  handleSendMessageWithAutoConversation: (content: string, purpose: string) => Promise<void>;
+  handleCreateConversation: (title?: string) => Promise<number | null>;
 
   // New state for Brain Config View
   isConfigViewActive: boolean;
@@ -184,7 +185,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   }, []);
 
   // --- Send Message --- 
-  const handleSendMessage = useCallback(async (content: string) => {
+  const handleSendMessage = useCallback(async (content: string, purpose: string = "chat") => {
     if (currentConversationId === null) {
       setError('No conversation selected');
       return;
@@ -211,7 +212,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setMessages(prev => [...prev, tempUserMessage]);
 
     try {
-      const response = await sendMessage(currentConversationId, content);
+      const response = await sendMessage(currentConversationId, content, purpose);
       
       if (!response.success || !response.message || typeof response.message.id !== 'number') {
           console.error("Invalid response from sendMessage:", response);
@@ -247,8 +248,8 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   }, [currentConversationId, pollAiResponse]);
 
   // --- Create Conversation --- 
-  const handleCreateConversation = useCallback(async (title?: string) => {
-    if (!user) return;
+  const handleCreateConversation = useCallback(async (title?: string): Promise<number | null> => {
+    if (!user) return null;
     // Consider adding loading state for creation
     setError(null);
     try {
@@ -257,10 +258,92 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       setCurrentConversationId(newConversation.id);
       setMessages([]); // Clear messages for new chat
       setIsConfigViewActive(false); // Ensure config view is not active
+      return newConversation.id;
     } catch (err: any) {
       setError(err.message || 'Failed to create conversation');
+      return null;
     }
   }, [user]);
+
+  // --- Send Message with Auto-Conversation Creation --- 
+  const handleSendMessageWithAutoConversation = useCallback(async (content: string, purpose: string = "chat") => {
+    if (!user) {
+      setError('User not authenticated');
+      return;
+    }
+
+    let conversationId = currentConversationId;
+
+    // If no conversation is selected, create one first
+    if (conversationId === null) {
+      try {
+        conversationId = await handleCreateConversation();
+        if (conversationId === null) {
+          setError('Failed to create conversation');
+          return;
+        }
+      } catch (err: any) {
+        setError(err.message || 'Failed to create conversation');
+        return;
+      }
+    }
+
+    // Now send the message with the conversation ID
+    // Clear any previous polling before starting a new send
+    if (cleanupPollingRef.current) {
+        cleanupPollingRef.current();
+        cleanupPollingRef.current = null;
+    }
+    
+    setIsSendingMessage(true);
+    setIsBrainProcessing(false);
+    setError(null);
+    
+    const tempUserMessage: Message = {
+        id: Date.now(),
+        content,
+        is_user: true,
+        timestamp: new Date().toISOString(),
+        status: 'sending',
+    };
+
+    setMessages(prev => [...prev, tempUserMessage]);
+
+    try {
+      const response = await sendMessage(conversationId, content, purpose);
+      
+      if (!response.success || !response.message || typeof response.message.id !== 'number') {
+          console.error("Invalid response from sendMessage:", response);
+          throw new Error("Failed to save message or invalid response received.");
+      }
+      
+      const savedUserMessage = response.message; 
+      
+      setMessages(prev => prev.map(msg => 
+          msg.id === tempUserMessage.id 
+          ? { ...savedUserMessage, status: 'sent' } 
+          : msg
+      ));
+      
+      setIsBrainProcessing(true); 
+      
+      const stopPollingCallback = await pollAiResponse(savedUserMessage.id!, conversationId);
+      if (typeof stopPollingCallback === 'function') {
+          cleanupPollingRef.current = stopPollingCallback; // Store cleanup in ref
+      }
+
+    } catch (err: any) {
+      setError(err.message || 'Failed to send message');
+      setMessages(prev => prev.map(msg => 
+          msg.id === tempUserMessage.id 
+          ? { ...msg, status: 'error' } 
+          : msg
+      ));
+      setIsBrainProcessing(false);
+    } finally {
+      setIsSendingMessage(false);
+    }
+  }, [user, currentConversationId, handleCreateConversation, pollAiResponse]);
 
   // --- Fetch Brain Config Schema ---
   const fetchBrainConfigSchema = useCallback(async () => {
@@ -398,6 +481,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     fetchConversations,
     selectConversation,
     handleSendMessage,
+    handleSendMessageWithAutoConversation,
     handleCreateConversation,
     // New exports for Brain Config
     isConfigViewActive,

@@ -10,14 +10,14 @@ import { LogoutOutlined, Send, Visibility, Menu, Close } from '@mui/icons-materi
 import { getPipelineSteps } from '../services/api';
 import PipelineStepsModal, { PipelineStep } from './PipelineStepsModal';
 
-const ChatInterface: React.FC = () => {
+const TestPromptInterface: React.FC = () => {
   const {
     messages,
     currentConversationId,
     isLoadingMessages,
     isSendingMessage,
     error: chatError,
-    handleSendMessageWithAutoConversation,
+    handleSendMessage: handleSendMessageContext,
     selectConversation,
     isBrainProcessing,
     isConfigViewActive,
@@ -60,6 +60,7 @@ const ChatInterface: React.FC = () => {
       !isConfigViewActive && 
       !isSendingMessage && 
       !isLoadingMessages && 
+      currentConversationId !== null &&
       textareaRef.current
     ) {
       // Small delay to ensure everything is rendered
@@ -67,16 +68,16 @@ const ChatInterface: React.FC = () => {
         textareaRef.current?.focus();
       }, 100);
     }
-  }, [isConfigViewActive, isSendingMessage, isLoadingMessages]);
+  }, [isConfigViewActive, isSendingMessage, isLoadingMessages, currentConversationId]);
 
   const handleFormSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newMessage.trim() || !user || isSendingMessage) return;
+    if (!newMessage.trim() || !user || isSendingMessage || currentConversationId === null) return;
 
     const contentToSend = newMessage.trim();
     setNewMessage('');
 
-    await handleSendMessageWithAutoConversation(contentToSend, "chat");
+    await handleSendMessageContext(contentToSend, "test-prompt");
   };
 
   const handleLogout = () => {
@@ -133,28 +134,28 @@ const ChatInterface: React.FC = () => {
       <div className="flex-1 flex flex-col h-screen lg:ml-0">
         <header className="bg-white shadow-xs border-b border-gray-200">
           <div className="px-4 sm:px-6 py-3 flex justify-between items-center">
-            <div className="flex items-center min-w-0 flex-1">
+            <div className="flex items-center">
               {/* Hamburger menu button */}
               <button
                 onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-                className="lg:hidden mr-3 p-2 rounded-md text-gray-600 hover:text-gray-800 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 flex-shrink-0"
+                className="lg:hidden mr-3 p-2 rounded-md text-gray-600 hover:text-gray-800 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 aria-label="Toggle sidebar"
               >
                 {isSidebarOpen ? <Close /> : <Menu />}
               </button>
               
-              <div className="min-w-0 flex-1">
-                <h2 className="text-lg font-semibold text-gray-800 truncate">
-                  {isConfigViewActive ? 'Brain Configuration' : (currentConversationId ? `Chat` : 'Curiosity Coach')}
+              <div>
+                <h2 className="text-lg font-semibold text-gray-800">
+                  {isConfigViewActive ? 'Brain Configuration' : (currentConversationId ? `Test Prompt` : 'Curiosity Coach')}
                 </h2>
                 {user && !isConfigViewActive && (
-                  <p className="text-xs text-gray-500 hidden sm:block truncate">
+                  <p className="text-xs text-gray-500 hidden sm:block">
                     Logged in as: {user.phone_number}
                   </p>
                 )}
               </div>
             </div>
-            <div className="flex items-center space-x-2 sm:space-x-3 flex-shrink-0">
+            <div className="flex items-center space-x-3">
               <button 
                 onClick={handleLogout}
                 className="flex items-center px-2 sm:px-3 py-1.5 bg-red-500 text-white rounded hover:bg-red-600 transition duration-150 ease-in-out text-sm"
@@ -174,6 +175,10 @@ const ChatInterface: React.FC = () => {
               brainConfigSchema={brainConfigSchema}
               brainConfigError={brainConfigError}
             />
+          ) : currentConversationId === null ? (
+             <div className="flex justify-center items-center h-full">
+                <p className="text-gray-500 text-center px-4">Select a conversation or start a new one.</p>
+             </div>
           ) : isLoadingMessages ? (
             <div className="flex justify-center items-center h-full">
               <CircularProgress />
@@ -206,7 +211,7 @@ const ChatInterface: React.FC = () => {
           )}
           {isBrainProcessing && (
             <div className="flex justify-start pl-2">
-                <div className="bg-gray-200 text-gray-700 rounded-lg px-4 py-2 max-w-[85%] sm:max-w-xs lg:max-w-md shadow animate-pulse">
+                <div className="bg-gray-200 text-gray-700 rounded-lg px-4 py-2 max-w-xs lg:max-w-md shadow animate-pulse">
                   Thinking...
                 </div>
             </div>
@@ -216,12 +221,12 @@ const ChatInterface: React.FC = () => {
 
         {!isConfigViewActive && (
           <footer className="bg-white p-2 sm:p-4 border-t border-gray-200">
-            <form onSubmit={handleFormSubmit} className="flex items-end space-x-2 sm:space-x-3">
+            <form onSubmit={handleFormSubmit} className="flex items-center space-x-2 sm:space-x-3">
               <textarea
                 ref={textareaRef}
-                className="flex-1 resize-none border rounded-md p-2 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed text-sm sm:text-base min-h-[2.5rem] max-h-32"
+                className="flex-1 resize-none border rounded-md p-2 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed text-sm sm:text-base"
                 rows={1}
-                placeholder="Type your message..."
+                placeholder={currentConversationId === null ? "Select a conversation first..." : "Type your message..."}
                 value={newMessage}
                 onChange={(e) => setNewMessage(e.target.value)}
                 onKeyDown={(e) => {
@@ -230,12 +235,12 @@ const ChatInterface: React.FC = () => {
                     handleFormSubmit(e);
                   }
                 }}
-                disabled={isSendingMessage}
+                disabled={isSendingMessage || currentConversationId === null}
               />
               <button
                 type="submit"
-                className={`p-2 sm:px-4 sm:py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0 ${isSendingMessage ? 'animate-pulse' : ''}`}
-                disabled={!newMessage.trim() || isSendingMessage}
+                className={`px-3 sm:px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed ${isSendingMessage ? 'animate-pulse' : ''}`}
+                disabled={!newMessage.trim() || isSendingMessage || currentConversationId === null}
               >
                 {isSendingMessage ? (
                     <CircularProgress size={20} color="inherit" />
@@ -263,4 +268,4 @@ const ChatInterface: React.FC = () => {
   );
 };
 
-export default ChatInterface; 
+export default TestPromptInterface; 

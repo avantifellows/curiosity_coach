@@ -145,8 +145,8 @@ jobs:
         run: |
           aws s3 sync ./curiosity-coach-frontend/build s3://${{ secrets.AWS_S3_BUCKET_NAME }} --delete
 
-      # - name: Invalidate CloudFront Cache
-      #   run: |
-      #     aws cloudfront create-invalidation \
-      #       --distribution-id ${{ secrets.AWS_CLOUDFRONT_DISTRIBUTION_ID }} \
-      #       --paths "/*" # Invalidate everything 
+      - name: Invalidate CloudFront Cache
+        run: |
+          aws cloudfront create-invalidation \
+            --distribution-id E1PWT352WPN7AO \
+            --paths "/*" # Invalidate everything 
