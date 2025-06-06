@@ -68,6 +68,12 @@ class PromptService:
     def get_prompt_version_by_id(self, db: Session, version_id: int) -> Optional[PromptVersion]:
         return db.query(PromptVersion).filter(PromptVersion.id == version_id).first()
 
+    def get_prompt_version_by_version_number(self, db: Session, prompt_id: int, version_number: int) -> Optional[PromptVersion]:
+        return db.query(PromptVersion).filter(
+            PromptVersion.prompt_id == prompt_id,
+            PromptVersion.version_number == version_number
+        ).first()
+
     def add_prompt_version(self, db: Session, prompt_id: int, version_create: schemas.PromptVersionCreate, set_active: bool = False, user_id: Optional[int] = None, set_production: bool = False) -> PromptVersion:
         db_prompt = self.get_prompt_by_id(db, prompt_id)
         if not db_prompt:
@@ -184,6 +190,23 @@ class PromptService:
         # Fallback to active version if no production version exists
         return self.get_active_version_for_prompt(db, prompt_name)
 
+    def set_production_prompt_version_by_number(self, db: Session, prompt_id: int, version_number: int) -> Optional[PromptVersion]:
+        """Set a specific version as production by version number (can have multiple production versions)."""
+        db_prompt = self.get_prompt_by_id(db, prompt_id)
+        if not db_prompt:
+            raise ValueError(f"Prompt with id {prompt_id} not found.")
+
+        version_to_mark = self.get_prompt_version_by_version_number(db, prompt_id, version_number)
+        if not version_to_mark:
+            raise ValueError(f"PromptVersion with version number {version_number} not found for prompt {prompt_id}.")
+
+        # Mark the version as production
+        version_to_mark.is_production = True
+        db.add(version_to_mark)
+        db.commit()
+        db.refresh(version_to_mark)
+        return version_to_mark
+
     def set_production_prompt_version(self, db: Session, prompt_id: int, version_id: int) -> Optional[PromptVersion]:
         """Set a specific version as production (can have multiple production versions)."""
         db_prompt = self.get_prompt_by_id(db, prompt_id)
@@ -200,6 +223,23 @@ class PromptService:
         db.commit()
         db.refresh(version_to_mark)
         return version_to_mark
+
+    def unset_production_prompt_version_by_number(self, db: Session, prompt_id: int, version_number: int) -> Optional[PromptVersion]:
+        """Remove production flag from a specific version by version number."""
+        db_prompt = self.get_prompt_by_id(db, prompt_id)
+        if not db_prompt:
+            raise ValueError(f"Prompt with id {prompt_id} not found.")
+
+        version_to_unmark = self.get_prompt_version_by_version_number(db, prompt_id, version_number)
+        if not version_to_unmark:
+            raise ValueError(f"PromptVersion with version number {version_number} not found for prompt {prompt_id}.")
+
+        # Remove production flag
+        version_to_unmark.is_production = False
+        db.add(version_to_unmark)
+        db.commit()
+        db.refresh(version_to_unmark)
+        return version_to_unmark
 
     def unset_production_prompt_version(self, db: Session, prompt_id: int, version_id: int) -> Optional[PromptVersion]:
         """Remove production flag from a specific version."""

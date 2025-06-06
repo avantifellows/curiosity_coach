@@ -168,12 +168,11 @@ def get_production_prompt_version(prompt_id_or_name: str, db: Session = Depends(
     return production_version
 
 # New endpoint to set production flag on a version
-@router.post("/prompts/{prompt_id_or_name}/versions/{version_id}/set-production", response_model=schemas.PromptVersionInDB)
+@router.post("/prompts/{prompt_id_or_name}/versions/{version_number}/set-production", response_model=schemas.PromptVersionInDB)
 def set_production_version(
     prompt_id_or_name: str,
-    version_id: int,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    version_number: int,
+    db: Session = Depends(get_db)
 ):
     db_prompt = None
     if prompt_id_or_name.isdigit():
@@ -185,10 +184,10 @@ def set_production_version(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Prompt '{prompt_id_or_name}' not found")
 
     try:
-        updated_version = service.prompt_service.set_production_prompt_version(
+        updated_version = service.prompt_service.set_production_prompt_version_by_number(
             db=db,
             prompt_id=db_prompt.id,
-            version_id=version_id
+            version_number=version_number
         )
         if updated_version is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Version not found during production flag setting")
@@ -197,12 +196,11 @@ def set_production_version(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 # New endpoint to remove production flag from a version
-@router.delete("/prompts/{prompt_id_or_name}/versions/{version_id}/unset-production", response_model=schemas.PromptVersionInDB)
+@router.delete("/prompts/{prompt_id_or_name}/versions/{version_number}/unset-production", response_model=schemas.PromptVersionInDB)
 def unset_production_version(
     prompt_id_or_name: str,
-    version_id: int,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    version_number: int,
+    db: Session = Depends(get_db)
 ):
     db_prompt = None
     if prompt_id_or_name.isdigit():
@@ -214,10 +212,10 @@ def unset_production_version(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Prompt '{prompt_id_or_name}' not found")
 
     try:
-        updated_version = service.prompt_service.unset_production_prompt_version(
+        updated_version = service.prompt_service.unset_production_prompt_version_by_number(
             db=db,
             prompt_id=db_prompt.id,
-            version_id=version_id
+            version_number=version_number
         )
         if updated_version is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Version not found during production flag removal")
