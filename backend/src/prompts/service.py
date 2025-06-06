@@ -191,7 +191,7 @@ class PromptService:
         return self.get_active_version_for_prompt(db, prompt_name)
 
     def set_production_prompt_version_by_number(self, db: Session, prompt_id: int, version_number: int) -> Optional[PromptVersion]:
-        """Set a specific version as production by version number (can have multiple production versions)."""
+        """Set a specific version as production by version number (only one production version allowed per prompt)."""
         db_prompt = self.get_prompt_by_id(db, prompt_id)
         if not db_prompt:
             raise ValueError(f"Prompt with id {prompt_id} not found.")
@@ -200,7 +200,12 @@ class PromptService:
         if not version_to_mark:
             raise ValueError(f"PromptVersion with version number {version_number} not found for prompt {prompt_id}.")
 
-        # Mark the version as production
+        # First, unset production flag from all other versions of this prompt
+        db.query(PromptVersion)\
+            .filter(PromptVersion.prompt_id == prompt_id, PromptVersion.is_production == True)\
+            .update({"is_production": False}, synchronize_session=False)
+
+        # Then mark the new version as production
         version_to_mark.is_production = True
         db.add(version_to_mark)
         db.commit()
@@ -208,7 +213,7 @@ class PromptService:
         return version_to_mark
 
     def set_production_prompt_version(self, db: Session, prompt_id: int, version_id: int) -> Optional[PromptVersion]:
-        """Set a specific version as production (can have multiple production versions)."""
+        """Set a specific version as production (only one production version allowed per prompt)."""
         db_prompt = self.get_prompt_by_id(db, prompt_id)
         if not db_prompt:
             raise ValueError(f"Prompt with id {prompt_id} not found.")
@@ -217,7 +222,12 @@ class PromptService:
         if not version_to_mark or version_to_mark.prompt_id != prompt_id:
             raise ValueError(f"PromptVersion with id {version_id} not found or does not belong to prompt {prompt_id}.")
 
-        # Mark the version as production
+        # First, unset production flag from all other versions of this prompt
+        db.query(PromptVersion)\
+            .filter(PromptVersion.prompt_id == prompt_id, PromptVersion.is_production == True)\
+            .update({"is_production": False}, synchronize_session=False)
+
+        # Then mark the new version as production
         version_to_mark.is_production = True
         db.add(version_to_mark)
         db.commit()
