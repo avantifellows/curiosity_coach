@@ -193,7 +193,7 @@ async def dequeue(message: MessagePayload, background_tasks: Optional[Background
     print(f"Processing message: {message.model_dump()}") # Log the message regardless of purpose
 
     try:
-        if message.purpose == "chat":
+        if message.purpose in ["chat", "test-prompt"]:
             user_input = message.message_content
             if not user_input:
                 # Although the model enforces this, good to double-check
