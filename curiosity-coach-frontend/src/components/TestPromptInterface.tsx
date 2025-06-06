@@ -17,7 +17,7 @@ const TestPromptInterface: React.FC = () => {
     isLoadingMessages,
     isSendingMessage,
     error: chatError,
-    handleSendMessage: handleSendMessageContext,
+    handleSendMessageWithAutoConversation,
     selectConversation,
     isBrainProcessing,
     isConfigViewActive,
@@ -60,7 +60,6 @@ const TestPromptInterface: React.FC = () => {
       !isConfigViewActive && 
       !isSendingMessage && 
       !isLoadingMessages && 
-      currentConversationId !== null &&
       textareaRef.current
     ) {
       // Small delay to ensure everything is rendered
@@ -68,16 +67,16 @@ const TestPromptInterface: React.FC = () => {
         textareaRef.current?.focus();
       }, 100);
     }
-  }, [isConfigViewActive, isSendingMessage, isLoadingMessages, currentConversationId]);
+  }, [isConfigViewActive, isSendingMessage, isLoadingMessages]);
 
   const handleFormSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newMessage.trim() || !user || isSendingMessage || currentConversationId === null) return;
+    if (!newMessage.trim() || !user || isSendingMessage) return;
 
     const contentToSend = newMessage.trim();
     setNewMessage('');
 
-    await handleSendMessageContext(contentToSend, "test-prompt");
+    await handleSendMessageWithAutoConversation(contentToSend, "test-prompt");
   };
 
   const handleLogout = () => {
@@ -175,10 +174,6 @@ const TestPromptInterface: React.FC = () => {
               brainConfigSchema={brainConfigSchema}
               brainConfigError={brainConfigError}
             />
-          ) : currentConversationId === null ? (
-             <div className="flex justify-center items-center h-full">
-                <p className="text-gray-500 text-center px-4">Select a conversation or start a new one.</p>
-             </div>
           ) : isLoadingMessages ? (
             <div className="flex justify-center items-center h-full">
               <CircularProgress />
@@ -221,12 +216,12 @@ const TestPromptInterface: React.FC = () => {
 
         {!isConfigViewActive && (
           <footer className="bg-white p-2 sm:p-4 border-t border-gray-200">
-            <form onSubmit={handleFormSubmit} className="flex items-center space-x-2 sm:space-x-3">
+            <form onSubmit={handleFormSubmit} className="flex items-end space-x-2 sm:space-x-3">
               <textarea
                 ref={textareaRef}
-                className="flex-1 resize-none border rounded-md p-2 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed text-sm sm:text-base"
+                className="flex-1 resize-none border rounded-md p-2 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed text-sm sm:text-base min-h-[2.5rem] max-h-32"
                 rows={1}
-                placeholder={currentConversationId === null ? "Select a conversation first..." : "Type your message..."}
+                placeholder="Type your message..."
                 value={newMessage}
                 onChange={(e) => setNewMessage(e.target.value)}
                 onKeyDown={(e) => {
@@ -235,12 +230,12 @@ const TestPromptInterface: React.FC = () => {
                     handleFormSubmit(e);
                   }
                 }}
-                disabled={isSendingMessage || currentConversationId === null}
+                disabled={isSendingMessage}
               />
               <button
                 type="submit"
-                className={`px-3 sm:px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed ${isSendingMessage ? 'animate-pulse' : ''}`}
-                disabled={!newMessage.trim() || isSendingMessage || currentConversationId === null}
+                className={`p-2 sm:px-4 sm:py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0 ${isSendingMessage ? 'animate-pulse' : ''}`}
+                disabled={!newMessage.trim() || isSendingMessage}
               >
                 {isSendingMessage ? (
                     <CircularProgress size={20} color="inherit" />
