@@ -4,7 +4,6 @@ import boto3
 import time
 import uuid
 import httpx  # Import httpx
-import logging # Add logging
 from botocore.exceptions import NoCredentialsError, ClientError # Import exceptions
 from botocore.config import Config  # Import Config for timeout settings
 from src.config.settings import settings
@@ -24,11 +23,6 @@ class QueueService:
         self.queue_url = settings.SQS_QUEUE_URL
         self.sqs = None
         self.sqs_available = False
-
-        # Enable verbose boto3 logging to help diagnose connection issues.
-        # This will log detailed information about AWS API calls to CloudWatch.
-        print("BOTO3: Enabling debug logging for botocore.")
-        logging.getLogger('botocore').setLevel(logging.DEBUG)
 
         if self.local_mode:
             print(f"Using local mode (APP_ENV={settings.APP_ENV}, LOCAL_BRAIN_ENDPOINT_URL is set). Sending messages to: {self.local_brain_url}")
@@ -184,10 +178,8 @@ class QueueService:
                 
             except asyncio.TimeoutError:
                 print(f"SQS send operation timed out after 20 seconds. Queue: {self.queue_url}")
-                print("BOTO3_DEBUG: This timeout occurred after the boto3 client was configured with a connect_timeout of 5s and read_timeout of 15s. The issue is likely persistent and not a transient connection blip.")
                 return {"error": "SQS send operation timed out"}
             except ClientError as e: # Catch ClientError specifically
-                print(f"BOTO3_DEBUG: Full ClientError response: {e.response}")
                 error_code = e.response.get('Error', {}).get('Code')
                 error_message = e.response.get('Error', {}).get('Message')
                 print(f"SQS ClientError: Code={error_code}, Message={error_message}. Failed sending message to {self.queue_url}.")

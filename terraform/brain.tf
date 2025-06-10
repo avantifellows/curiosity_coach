@@ -283,6 +283,25 @@ resource "aws_sqs_queue" "app_queue" {
   tags = local.tags
 }
 
+resource "aws_sqs_queue_policy" "app_queue_policy" {
+  queue_url = aws_sqs_queue.app_queue.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "AllowLambdaSendMessage"
+        Effect = "Allow"
+        Principal = {
+          AWS = aws_iam_role.lambda_exec_role.arn
+        }
+        Action   = "sqs:SendMessage"
+        Resource = aws_sqs_queue.app_queue.arn
+      }
+    ]
+  })
+}
+
 # --- Lambda SQS Trigger ---
 resource "aws_lambda_event_source_mapping" "sqs_trigger" {
   event_source_arn = aws_sqs_queue.app_queue.arn
