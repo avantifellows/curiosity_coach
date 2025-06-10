@@ -3,14 +3,11 @@ name: Deploy Backend Changes (Staging)
 on:
   push:
     branches:
-      - staging # Or your default branch
+      - main # Or your default branch
     paths:
       - 'backend/**' # Trigger only on changes within the backend directory
-  pull_request:
-    # branches:
-    #   - staging # Or your default branch
-    # paths:
-    #   - 'backend/**' # Trigger only on changes within the backend directory
+  workflow_dispatch: # Allows manual triggering
+  pull_request: # allows PRs to trigger the workflow
 
 permissions:
   contents: read
