@@ -138,7 +138,7 @@ resource "aws_iam_role_policy_attachment" "backend_lambda_policy_vpc_access" {
 data "aws_iam_policy_document" "backend_lambda_sqs_send_policy_doc" {
   statement {
     actions   = ["sqs:SendMessage"]
-    resources = [var.sqs_queue_arn] # Reference the queue ARN from the variable
+    resources = [aws_sqs_queue.app_queue.arn] # Reference the queue ARN from the variable
     effect    = "Allow"
   }
 }

@@ -120,13 +120,11 @@ variable "existing_rds_username" {
   default     = ""
 }
 
+# --------------------------------------------------------------------------------------------------
+# VPC Endpoint Configuration
+# --------------------------------------------------------------------------------------------------
 variable "create_vpc_endpoints" {
-  description = "Whether to create new VPC endpoints for SQS and STS. Set to false if they already exist in the VPC."
+  description = "Whether to create VPC endpoints for services like SQS and STS. Set to true if your Lambda is in a VPC and needs to access these services without going over the public internet."
   type        = bool
-  default     = true
-}
-
-variable "sqs_queue_arn" {
-  description = "The ARN of the SQS queue for the brain."
-  type        = string
+  default     = false # Default to false to avoid creating resources unless needed
 } 
