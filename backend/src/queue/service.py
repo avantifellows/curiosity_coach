@@ -5,6 +5,7 @@ import time
 import uuid
 import httpx  # Import httpx
 from botocore.exceptions import NoCredentialsError, ClientError # Import exceptions
+from botocore.config import Config  # Import Config for timeout settings
 from src.config.settings import settings
 
 # Determine mode based on settings
@@ -21,6 +22,7 @@ class QueueService:
         self.local_brain_url = settings.LOCAL_BRAIN_ENDPOINT_URL # Use settings here
         self.queue_url = settings.SQS_QUEUE_URL
         self.sqs = None
+        self.sqs_available = False
 
         if self.local_mode:
             print(f"Using local mode (APP_ENV={settings.APP_ENV}, LOCAL_BRAIN_ENDPOINT_URL is set). Sending messages to: {self.local_brain_url}")
@@ -33,33 +35,47 @@ class QueueService:
                 # Check if running in AWS Lambda environment
                 is_lambda_env = os.getenv('AWS_LAMBDA_FUNCTION_NAME') is not None
 
+                # Configure timeout settings for boto3 - more aggressive timeouts to prevent hanging
+                boto3_config = Config(
+                    region_name=settings.AWS_REGION,
+                    retries={'max_attempts': 2, 'mode': 'adaptive'},  # Reduced retries
+                    read_timeout=15,  # Reduced from 30 to 15 seconds
+                    connect_timeout=5   # Reduced from 10 to 5 seconds
+                )
+
                 if is_lambda_env:
-                    self.sqs = boto3.client('sqs', region_name=settings.AWS_REGION)
+                    self.sqs = boto3.client('sqs', config=boto3_config)
                 else:
                     if settings.AWS_ACCESS_KEY_ID and settings.AWS_SECRET_ACCESS_KEY:
                         self.sqs = boto3.client(
                             'sqs',
-                            region_name=settings.AWS_REGION,
                             aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
-                            aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY
+                            aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
+                            config=boto3_config
                         )
                     else:
-                        self.sqs = boto3.client('sqs', region_name=settings.AWS_REGION)
+                        self.sqs = boto3.client('sqs', config=boto3_config)
 
                 # Basic check if client was created
                 if self.sqs is None:
                      raise Exception("SQS client initialization failed after conditional check.")
+                
+                self.sqs_available = True
+                print(f"SQS client initialized successfully. Queue URL: {self.queue_url}")
 
             except NoCredentialsError:
                  print("AWS Credentials Error: Could not find AWS credentials. Ensure your environment is configured correctly (e.g., IAM role in Lambda, ~/.aws/credentials locally).")
                  self.sqs = None
+                 self.sqs_available = False
             except ClientError as ce:
                  # Catch potential client errors during init (e.g., invalid region)
                  print(f"AWS Client Error during initialization: {ce}")
                  self.sqs = None
+                 self.sqs_available = False
             except Exception as e:
                 print(f"Unexpected error during AWS client initialization: {e}")
                 self.sqs = None # Ensure sqs is None if setup fails
+                self.sqs_available = False
 
 
     async def send_message(self, user_id, message_content, message_id=None, purpose="chat", conversation_id=None):
@@ -93,14 +109,22 @@ class QueueService:
                  print("Error: Local mode is enabled but LOCAL_BRAIN_ENDPOINT_URL is not set in settings.")
                  return {"error": "Local endpoint URL not configured"}
             try:
-                async with httpx.AsyncClient() as client:
+                # Configure timeout for httpx client - more aggressive timeout
+                timeout = httpx.Timeout(15.0)  # Reduced from 30 to 15 seconds
+                async with httpx.AsyncClient(timeout=timeout) as client:
                     target_url = f"{self.local_brain_url.rstrip('/')}/query"
+                    print(f"Sending HTTP request to: {target_url}")
                     response = await client.post(target_url, json=message_body)
                     response.raise_for_status()
+                    print(f"HTTP request completed successfully. Status: {response.status_code}")
                     try:
                          return response.json()
                     except json.JSONDecodeError:
                          return {"status_code": response.status_code, "content": response.text}
+            except httpx.TimeoutException as exc:
+                target_url = f"{self.local_brain_url.rstrip('/')}/query"
+                print(f"Timeout error sending message to {target_url}. Details: {repr(exc)}")
+                return {"error": f"Timeout connecting to local endpoint: {exc}"}
             except httpx.RequestError as exc:
                 target_url = f"{self.local_brain_url.rstrip('/')}/query" # Ensure target_url is defined for error message
                 print(f"Caught httpx.RequestError sending message to {target_url}. Type: {type(exc)}, Details: {repr(exc)}")
@@ -115,22 +139,46 @@ class QueueService:
                  print(f"An unexpected error occurred during local endpoint call. Type: {type(e)}, Details: {repr(e)}")
                  return {"error": f"Unexpected error: {str(e)}"}
         else: # SQS Mode
-            if not self.queue_url or not self.sqs:
+            if not self.sqs_available or not self.queue_url or not self.sqs:
                 print("SQS Error: Queue URL not configured or SQS client failed initialization. Cannot send message.")
                 return {"error": "SQS not configured or unavailable"}
 
             try:
-                response = self.sqs.send_message(
-                    QueueUrl=self.queue_url,
-                    MessageBody=json.dumps(message_body),
-                    MessageAttributes={
-                        'MessageType': {
-                            'DataType': 'String',
-                            'StringValue': 'UserMessage'
+                print(f"Attempting to send SQS message to queue: {self.queue_url}")
+                print(f"Message body size: {len(json.dumps(message_body))} bytes")
+                
+                # Add a hard timeout using asyncio to prevent indefinite hanging
+                import asyncio
+                import concurrent.futures
+                
+                # Wrap the synchronous SQS call in an executor with timeout
+                loop = asyncio.get_event_loop()
+                executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+                
+                def send_sqs_message():
+                    return self.sqs.send_message(
+                        QueueUrl=self.queue_url,
+                        MessageBody=json.dumps(message_body),
+                        MessageAttributes={
+                            'MessageType': {
+                                'DataType': 'String',
+                                'StringValue': 'UserMessage'
+                            }
                         }
-                    }
+                    )
+                
+                # Use asyncio.wait_for to add an additional timeout layer
+                response = await asyncio.wait_for(
+                    loop.run_in_executor(executor, send_sqs_message),
+                    timeout=20.0  # 20 second total timeout
                 )
+                
+                print(f"SQS message sent successfully. Response: {response}")
                 return response
+                
+            except asyncio.TimeoutError:
+                print(f"SQS send operation timed out after 20 seconds. Queue: {self.queue_url}")
+                return {"error": "SQS send operation timed out"}
             except ClientError as e: # Catch ClientError specifically
                 error_code = e.response.get('Error', {}).get('Code')
                 error_message = e.response.get('Error', {}).get('Message')
