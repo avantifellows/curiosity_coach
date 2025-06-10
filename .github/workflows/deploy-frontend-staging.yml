@@ -3,7 +3,7 @@ name: Deploy Frontend to AWS S3 and CloudFront (Staging)
 on:
   push:
     branches:
-      - staging # Or your deployment branch
+      - main
   workflow_dispatch: # Allows manual triggering
   pull_request: # allows PRs to trigger the workflow
 
