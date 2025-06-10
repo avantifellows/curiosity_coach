@@ -77,6 +77,16 @@ locals {
   db_version  = "14" # Choose a suitable recent version
   db_username = "dbadmin"
   db_name     = "${replace(var.project_name, "-", "_")}_${var.environment}" # Ensure valid DB name format
+
+  # When create_rds_instance is true, use the new RDS instance's details.
+  # Otherwise, use the data source for the existing RDS instance.
+  rds_details = {
+    address   = var.create_rds_instance ? aws_db_instance.rds_instance[0].address : data.aws_db_instance.existing_rds[0].address
+    port      = var.create_rds_instance ? aws_db_instance.rds_instance[0].port : data.aws_db_instance.existing_rds[0].port
+    db_name   = var.create_rds_instance ? aws_db_instance.rds_instance[0].db_name : data.aws_db_instance.existing_rds[0].db_name
+    username  = var.create_rds_instance ? aws_db_instance.rds_instance[0].username : var.existing_rds_username
+    password  = var.create_rds_instance ? random_password.db_password[0].result : var.existing_rds_password
+  }
 }
 
 # --- ECR Repository for Backend ---
@@ -297,11 +307,13 @@ resource "aws_db_subnet_group" "rds_subnet_group" {
 
 # --- RDS Password ---
 resource "random_password" "db_password" {
+  count           = var.create_rds_instance ? 1 : 0
   length           = 16
 }
 
 # --- RDS Database Instance ---
 resource "aws_db_instance" "rds_instance" {
+  count                  = var.create_rds_instance ? 1 : 0
   identifier             = local.rds_instance_identifier
   engine                 = local.db_engine
   engine_version         = local.db_version
@@ -310,7 +322,7 @@ resource "aws_db_instance" "rds_instance" {
   storage_type           = "gp3"          # General Purpose SSD v3
   db_name                = local.db_name
   username               = local.db_username
-  password               = random_password.db_password.result
+  password               = random_password.db_password[0].result
   port                   = local.db_port
   db_subnet_group_name   = aws_db_subnet_group.rds_subnet_group.name
   vpc_security_group_ids = [aws_security_group.rds_sg.id]
@@ -323,6 +335,12 @@ resource "aws_db_instance" "rds_instance" {
   depends_on = [aws_db_subnet_group.rds_subnet_group]
 }
 
+# --- Data source to get existing RDS instance ---
+data "aws_db_instance" "existing_rds" {
+  count = var.create_rds_instance ? 0 : 1
+  db_instance_identifier = var.existing_rds_instance_id
+}
+
 # --- Update backend/.env.prod with RDS Details ---
 /*
 resource "null_resource" "update_backend_env_with_rds" {
@@ -331,11 +349,11 @@ resource "null_resource" "update_backend_env_with_rds" {
 
   # Trigger re-run if RDS details change
   triggers = {
-    db_address    = aws_db_instance.rds_instance.address
-    db_port       = aws_db_instance.rds_instance.port
-    db_name       = aws_db_instance.rds_instance.db_name
-    db_user       = aws_db_instance.rds_instance.username
-    db_password   = random_password.db_password.result
+    db_address    = local.rds_details.address
+    db_port       = local.rds_details.port
+    db_name       = local.rds_details.db_name
+    db_user       = local.rds_details.username
+    db_password   = local.rds_details.password
     # Ensure path is relative to the terraform directory
     env_file_path = "${path.module}/../backend/.env.prod"
   }
@@ -402,11 +420,11 @@ resource "aws_lambda_function" "backend_lambda" {
       },
       # Then merge/overwrite with dynamic variables defined in Terraform
       {
-        DB_HOST         = aws_db_instance.rds_instance.address
-        DB_PORT         = aws_db_instance.rds_instance.port
-        DB_NAME         = aws_db_instance.rds_instance.db_name
-        DB_USER         = aws_db_instance.rds_instance.username
-        DB_PASSWORD     = random_password.db_password.result
+        DB_HOST         = local.rds_details.address
+        DB_PORT         = local.rds_details.port
+        DB_NAME         = local.rds_details.db_name
+        DB_USER         = local.rds_details.username
+        DB_PASSWORD     = local.rds_details.password
         SQS_QUEUE_URL     = aws_sqs_queue.app_queue.id # Ensure brain.tf defines aws_sqs_queue.app_queue
         FRONTEND_URL      = "https://${aws_cloudfront_distribution.frontend_distribution.domain_name}"
         S3_WEBSITE_URL    = "http://${aws_s3_bucket_website_configuration.frontend_website.website_endpoint}"
@@ -428,12 +446,9 @@ resource "aws_lambda_function" "backend_lambda" {
     aws_iam_role_policy_attachment.backend_lambda_policy_vpc_access,
     aws_iam_role_policy_attachment.backend_lambda_policy_sqs_send,
     null_resource.backend_docker_build_push,
-    aws_db_instance.rds_instance,
     aws_sqs_queue.app_queue,
     aws_security_group.lambda_sg,
     data.external.backend_dotenv_prod,
-    aws_vpc_endpoint.sqs_endpoint,
-    aws_vpc_endpoint.sts_endpoint,
     aws_cloudfront_distribution.frontend_distribution,
     aws_s3_bucket_website_configuration.frontend_website
   ]
@@ -475,28 +490,28 @@ output "backend_lambda_function_url" {
 # --- Output RDS Connection Details ---
 output "rds_instance_address" {
   description = "The hostname of the RDS instance"
-  value       = aws_db_instance.rds_instance.address
+  value       = local.rds_details.address
 }
 
 output "rds_instance_port" {
   description = "The port the RDS instance is listening on"
-  value       = aws_db_instance.rds_instance.port
+  value       = local.rds_details.port
 }
 
 output "rds_database_name" {
   description = "The name of the database created in the RDS instance"
-  value       = aws_db_instance.rds_instance.db_name
+  value       = local.rds_details.db_name
 }
 
 output "rds_database_user" {
-  description = "The master username for the RDS instance"
-  value       = aws_db_instance.rds_instance.username
+  description = "The username for the database"
+  value       = local.rds_details.username
 }
 
 output "rds_database_password" {
-  description = "The generated master password for the RDS instance (store securely!)"
-  value       = random_password.db_password.result
-  sensitive   = true # Mark the password output as sensitive
+  description = "The password for the database"
+  value       = local.rds_details.password
+  sensitive   = true
 }
 
 
@@ -504,8 +519,9 @@ output "rds_database_password" {
 # 1. Review Security Groups: **Crucially**, restrict `aws_security_group.rds_sg` ingress `cidr_blocks = ["0.0.0.0/0"]` in production. Only allow necessary IPs (e.g., specific developer IPs, Bastion host SG). The Lambda access via its SG is already configured more securely.
 # 2. CORS Origins: Update `
 
-# --- SQS VPC Endpoint ---
+# --- Security Group for SQS VPC Endpoint ---
 resource "aws_security_group" "sqs_vpce_sg" {
+  count  = var.create_vpc_endpoints ? 1 : 0
   name        = "${local.backend_prefix}-sqs-vpce-sg"
   description = "Allow inbound HTTPS from Lambda SG to SQS VPC Endpoint"
   vpc_id      = data.aws_vpc.selected.id
@@ -530,28 +546,20 @@ resource "aws_security_group" "sqs_vpce_sg" {
 }
 
 resource "aws_vpc_endpoint" "sqs_endpoint" {
-  vpc_id            = data.aws_vpc.selected.id
-  service_name      = "com.amazonaws.${data.aws_region.current.name}.sqs"
-  vpc_endpoint_type = "Interface"
-
-  subnet_ids = local.public_subnet_ids
-
-  security_group_ids = [
-    aws_security_group.sqs_vpce_sg.id
-  ]
-
-  private_dns_enabled = true # Allows using standard SQS DNS names
+  count = var.create_vpc_endpoints ? 1 : 0
+  vpc_id              = data.aws_vpc.selected.id
+  service_name        = "com.amazonaws.${data.aws_region.current.name}.sqs"
+  vpc_endpoint_type   = "Interface"
+  private_dns_enabled = true
+  security_group_ids  = [aws_security_group.sqs_vpce_sg[0].id]
+  subnet_ids          = local.public_subnet_ids
 
   tags = merge(local.backend_tags, { Name = "${local.backend_prefix}-sqs-vpce" })
-
-  depends_on = [
-    aws_security_group.lambda_sg,
-    aws_security_group.sqs_vpce_sg
-  ]
 }
 
-# --- STS VPC Endpoint Security Group ---
+# --- Security Group for STS VPC Endpoint ---
 resource "aws_security_group" "sts_vpce_sg" {
+  count = var.create_vpc_endpoints ? 1 : 0
   name        = "${local.backend_prefix}-sts-vpce-sg"
   description = "Allow inbound HTTPS from Lambda SG to STS VPC Endpoint"
   vpc_id      = data.aws_vpc.selected.id
@@ -576,18 +584,13 @@ resource "aws_security_group" "sts_vpce_sg" {
 
 # --- STS VPC Endpoint ---
 resource "aws_vpc_endpoint" "sts_endpoint" {
+  count = var.create_vpc_endpoints ? 1 : 0
   vpc_id              = data.aws_vpc.selected.id
   service_name        = "com.amazonaws.${data.aws_region.current.name}.sts"
   vpc_endpoint_type   = "Interface"
-
-  subnet_ids          = local.public_subnet_ids
-  security_group_ids  = [aws_security_group.sts_vpce_sg.id]
   private_dns_enabled = true
+  security_group_ids  = [aws_security_group.sts_vpce_sg[0].id]
+  subnet_ids          = local.public_subnet_ids
 
   tags = merge(local.backend_tags, { Name = "${local.backend_prefix}-sts-vpce" })
-
-  depends_on = [
-    aws_security_group.lambda_sg,
-    aws_security_group.sts_vpce_sg
-  ]
 }

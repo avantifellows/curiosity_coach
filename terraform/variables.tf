@@ -35,7 +35,7 @@ variable "lambda_function_name" {
 }
 
 variable "docker_image_tag" {
-  description = "The tag for the Docker image in ECR (e.g., 'latest' or a specific version)."
+  description = "The tag for the Docker image to be deployed"
   type        = string
   default     = "latest"
 }
@@ -93,4 +93,35 @@ variable "acm_certificate_arn" {
   description = "The ARN of the SSL certificate in AWS Certificate Manager (must be in us-east-1 region for CloudFront)."
   type        = string
   default     = "" # Will be provided via .tfvars or environment variable
+}
+
+variable "create_rds_instance" {
+  description = "Whether to create a new RDS instance. If false, existing_rds_instance_id must be provided."
+  type        = bool
+  default     = true
+}
+
+variable "existing_rds_instance_id" {
+  description = "The identifier of the existing RDS instance to use when create_rds_instance is false."
+  type        = string
+  default     = ""
+}
+
+variable "existing_rds_password" {
+  description = "The password for the existing RDS instance."
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "existing_rds_username" {
+  description = "The username for the existing RDS instance."
+  type        = string
+  default     = ""
+}
+
+variable "create_vpc_endpoints" {
+  description = "Whether to create new VPC endpoints for SQS and STS. Set to false if they already exist in the VPC."
+  type        = bool
+  default     = true
 } 
