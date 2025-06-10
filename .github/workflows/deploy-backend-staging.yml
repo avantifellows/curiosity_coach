@@ -13,6 +13,7 @@ on:
     paths:
       - 'backend/**' # Trigger only on changes within the backend directory
       - '.github/workflows/deploy-backend-staging.yml'
+  workflow_dispatch:
 
 permissions:
   contents: read

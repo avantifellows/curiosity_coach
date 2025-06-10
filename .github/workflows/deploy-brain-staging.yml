@@ -13,6 +13,7 @@ on:
     paths:
       - 'Brain/**' # Trigger only on changes within the Brain directory
       - '.github/workflows/deploy-brain-staging.yml'
+  workflow_dispatch:
 
 permissions:
   contents: read

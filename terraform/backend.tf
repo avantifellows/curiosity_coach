@@ -57,6 +57,10 @@ locals {
     "subnet-08bdce0ea3ad1826e", # ap-south-1a
     "subnet-017c528c08e874a5f"  # ap-south-1b
   ]
+  private_subnet_ids = [
+    aws_subnet.private_a.id,
+    aws_subnet.private_b.id
+  ]
   # Derive resource names consistently
   backend_prefix           = "${var.project_name}-backend-${var.environment}"
   backend_ecr_repo_name    = "${local.backend_prefix}-ecr"
@@ -83,6 +87,29 @@ locals {
   rds_port     = var.create_rds_instance ? aws_db_instance.rds_instance[0].port : data.aws_db_instance.existing_rds[0].port
   rds_username = var.create_rds_instance ? aws_db_instance.rds_instance[0].username : data.aws_db_instance.existing_rds[0].master_username
   rds_password = var.create_rds_instance ? random_password.db_password[0].result : var.existing_rds_password
+}
+
+# --- Networking ---
+
+# Private Subnets
+resource "aws_subnet" "private_a" {
+  vpc_id            = data.aws_vpc.selected.id
+  cidr_block        = "10.0.192.0/20" # Using a non-overlapping CIDR range
+  availability_zone = "${data.aws_region.current.name}a"
+
+  tags = merge(local.backend_tags, {
+    Name = "${local.backend_prefix}-private-subnet-a"
+  })
+}
+
+resource "aws_subnet" "private_b" {
+  vpc_id            = data.aws_vpc.selected.id
+  cidr_block        = "10.0.208.0/20" # Using a non-overlapping CIDR range
+  availability_zone = "${data.aws_region.current.name}b"
+
+  tags = merge(local.backend_tags, {
+    Name = "${local.backend_prefix}-private-subnet-b"
+  })
 }
 
 # --- ECR Repository for Backend ---
@@ -433,7 +460,7 @@ resource "aws_lambda_function" "backend_lambda" {
 
   # Configure VPC access for the Lambda function
   vpc_config {
-    subnet_ids         = local.public_subnet_ids
+    subnet_ids         = local.private_subnet_ids
     security_group_ids = [aws_security_group.lambda_sg.id]
   }
 
@@ -548,7 +575,7 @@ resource "aws_vpc_endpoint" "sqs_endpoint" {
   service_name      = "com.amazonaws.${data.aws_region.current.name}.sqs"
   vpc_endpoint_type = "Interface"
 
-  subnet_ids = local.public_subnet_ids
+  subnet_ids = local.private_subnet_ids
 
   security_group_ids = [
     aws_security_group.sqs_vpce_sg.id
@@ -602,7 +629,7 @@ resource "aws_vpc_endpoint" "sts_endpoint" {
   service_name        = "com.amazonaws.${data.aws_region.current.name}.sts"
   vpc_endpoint_type   = "Interface"
 
-  subnet_ids          = local.public_subnet_ids
+  subnet_ids          = local.private_subnet_ids
   security_group_ids  = [aws_security_group.sts_vpce_sg.id]
   private_dns_enabled = true
 
