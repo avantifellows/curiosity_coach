@@ -2,6 +2,7 @@ locals {
   # Derive resource names from the app_name variable if specific names are not provided
   ecr_repo_name      = coalesce(var.ecr_repo_name, "${var.app_name}-repo")
   lambda_function_name = coalesce(var.lambda_function_name, "${var.app_name}-lambda")
+  lambda_timeout_seconds = 300
   tags = {
     Project = var.app_name
     ManagedBy = "Terraform"
@@ -247,7 +248,7 @@ resource "aws_lambda_function" "app_lambda" {
 
   # Removed source_code_hash as image_uri with digest handles updates for container images
 
-  timeout     = 300 # Adjust as needed
+  timeout     = local.lambda_timeout_seconds # Adjust as needed
   memory_size = 2048 # Adjust as needed
 
   # Optional: Define environment variables for the Lambda function
@@ -276,7 +277,7 @@ resource "aws_sqs_queue" "app_queue" {
   max_message_size            = 262144 # 256 KiB
   message_retention_seconds   = 86400  # 1 day, adjust as needed
   receive_wait_time_seconds   = 10     # Enable long polling
-  visibility_timeout_seconds  = 60     # Should be >= lambda timeout + buffer
+  visibility_timeout_seconds  = local.lambda_timeout_seconds     # Should be >= lambda timeout + buffer
 
   tags = local.tags
 }
