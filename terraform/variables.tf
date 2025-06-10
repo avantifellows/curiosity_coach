@@ -124,4 +124,9 @@ variable "create_vpc_endpoints" {
   description = "Whether to create new VPC endpoints for SQS and STS. Set to false if they already exist in the VPC."
   type        = bool
   default     = true
+}
+
+variable "sqs_queue_arn" {
+  description = "The ARN of the SQS queue for the brain."
+  type        = string
 } 

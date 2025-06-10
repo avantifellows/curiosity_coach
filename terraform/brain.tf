@@ -147,7 +147,7 @@ resource "aws_iam_role_policy_attachment" "lambda_s3_config_attachment" {
 
 # Add other policy attachments if your lambda needs more permissions (e.g., S3, DynamoDB)
 
-# --- Docker Build & Push --- 
+# --- Docker Build & Push ---
 resource "null_resource" "docker_build_push" {
   # Triggers re-build/push if source files or Dockerfile change
   triggers = {
@@ -290,10 +290,13 @@ resource "aws_sqs_queue_policy" "app_queue_policy" {
     Version = "2012-10-17"
     Statement = [
       {
-        Sid    = "AllowLambdaSendMessage"
+        Sid    = "AllowAllSendMessage"
         Effect = "Allow"
         Principal = {
-          AWS = aws_iam_role.lambda_exec_role.arn
+          AWS = [
+            aws_iam_role.lambda_exec_role.arn,
+            aws_iam_role.backend_lambda_exec_role.arn
+          ]
         }
         Action   = "sqs:SendMessage"
         Resource = aws_sqs_queue.app_queue.arn
@@ -318,8 +321,7 @@ resource "aws_lambda_event_source_mapping" "sqs_trigger" {
 # --- Lambda Function URL --- 
 resource "aws_lambda_function_url" "app_lambda_url" {
   function_name      = aws_lambda_function.app_lambda.function_name
-  authorization_type = "NONE" # Changed to NONE for public access
-
+  authorization_type = "NONE" # Or "AWS_IAM"
 }
 
 # Grant invoke permission because authorization_type is NONE
@@ -328,4 +330,4 @@ resource "aws_lambda_permission" "allow_public_access" {
   function_name = aws_lambda_function.app_lambda.function_name
   principal     = "*"
   function_url_auth_type = "NONE"
-} 
+}
