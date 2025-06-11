@@ -74,6 +74,36 @@ class LLMService:
             messages: List of message dictionaries
             call_type: Optional call type to use specific configuration
         """
+        if os.getenv("APP_ENV") == "test":
+            logger.info(f"APP_ENV is 'test', returning mocked LLM completion for call_type: {call_type}")
+
+            # Check for memory generation prompt
+            if any("You are a meticulous educational analyst" in msg.get("content", "") for msg in messages):
+                logger.info("Detected memory generation prompt, returning mocked memory JSON.")
+                return json.dumps({
+                    "conversation_summary": "This is a mocked summary.",
+                    "topics_discussed": [],
+                    "student_profile_insights": {},
+                    "future_conversation_hooks": []
+                })
+
+            if call_type == "intent_gathering":
+                return json.dumps({
+                    "needs_clarification": False,
+                    "query": "mocked query",
+                    "subject": {"main_topic": "mocked topic", "related_topics": []},
+                    "intents": {"primary_intent": "educational", "secondary_intent": "curiosity"},
+                    "context": {"known_information": "none", "motivation": "learning", "learning_goal": "mocked goal"}
+                })
+            elif call_type == "simplified_conversation":
+                return json.dumps({
+                    "response": "This is a mocked simplified response.",
+                    "needs_clarification": False,
+                    "follow_up_questions": []
+                })
+
+            return "This is a mocked LLM response."
+
         try:
             if call_type:
                 logger.debug(f"Using specific call type: {call_type}")

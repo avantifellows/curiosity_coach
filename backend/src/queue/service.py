@@ -4,6 +4,8 @@ import boto3
 import time
 import uuid
 import httpx  # Import httpx
+import asyncio
+import concurrent.futures
 from botocore.exceptions import NoCredentialsError, ClientError # Import exceptions
 from botocore.config import Config  # Import Config for timeout settings
 from src.config.settings import settings
@@ -95,6 +97,10 @@ class QueueService:
         if not conversation_id:
             conversation_id = f"conv_{uuid.uuid4().hex[:8]}"
 
+        if purpose == "test":
+            print("Skipping message sending for test purpose.")
+            return {"status": "skipped_for_test"}
+
         message_body = {
             'user_id': str(user_id),
             'message_id': str(message_id) if message_id else f"msg_{uuid.uuid4().hex[:8]}",
@@ -148,9 +154,6 @@ class QueueService:
                 print(f"Message body size: {len(json.dumps(message_body))} bytes")
                 
                 # Add a hard timeout using asyncio to prevent indefinite hanging
-                import asyncio
-                import concurrent.futures
-                
                 # Wrap the synchronous SQS call in an executor with timeout
                 loop = asyncio.get_event_loop()
                 executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
@@ -190,5 +193,68 @@ class QueueService:
                 print(f"SQS Error (Non-ClientError): Failed sending message to {self.queue_url}. Error Type: {error_type}, Details: {e}")
                 return {"error": f"SQS send failed: {str(e)}"}
 
+    async def send_batch_task(self, task_body: dict):
+        """
+        Sends a batch task message to the SQS queue or a local HTTP endpoint.
+        This is an async version suitable for FastAPI endpoints.
+        """
+        # import ipdb; ipdb.set_trace()
+        if self.local_mode:
+            if not self.local_brain_url:
+                print("Error: Local mode is enabled but LOCAL_BRAIN_ENDPOINT_URL is not set.")
+                return {"error": "Local endpoint URL not configured"}
+            try:
+                # The local brain should have a generic task endpoint like /tasks
+                target_url = f"{self.local_brain_url.rstrip('/')}/tasks"
+                print(f"Sending batch task via HTTP to: {target_url}")
+                async with httpx.AsyncClient(timeout=30.0) as client:
+                    response = await client.post(target_url, json=task_body)
+                    response.raise_for_status()
+                    print(f"HTTP request for batch task completed. Status: {response.status_code}")
+                    try:
+                        return response.json()
+                    except json.JSONDecodeError:
+                        return {"status_code": response.status_code, "content": response.text}
+            except httpx.RequestError as exc:
+                print(f"Error sending batch task to local brain: {exc}")
+                return {"error": f"Failed to connect to local brain: {exc}"}
+            except httpx.HTTPStatusError as exc:
+                print(f"Local brain returned error for batch task: {exc.response.status_code}")
+                return {"error": "Local brain task endpoint error", "details": exc.response.text}
+        else: # SQS Mode
+            if not self.sqs_available or not self.queue_url or not self.sqs:
+                print("SQS Error: Queue not configured or unavailable.")
+                return {"error": "SQS not configured or unavailable"}
+            try:
+                print(f"Attempting to send batch task SQS message to queue: {self.queue_url}")
+                
+                # SQS sending logic is synchronous in boto3, run in executor
+                loop = asyncio.get_event_loop()
+                executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+
+                def send_sqs_message_sync():
+                    return self.sqs.send_message(
+                        QueueUrl=self.queue_url,
+                        MessageBody=json.dumps(task_body)
+                    )
+
+                response = await asyncio.wait_for(
+                    loop.run_in_executor(executor, send_sqs_message_sync),
+                    timeout=20.0
+                )
+                print(f"SQS batch task message sent successfully. Response: {response}")
+                return response
+            except asyncio.TimeoutError:
+                print("SQS send operation for batch task timed out.")
+                return {"error": "SQS send operation timed out"}
+            except ClientError as e:
+                print(f"SQS ClientError sending batch task: {e}")
+                return {"error": f"SQS send failed: {e.response.get('Error', {}).get('Code')}"}
+
+
 # Create singleton instance
-queue_service = QueueService() 
+queue_service = QueueService()
+
+def get_queue_service() -> QueueService:
+    """FastAPI dependency provider for the queue service."""
+    return queue_service

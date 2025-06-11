@@ -1,9 +1,11 @@
-from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime, ForeignKey, Text, JSON, ForeignKeyConstraint, UniqueConstraint
+from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime, ForeignKey, Text, JSON, ForeignKeyConstraint, UniqueConstraint, and_
 from sqlalchemy.orm import relationship, sessionmaker, Session, declarative_base
 from sqlalchemy.sql import func
 from src.database import Base, get_db # Assuming Base and get_db will be defined in database.py
 from fastapi import Depends
 from typing import Optional, List
+from datetime import datetime, timedelta
+from src.config.settings import settings
 
 # SQLAlchemy Models
 class User(Base):
@@ -21,13 +23,25 @@ class Conversation(Base):
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     title = Column(String, nullable=True, default="New Chat")
-    prompt_version_id = Column(Integer, ForeignKey("prompt_versions.id"), nullable=True)
+    prompt_version_id = Column(Integer, ForeignKey("prompt_versions.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     user = relationship("User", back_populates="conversations")
     messages = relationship("Message", back_populates="conversation", cascade="all, delete-orphan", order_by="Message.timestamp")
     prompt_version = relationship("PromptVersion")
+    memory = relationship("ConversationMemory", back_populates="conversation", uselist=False, cascade="all, delete-orphan")
+
+class ConversationMemory(Base):
+    __tablename__ = "conversation_memories"
+
+    id = Column(Integer, primary_key=True, index=True)
+    conversation_id = Column(Integer, ForeignKey("conversations.id", ondelete="CASCADE"), unique=True, nullable=False, index=True)
+    memory_data = Column(JSON, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    conversation = relationship("Conversation", back_populates="memory")
 
 class Message(Base):
     __tablename__ = "messages"
@@ -37,7 +51,7 @@ class Message(Base):
     content = Column(Text, nullable=False)
     is_user = Column(Boolean, nullable=False)
     timestamp = Column(DateTime(timezone=True), server_default=func.now())
-    responds_to_message_id = Column(Integer, ForeignKey("messages.id"), nullable=True)
+    responds_to_message_id = Column(Integer, ForeignKey("messages.id", ondelete="SET NULL"), nullable=True)
 
     conversation = relationship("Conversation", back_populates="messages")
     pipeline_info = relationship("MessagePipelineData", back_populates="message", uselist=False, cascade="all, delete-orphan")
@@ -154,6 +168,21 @@ def list_user_conversations(db: Session, user_id: int, limit: int = 50, offset: 
     """Lists conversations for a given user, most recent first."""
     return db.query(Conversation).filter(Conversation.user_id == user_id).order_by(Conversation.updated_at.desc()).offset(offset).limit(limit).all()
 
+def delete_conversation(db: Session, conversation_id: int, user_id: int) -> bool:
+    """Deletes a conversation by its ID, ensuring user ownership."""
+    conversation = db.query(Conversation).filter(
+        Conversation.id == conversation_id,
+        Conversation.user_id == user_id
+    ).first()
+
+    if not conversation:
+        # Conversation not found or user does not have permission
+        return False
+
+    db.delete(conversation)
+    db.commit()
+    return True
+
 def save_message(db: Session, conversation_id: int, content: str, is_user: bool, responds_to_message_id: Optional[int] = None) -> Message:
     """Save a message to a specific conversation."""
     conversation = get_conversation(db, conversation_id)
@@ -201,6 +230,29 @@ def get_ai_response_for_user_message(db: Session, user_message_id: int) -> Optio
         Message.is_user == False
     ).first()
     return ai_response
+
+def get_conversations_needing_memory(db: Session) -> List[int]:
+    """
+    Get IDs of conversations that have been inactive for a certain period
+    and either don't have a memory or their memory is older than their last update.
+    """
+    # import ipdb; ipdb.set_trace()
+    inactivity_threshold = datetime.utcnow() - timedelta(hours=settings.MEMORY_INACTIVITY_THRESHOLD_HOURS)
+
+    # Find conversations that were updated before the threshold
+    # and either have no memory or the memory is older than the last conversation update.
+    conversations_to_process = (
+        db.query(Conversation.id)
+        .outerjoin(ConversationMemory, Conversation.id == ConversationMemory.conversation_id)
+        .filter(
+            Conversation.updated_at < inactivity_threshold,
+            and_(Conversation.updated_at > Conversation.created_at), # Exclude new, empty conversations
+            (ConversationMemory.id == None) | (ConversationMemory.updated_at < Conversation.updated_at)
+        )
+        .all()
+    )
+    
+    return [c.id for c in conversations_to_process]
 
 def save_message_pipeline_data(db: Session, message_id: int, pipeline_data_dict: dict) -> MessagePipelineData:
     """Saves pipeline data for a specific message."""
