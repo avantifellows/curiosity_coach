@@ -115,6 +115,70 @@ async def create_new_conversation(
         )
         raise HTTPException(status_code=500, detail=f"Error creating conversation: {str(e)}")
 
+@router.get("/{conversation_id}", response_model=schemas.Conversation)
+async def get_conversation_by_id(
+    conversation_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Retrieve a specific conversation by its ID for the authenticated user.
+    """
+    logger.info(
+        f"get_conversation_by_id endpoint called - "
+        f"user_id: {current_user.id}, conversation_id: {conversation_id}"
+    )
+    
+    conversation = models.get_conversation(db=db, conversation_id=conversation_id)
+
+    if conversation is None:
+        logger.warning(f"Conversation not found - conversation_id: {conversation_id}")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found")
+
+    if conversation.user_id != current_user.id:
+        logger.error(
+            f"User {current_user.id} not authorized to view conversation {conversation_id} "
+            f"owned by user {conversation.user_id}"
+        )
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to access this conversation")
+    
+    logger.info(
+        f"get_conversation_by_id completed successfully - "
+        f"user_id: {current_user.id}, conversation_id: {conversation.id}"
+    )
+    return conversation
+
+@router.delete("/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_conversation_by_id(
+    conversation_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Delete a conversation by its ID for the authenticated user.
+    """
+    logger.info(
+        f"delete_conversation_by_id endpoint called - "
+        f"user_id: {current_user.id}, conversation_id: {conversation_id}"
+    )
+
+    success = models.delete_conversation(
+        db=db, conversation_id=conversation_id, user_id=current_user.id
+    )
+
+    if not success:
+        logger.warning(
+            f"Failed to delete conversation. It might not exist or user does not have permission - "
+            f"user_id: {current_user.id}, conversation_id: {conversation_id}"
+        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found or not authorized to delete")
+
+    logger.info(
+        f"delete_conversation_by_id completed successfully - "
+        f"user_id: {current_user.id}, conversation_id: {conversation_id}"
+    )
+    return
+
 @router.put("/{conversation_id}/title", response_model=schemas.Conversation)
 async def update_conversation_title_endpoint(
     conversation_id: int,
