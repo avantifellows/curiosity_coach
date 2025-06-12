@@ -62,3 +62,15 @@ jobs:
           LAMBDA_FUNCTION_NAME: ${{ steps.find_lambda.outputs.function_name }}
         run: |
           aws lambda update-function-code --function-name $LAMBDA_FUNCTION_NAME --image-uri ${{ steps.build-image.outputs.image }} 
+
+      - name: Update Lambda environment variables
+        env:
+          LAMBDA_FUNCTION_NAME: ${{ steps.find_lambda.outputs.function_name }}
+          DB_NAME: ${{ secrets.STAGING_DB_NAME }}
+        run: |
+          EXISTING_VARS=$(aws lambda get-function-configuration --function-name $LAMBDA_FUNCTION_NAME --query 'Environment.Variables' --output json)
+          if [ -z "$EXISTING_VARS" ] || [ "$EXISTING_VARS" == "null" ]; then
+            EXISTING_VARS='{}'
+          fi
+          UPDATED_VARS=$(echo $EXISTING_VARS | jq --arg db_name "$DB_NAME" '. + {"DB_NAME": $db_name}')
+          aws lambda update-function-configuration --function-name $LAMBDA_FUNCTION_NAME --environment "{\"Variables\":$UPDATED_VARS}" 
