@@ -231,6 +231,10 @@ def get_ai_response_for_user_message(db: Session, user_message_id: int) -> Optio
     ).first()
     return ai_response
 
+def get_memory_for_conversation(db: Session, conversation_id: int) -> Optional[ConversationMemory]:
+    """Get the memory for a specific conversation by its ID."""
+    return db.query(ConversationMemory).filter(ConversationMemory.conversation_id == conversation_id).first()
+
 def get_conversations_needing_memory(db: Session) -> List[int]:
     """
     Get IDs of conversations that have been inactive for a certain period
