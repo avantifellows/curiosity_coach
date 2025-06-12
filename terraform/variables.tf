@@ -120,6 +120,12 @@ variable "existing_rds_username" {
   default     = ""
 }
 
+variable "existing_rds_db_name" {
+  description = "The name of the database to use in the existing RDS instance. Overrides the instance's default DB name."
+  type        = string
+  default     = ""
+}
+
 # --------------------------------------------------------------------------------------------------
 # VPC Endpoint Configuration
 # --------------------------------------------------------------------------------------------------

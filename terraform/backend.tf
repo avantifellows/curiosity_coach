@@ -83,7 +83,7 @@ locals {
   rds_details = {
     address   = var.create_rds_instance ? aws_db_instance.rds_instance[0].address : data.aws_db_instance.existing_rds[0].address
     port      = var.create_rds_instance ? aws_db_instance.rds_instance[0].port : data.aws_db_instance.existing_rds[0].port
-    db_name   = var.create_rds_instance ? aws_db_instance.rds_instance[0].db_name : data.aws_db_instance.existing_rds[0].db_name
+    db_name   = var.create_rds_instance ? aws_db_instance.rds_instance[0].db_name : (var.existing_rds_db_name != "" ? var.existing_rds_db_name : data.aws_db_instance.existing_rds[0].db_name)
     username  = var.create_rds_instance ? aws_db_instance.rds_instance[0].username : var.existing_rds_username
     password  = var.create_rds_instance ? random_password.db_password[0].result : var.existing_rds_password
   }
