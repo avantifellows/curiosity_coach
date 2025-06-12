@@ -43,7 +43,7 @@ resource "aws_cloudwatch_event_api_destination" "memory_generator_api_destinatio
   name                             = "${var.app_name}-memory-generator-api-destination"
   description                      = "API Destination for triggering memory generation"
   connection_arn                   = aws_cloudwatch_event_connection.memory_generator_connection.arn
-  invocation_endpoint              = "${aws_lambda_function_url.app_lambda_url.function_url}api/trigger-memory-generation"
+  invocation_endpoint              = "${aws_lambda_function_url.app_lambda_url.function_url}api/tasks/trigger-memory-generation"
   http_method                      = "POST"
   invocation_rate_limit_per_second = 1 # Limit to 1 call per second
 }
