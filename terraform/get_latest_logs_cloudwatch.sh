@@ -133,7 +133,11 @@ fi
 
 # Sort all collected events by timestamp (newest first) and take the top N
 # We use sort -u to remove duplicate events that might be fetched from overlapping stream reads
+# Temporarily disable pipefail as `head` will close the pipe and cause `sort` to receive a
+# SIGPIPE, which would otherwise cause the script to exit.
+set +o pipefail
 sorted_events=$(echo -n "$all_log_events" | sort -u -k1,1 -n -r | head -n "$LIMIT")
+set -o pipefail
 
 # Print header for our table
 printf "%-24s %s\n" "Time" "Message"

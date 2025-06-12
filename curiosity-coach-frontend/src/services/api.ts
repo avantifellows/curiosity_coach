@@ -194,4 +194,17 @@ export const setActivePromptVersion = async (promptId: number | string, versionI
     console.error(`Error setting active version ${versionId} for prompt ${promptId}:`, error);
     throw new Error(`Failed to set active version for prompt ${promptId}`);
   }
+};
+
+export const getConversationMemory = async (conversationId: number | string): Promise<any> => {
+  try {
+    const response = await API.get(`/conversations/${conversationId}/memory`);
+    return response.data;
+  } catch (error: any) {
+    console.error(`Error fetching memory for conversation ID ${conversationId}:`, error.response?.data || error.message);
+    if (axios.isAxiosError(error) && error.response?.status === 404) {
+      return null;
+    }
+    throw new Error(error.response?.data?.detail || `Failed to fetch memory for conversation ${conversationId}`);
+  }
 }; 

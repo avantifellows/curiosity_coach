@@ -250,12 +250,48 @@ async def update_conversation_title_endpoint(
             f"status_code: {he.status_code}, detail: {he.detail}, "
             f"processing_time: {processing_time:.3f}s"
         )
-        raise
+        raise he
     except Exception as e:
         processing_time = time.time() - start_time
         logger.error(
             f"update_conversation_title_endpoint unexpected error - "
             f"conversation_id: {conversation_id}, user_id: {current_user.id}, "
-            f"error: {str(e)}, processing_time: {processing_time:.3f}s"
+            f"error: {str(e)}, "
+            f"processing_time: {processing_time:.3f}s"
         )
-        raise HTTPException(status_code=500, detail=f"Error updating conversation: {str(e)}") 
+        raise HTTPException(status_code=500, detail=f"Error updating conversation title: {str(e)}")
+
+@router.get("/{conversation_id}/memory", response_model=dict)
+async def get_conversation_memory_endpoint(
+    conversation_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Retrieve the AI-generated memory for a specific conversation.
+    """
+    logger.info(
+        f"get_conversation_memory_endpoint called - "
+        f"user_id: {current_user.id}, conversation_id: {conversation_id}"
+    )
+
+    # First, verify the user has access to the conversation
+    conversation = models.get_conversation(db=db, conversation_id=conversation_id)
+    if not conversation:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found")
+    
+    if conversation.user_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to access this conversation")
+
+    # Fetch the memory
+    memory = models.get_memory_for_conversation(db=db, conversation_id=conversation_id)
+
+    if not memory:
+        logger.warning(f"No memory found for conversation_id: {conversation_id}")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Memory not found for this conversation")
+
+    logger.info(
+        f"get_conversation_memory_endpoint completed successfully - "
+        f"conversation_id: {conversation_id}"
+    )
+    return memory.memory_data 
