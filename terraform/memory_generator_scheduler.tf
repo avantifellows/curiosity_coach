@@ -43,7 +43,7 @@ resource "aws_cloudwatch_event_api_destination" "memory_generator_api_destinatio
   name                             = "${var.app_name}-memory-generator-api-destination"
   description                      = "API Destination for triggering memory generation"
   connection_arn                   = aws_cloudwatch_event_connection.memory_generator_connection.arn
-  invocation_endpoint              = "${aws_lambda_function_url.app_lambda_url.function_url}api/tasks/trigger-memory-generation"
+  invocation_endpoint              = aws_lambda_function_url.app_lambda_url.function_url
   http_method                      = "POST"
   invocation_rate_limit_per_second = 1 # Limit to 1 call per second
 }
@@ -83,4 +83,13 @@ resource "aws_cloudwatch_event_target" "memory_generator_target" {
   rule     = aws_cloudwatch_event_rule.memory_generator_rule.name
   arn      = aws_cloudwatch_event_api_destination.memory_generator_api_destination.arn
   role_arn = aws_iam_role.memory_generator_event_rule_role.arn
+
+  input_transformer {
+    input_paths = {
+      "rawPath" = "$.time" # Using a placeholder path, as the path is static
+    }
+    input_template = jsonencode({
+      "rawPath" : "/api/tasks/trigger-memory-generation"
+    })
+  }
 } 
