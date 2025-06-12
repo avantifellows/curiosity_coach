@@ -649,19 +649,25 @@ async def process_memory_generation_batch(conversation_ids: List[int]):
             
             # 3. Parse and save the memory
             try:
+                logger.info(f"[{conv_id}] Raw LLM response: '{summary_json_str}'")
                 # The output might be inside a code block, so we extract it.
                 if "```json" in summary_json_str:
+                    logger.info(f"[{conv_id}] JSON markdown detected. Stripping it.")
                     summary_json_str = summary_json_str.split("```json\n")[1].split("\n```")[0]
+                    logger.info(f"[{conv_id}] Stripped JSON string: '{summary_json_str}'")
                 
-                # print(summary_json_str)
+                logger.info(f"[{conv_id}] Attempting to parse JSON...")
                 summary_data = json.loads(summary_json_str)
-                # print(summary_data)
+                logger.info(f"[{conv_id}] Successfully parsed JSON.")
                 
                 # Validate the data structure using the Pydantic model
+                logger.info(f"[{conv_id}] Attempting to validate data with Pydantic model...")
                 validated_data = ConversationMemoryData(**summary_data)
+                logger.info(f"[{conv_id}] Successfully validated data.")
                 
                 # import ipdb; ipdb.set_trace()
                 # Use the validated data (converted back to a dict) for saving
+                logger.info(f"[{conv_id}] Attempting to save memory...")
                 success = await api_service.save_memory(conv_id, validated_data.model_dump())
 
                 if success:
@@ -669,9 +675,9 @@ async def process_memory_generation_batch(conversation_ids: List[int]):
                 else:
                     logger.error(f"Failed to save memory for conversation {conv_id} after validation.")
             except json.JSONDecodeError:
-                logger.error(f"Failed to decode LLM response into JSON for conv {conv_id}. Response: {summary_json_str}")
+                logger.error(f"Failed to decode LLM response into JSON for conv {conv_id}. Response: '{summary_json_str}'")
             except ValidationError as e:
-                logger.error(f"Pydantic validation failed for conversation {conv_id}. Errors: {e.json()}")
+                logger.error(f"Pydantic validation failed for conversation {conv_id}. Errors: {e.json()}. Raw data: {summary_data}")
             
         except Exception as e:
             logger.error(f"Error processing memory for conversation {conv_id}: {e}", exc_info=True)

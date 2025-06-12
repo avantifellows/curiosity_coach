@@ -108,11 +108,13 @@ class LLMService:
             if call_type:
                 logger.debug(f"Using specific call type: {call_type}")
                 call_config = self.get_call_config(call_type)
+                print("call_config", call_config)
                 provider = call_config["provider"]
             else:
                 logger.debug("Using default provider and call type")
                 provider = self.default_provider
                 call_config = self.config["calls"]["response_generation"]
+                print("call_config", call_config)
             
             logger.info(f"Making LLM call to {provider} with model {call_config['model']}")
             client = self.get_client(provider)
