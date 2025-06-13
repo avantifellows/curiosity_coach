@@ -45,21 +45,18 @@ class QueueService:
                     connect_timeout=5   # Reduced from 10 to 5 seconds
                 )
 
-                endpoint_url = f"https://sqs.{settings.AWS_REGION}.amazonaws.com"
-
                 if is_lambda_env:
-                    self.sqs = boto3.client('sqs', config=boto3_config, endpoint_url=endpoint_url)
+                    self.sqs = boto3.client('sqs', config=boto3_config)
                 else:
                     if settings.AWS_ACCESS_KEY_ID and settings.AWS_SECRET_ACCESS_KEY:
                         self.sqs = boto3.client(
                             'sqs',
                             aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
                             aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
-                            config=boto3_config,
-                            endpoint_url=endpoint_url
+                            config=boto3_config
                         )
                     else:
-                        self.sqs = boto3.client('sqs', config=boto3_config, endpoint_url=endpoint_url)
+                        self.sqs = boto3.client('sqs', config=boto3_config)
 
                 # Basic check if client was created
                 if self.sqs is None:
