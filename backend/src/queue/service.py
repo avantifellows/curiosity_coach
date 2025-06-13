@@ -41,22 +41,25 @@ class QueueService:
                 boto3_config = Config(
                     region_name=settings.AWS_REGION,
                     retries={'max_attempts': 2, 'mode': 'adaptive'},  # Reduced retries
-                    read_timeout=30,
-                    connect_timeout=30
+                    read_timeout=15,  # Reduced from 30 to 15 seconds
+                    connect_timeout=5   # Reduced from 10 to 5 seconds
                 )
 
+                endpoint_url = f"https://sqs.{settings.AWS_REGION}.amazonaws.com"
+
                 if is_lambda_env:
-                    self.sqs = boto3.client('sqs', config=boto3_config)
+                    self.sqs = boto3.client('sqs', config=boto3_config, endpoint_url=endpoint_url)
                 else:
                     if settings.AWS_ACCESS_KEY_ID and settings.AWS_SECRET_ACCESS_KEY:
                         self.sqs = boto3.client(
                             'sqs',
                             aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
                             aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
-                            config=boto3_config
+                            config=boto3_config,
+                            endpoint_url=endpoint_url
                         )
                     else:
-                        self.sqs = boto3.client('sqs', config=boto3_config)
+                        self.sqs = boto3.client('sqs', config=boto3_config, endpoint_url=endpoint_url)
 
                 # Basic check if client was created
                 if self.sqs is None:
