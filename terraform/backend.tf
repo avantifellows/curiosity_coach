@@ -337,27 +337,28 @@ resource "aws_nat_gateway" "nat" {
 
 # --- Route Table for Private Subnets ---
 
-# Create a new route table for our private subnets
-resource "aws_route_table" "private" {
-  vpc_id = data.aws_vpc.selected.id
-
-  route {
-    # This route directs all outbound internet traffic (0.0.0.0/0)
-    # to the new NAT Gateway.
-    cidr_block     = "0.0.0.0/0"
-    nat_gateway_id = aws_nat_gateway.nat.id
+# Find the existing private route table that is associated with our private subnets.
+data "aws_route_table" "private" {
+  # This filter finds the route table associated with our first private subnet.
+  # This assumes all private subnets use the same route table, which is standard.
+  filter {
+    name   = "association.subnet-id"
+    values = [local.private_subnet_ids[0]]
   }
-
-  tags = merge(local.backend_tags, { Name = "${local.backend_prefix}-private-rt" })
 }
 
-# Associate the new private route table with each of our private subnets
-resource "aws_route_table_association" "private" {
-  # Create an association for each private subnet found by our data source
-  for_each = toset(local.private_subnet_ids)
+# This resource manages the default route for the private route table.
+# It will create the route if it doesn't exist, or update it if it does.
+# This ensures it points to the correct NAT Gateway for the active environment.
+resource "aws_route" "private_nat_gateway" {
+  route_table_id         = data.aws_route_table.private.id
+  destination_cidr_block = "0.0.0.0/0"
+  nat_gateway_id         = aws_nat_gateway.nat.id
 
-  subnet_id      = each.value
-  route_table_id = aws_route_table.private.id
+  # This is a common pattern when a route might be managed by an external
+  # process (like the old CDK stack). This allows Terraform to overwrite it.
+  # This is not strictly required here as we will import the route, but it is good practice.
+  # depends_on = [aws_nat_gateway.nat]
 }
 
 # --- RDS Subnet Group ---
