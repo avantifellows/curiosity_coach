@@ -41,8 +41,8 @@ class QueueService:
                 boto3_config = Config(
                     region_name=settings.AWS_REGION,
                     retries={'max_attempts': 2, 'mode': 'adaptive'},  # Reduced retries
-                    read_timeout=15,  # Reduced from 30 to 15 seconds
-                    connect_timeout=5   # Reduced from 10 to 5 seconds
+                    read_timeout=30,
+                    connect_timeout=30
                 )
 
                 if is_lambda_env:
