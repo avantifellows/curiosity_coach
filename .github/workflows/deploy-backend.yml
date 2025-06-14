@@ -8,6 +8,7 @@ on:
       - 'backend/**' # Trigger only on changes within the backend directory
       - '.github/workflows/deploy-backend.yml'
   workflow_dispatch: # Allows manual triggering
+  pull_request:
 
 permissions:
   contents: read

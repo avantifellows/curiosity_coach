@@ -1,0 +1,5 @@
+pytest
+httpx
+python-dotenv
+psycopg2-binary
+pytest-dependency 

@@ -15,7 +15,7 @@ if project_root not in sys.path:
     sys.path.append(project_root)
 
 # Import the FastAPI app and the dequeue function
-from src.main import app, dequeue, MessagePayload
+from src.main import app, dequeue, MessagePayload, process_memory_generation_batch
 from pydantic import ValidationError
 
 logger = logging.getLogger()
@@ -57,6 +57,21 @@ def lambda_handler(event, context):
                     failed_messages += 1
                     continue # Skip to the next record
 
+                # --- Task-based routing ---
+                task_type = message_body.get("task_type")
+
+                if task_type == "GENERATE_MEMORY_BATCH":
+                    conversation_ids = message_body.get("conversation_ids", [])
+                    if conversation_ids:
+                        logger.info(f"Detected GENERATE_MEMORY_BATCH task for {len(conversation_ids)} conversations.")
+                        asyncio.run(process_memory_generation_batch(conversation_ids))
+                        processed_messages += 1
+                    else:
+                        logger.warning("GENERATE_MEMORY_BATCH task received with no conversation_ids.")
+                        failed_messages += 1
+                    continue # Move to the next record
+
+                # --- Regular message processing ---
                 # Parse the dictionary into the Pydantic model
                 try:
                     parsed_message = MessagePayload(**message_body)

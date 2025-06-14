@@ -115,6 +115,70 @@ async def create_new_conversation(
         )
         raise HTTPException(status_code=500, detail=f"Error creating conversation: {str(e)}")
 
+@router.get("/{conversation_id}", response_model=schemas.Conversation)
+async def get_conversation_by_id(
+    conversation_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Retrieve a specific conversation by its ID for the authenticated user.
+    """
+    logger.info(
+        f"get_conversation_by_id endpoint called - "
+        f"user_id: {current_user.id}, conversation_id: {conversation_id}"
+    )
+    
+    conversation = models.get_conversation(db=db, conversation_id=conversation_id)
+
+    if conversation is None:
+        logger.warning(f"Conversation not found - conversation_id: {conversation_id}")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found")
+
+    if conversation.user_id != current_user.id:
+        logger.error(
+            f"User {current_user.id} not authorized to view conversation {conversation_id} "
+            f"owned by user {conversation.user_id}"
+        )
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to access this conversation")
+    
+    logger.info(
+        f"get_conversation_by_id completed successfully - "
+        f"user_id: {current_user.id}, conversation_id: {conversation.id}"
+    )
+    return conversation
+
+@router.delete("/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_conversation_by_id(
+    conversation_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Delete a conversation by its ID for the authenticated user.
+    """
+    logger.info(
+        f"delete_conversation_by_id endpoint called - "
+        f"user_id: {current_user.id}, conversation_id: {conversation_id}"
+    )
+
+    success = models.delete_conversation(
+        db=db, conversation_id=conversation_id, user_id=current_user.id
+    )
+
+    if not success:
+        logger.warning(
+            f"Failed to delete conversation. It might not exist or user does not have permission - "
+            f"user_id: {current_user.id}, conversation_id: {conversation_id}"
+        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found or not authorized to delete")
+
+    logger.info(
+        f"delete_conversation_by_id completed successfully - "
+        f"user_id: {current_user.id}, conversation_id: {conversation_id}"
+    )
+    return
+
 @router.put("/{conversation_id}/title", response_model=schemas.Conversation)
 async def update_conversation_title_endpoint(
     conversation_id: int,
@@ -186,12 +250,48 @@ async def update_conversation_title_endpoint(
             f"status_code: {he.status_code}, detail: {he.detail}, "
             f"processing_time: {processing_time:.3f}s"
         )
-        raise
+        raise he
     except Exception as e:
         processing_time = time.time() - start_time
         logger.error(
             f"update_conversation_title_endpoint unexpected error - "
             f"conversation_id: {conversation_id}, user_id: {current_user.id}, "
-            f"error: {str(e)}, processing_time: {processing_time:.3f}s"
+            f"error: {str(e)}, "
+            f"processing_time: {processing_time:.3f}s"
         )
-        raise HTTPException(status_code=500, detail=f"Error updating conversation: {str(e)}") 
+        raise HTTPException(status_code=500, detail=f"Error updating conversation title: {str(e)}")
+
+@router.get("/{conversation_id}/memory", response_model=dict)
+async def get_conversation_memory_endpoint(
+    conversation_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Retrieve the AI-generated memory for a specific conversation.
+    """
+    logger.info(
+        f"get_conversation_memory_endpoint called - "
+        f"user_id: {current_user.id}, conversation_id: {conversation_id}"
+    )
+
+    # First, verify the user has access to the conversation
+    conversation = models.get_conversation(db=db, conversation_id=conversation_id)
+    if not conversation:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found")
+    
+    if conversation.user_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to access this conversation")
+
+    # Fetch the memory
+    memory = models.get_memory_for_conversation(db=db, conversation_id=conversation_id)
+
+    if not memory:
+        logger.warning(f"No memory found for conversation_id: {conversation_id}")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Memory not found for this conversation")
+
+    logger.info(
+        f"get_conversation_memory_endpoint completed successfully - "
+        f"conversation_id: {conversation_id}"
+    )
+    return memory.memory_data 
