@@ -65,8 +65,8 @@ resource "aws_lambda_function" "scheduler_lambda" {
 
 resource "aws_cloudwatch_event_rule" "scheduler_rule" {
   name                = "${var.project_name}-scheduler-rule-${var.environment}"
-  description         = "Fires every 6 hours to trigger the scheduler lambda"
-  schedule_expression = "rate(6 hours)"
+  description         = "Fires every 10 minutes to trigger the scheduler lambda"
+  schedule_expression = "rate(10 minutes)"
 }
 
 resource "aws_cloudwatch_event_target" "scheduler_target" {

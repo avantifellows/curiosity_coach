@@ -125,12 +125,3 @@ variable "existing_rds_db_name" {
   type        = string
   default     = ""
 }
-
-# --------------------------------------------------------------------------------------------------
-# VPC Endpoint Configuration
-# --------------------------------------------------------------------------------------------------
-variable "create_vpc_endpoints" {
-  description = "Whether to create VPC endpoints for services like SQS and STS. Set to true if your Lambda is in a VPC and needs to access these services without going over the public internet."
-  type        = bool
-  default     = false # Default to false to avoid creating resources unless needed
-} 
