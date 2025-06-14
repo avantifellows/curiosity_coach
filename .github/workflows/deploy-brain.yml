@@ -72,35 +72,17 @@ jobs:
           aws lambda wait function-updated --function-name $LAMBDA_FUNCTION_NAME --region ap-south-1
           echo "Function update completed."
 
-      - name: Find Backend Lambda Function Name
-        id: find_backend_lambda
-        run: |
-          # Find the Lambda function containing 'curiosity-coach-backend'
-          FUNCTION_NAME=$(aws lambda list-functions --region ap-south-1 --query 'Functions[?contains(FunctionName, `curiosity-coach-backend`)].FunctionName | [0]' --output text | head -n 1)
-          if [ -z "$FUNCTION_NAME" ] || [ "$FUNCTION_NAME" == "None" ]; then
-            echo "Error: Could not find Lambda function containing 'curiosity-coach-backend' in region ap-south-1."
-            exit 1
-          fi
-          echo "Found Backend Lambda function: $FUNCTION_NAME"
-          echo "::set-output name=function_name::$FUNCTION_NAME"
-
-      - name: Get Backend Lambda Function URL
+      - name: Find Backend API Gateway URL
         id: get_backend_url
         run: |
-          BACKEND_FUNCTION_NAME=${{ steps.find_backend_lambda.outputs.function_name }}
-          FUNCTION_URL_CONFIG=$(aws lambda get-function-url-config --function-name $BACKEND_FUNCTION_NAME --region ap-south-1 --output json)
-          # Use jq to parse the JSON and extract the FunctionUrl
-          FUNCTION_URL=$(echo $FUNCTION_URL_CONFIG | jq -r '.FunctionUrl')
-
-          # Remove trailing slash if it exists
-          FUNCTION_URL=${FUNCTION_URL%/}
-
-          if [ -z "$FUNCTION_URL" ] || [ "$FUNCTION_URL" == "null" ]; then
-             echo "Error: Could not retrieve Function URL for $BACKEND_FUNCTION_NAME. Ensure it has a Function URL configured and the IAM role has permissions for lambda:GetFunctionUrlConfig."
-             exit 1
+          API_NAME="curiosity-coach-backend-dev-api"
+          API_URL=$(aws apigatewayv2 get-apis --region ap-south-1 --query "Items[?Name=='$API_NAME'].ApiEndpoint" --output text)
+          if [ -z "$API_URL" ]; then
+            echo "Error: Could not find API Gateway with name $API_NAME"
+            exit 1
           fi
-          echo "Found Backend Function URL: $FUNCTION_URL"
-          echo "::set-output name=url::$FUNCTION_URL"
+          echo "Found Backend API URL: $API_URL"
+          echo "::set-output name=url::$API_URL"
 
       - name: Update Brain Lambda Environment Variables
         env:
