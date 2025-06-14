@@ -1,0 +1,22 @@
+# Conversation Memory Feature: Task List
+
+## 1. Backend Service Changes
+
+- [x] **Models:** In `backend/app/models/conversation.py`, define `ConversationMemory` SQLAlchemy model and add the relationship to the `Conversation` model.
+- [x] **Schemas:** In `backend/app/schemas/memory.py`, define `MemoryBase`, `MemoryCreate`, `MemoryUpdate`, and `MemoryInDB` Pydantic schemas.
+- [x] **CRUD:** In `backend/app/crud/crud_memory.py`, implement CRUD logic for `ConversationMemory`.
+- [x] **API Endpoint (Memories):** In `backend/app/api/endpoints/memories.py`, implement the `POST /memories` endpoint for creating/updating memories.
+- [x] **API Endpoint (Tasks):** In `backend/app/api/endpoints/tasks.py`, implement the `POST /tasks/trigger-memory-generation` endpoint.
+- [x] **Main App:** In `backend/app/main.py`, add the new routers to the FastAPI application.
+
+## 2. Brain Service Changes
+
+- [x] **API Client:** In the Brain's API client, add a method to call the backend's `POST /memories` endpoint.
+- [x] **SQS Consumer:** In the Brain's SQS consumer logic, add handling for the `GENERATE_MEMORY_BATCH` task type.
+- [x] **Memory Generation:** Implement the core logic in the Brain to generate the structured memory from conversation history using an LLM.
+
+## 3. Finalization
+
+- [x] Review and test all changes locally.
+- [x] Update documentation if necessary.
+- [x] Mark the feature as complete. 

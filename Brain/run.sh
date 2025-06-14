@@ -127,7 +127,7 @@ echo "Uvicorn check passed."
 
 # Define the port
 # PORT may have been set by sourcing .env. If not, use default.
-DEFAULT_APP_PORT=8000
+DEFAULT_APP_PORT=5001
 # Use parameter expansion: If PORT is unset or null, use DEFAULT_APP_PORT. If PORT is set (even to empty string, handled by earlier check), use its value.
 FINAL_APP_PORT="${PORT:-$DEFAULT_APP_PORT}"
 # Export it for the application

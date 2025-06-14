@@ -13,3 +13,4 @@ python-jose[cryptography]
 alembic
 httpx 
 mangum
+ipdb

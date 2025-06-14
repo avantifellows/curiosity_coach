@@ -35,15 +35,15 @@ variable "lambda_function_name" {
 }
 
 variable "docker_image_tag" {
-  description = "The tag for the Docker image in ECR (e.g., 'latest' or a specific version)."
+  description = "Tag for the docker image to be built & pushed to ECR"
   type        = string
   default     = "latest"
 }
 
 variable "aws_profile" {
-  description = "AWS profile to use for CLI commands during Docker push."
+  description = "The AWS profile to use."
   type        = string
-  default     = "deepansh-af" # Or leave empty to prompt/use environment default
+  default     = "deepansh-af"
 }
 
 variable "flow_config_s3_bucket_name" {
@@ -93,4 +93,45 @@ variable "acm_certificate_arn" {
   description = "The ARN of the SSL certificate in AWS Certificate Manager (must be in us-east-1 region for CloudFront)."
   type        = string
   default     = "" # Will be provided via .tfvars or environment variable
-} 
+}
+
+variable "create_rds_instance" {
+  description = "Whether to create a new RDS instance. If false, existing_rds_instance_id must be provided."
+  type        = bool
+  default     = true
+}
+
+variable "existing_rds_instance_id" {
+  description = "The identifier of the existing RDS instance to use when create_rds_instance is false."
+  type        = string
+  default     = ""
+}
+
+variable "existing_rds_password" {
+  description = "The password for the existing RDS instance."
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "existing_rds_username" {
+  description = "The username for the existing RDS instance."
+  type        = string
+  default     = ""
+}
+
+variable "existing_rds_db_name" {
+  description = "The name of the database to use in the existing RDS instance. Overrides the instance's default DB name."
+  type        = string
+  default     = ""
+}
+
+variable "vpc_id" {
+  description = "The ID of the VPC to use."
+  type        = string
+}
+
+variable "public_subnet_ids" {
+  description = "A list of public subnet IDs to use."
+  type        = list(string)
+}

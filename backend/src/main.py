@@ -6,24 +6,34 @@ from src.auth.router import router as auth_router
 from src.messages.router import router as messages_router
 from src.conversations.router import router as conversations_router
 from src.health.router import router as health_router
+from src.memories.router import router as memories_router
 from src.prompts.router import router as prompts_router
+from src.tasks.router import router as tasks_router
 from src.config.settings import settings
 from src.database import init_db
 from mangum import Mangum
 
-# # Configure logging to prevent duplicate logs
-# logging.getLogger("uvicorn.access").propagate = False
-# logging.getLogger("uvicorn.error").propagate = False
+# Configure logging for Lambda
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[logging.StreamHandler()]
+)
 
-# # Configure root logger
-# logging.basicConfig(
-#     level=logging.INFO,
-#     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-#     handlers=[logging.StreamHandler()]
-# )
+# Force the root logger to INFO level explicitly
+logging.getLogger().setLevel(logging.INFO)
+
+# Prevent duplicate logs from uvicorn when running locally
+if settings.APP_ENV != 'development':
+    logging.getLogger("uvicorn.access").propagate = False
+    logging.getLogger("uvicorn.error").propagate = False
+
+logger = logging.getLogger(__name__)
 
 def create_app() -> FastAPI:
     """Create and configure a FastAPI application."""
+    logger.info(f"Creating FastAPI app - Environment: {settings.APP_ENV}")
+    
     app = FastAPI(
         title=settings.API_TITLE,
         description=settings.API_DESCRIPTION,
@@ -32,6 +42,17 @@ def create_app() -> FastAPI:
         redoc_url=settings.API_REDOC_URL,
         openapi_url=settings.API_OPENAPI_URL
     )
+    
+    @app.on_event("startup")
+    async def startup_event():
+        """Run initialization tasks on application startup"""
+        logger.info("FastAPI application starting up...")
+        try:
+            # Add any initialization tasks here
+            logger.info("Application startup completed successfully")
+        except Exception as e:
+            logger.error(f"Error during startup: {str(e)}")
+            raise
     
     # Get CORS origins from environment
     frontend_url = os.getenv("FRONTEND_URL", "")
@@ -61,6 +82,8 @@ def create_app() -> FastAPI:
     if os.getenv("ALLOW_ALL_ORIGINS", "false").lower() == "true":
         allowed_origins = ["*"]
     
+    logger.info(f"CORS allowed origins: {allowed_origins}")
+    
     # Enable CORS
     app.add_middleware(
         CORSMiddleware,
@@ -72,17 +95,21 @@ def create_app() -> FastAPI:
     
     # Include routers
     app.include_router(auth_router)
-    app.include_router(messages_router)
     app.include_router(conversations_router)
     app.include_router(health_router)
+    app.include_router(memories_router)
+    app.include_router(messages_router)
     app.include_router(prompts_router)
+    app.include_router(tasks_router)
     
+    logger.info("FastAPI app created successfully")
     return app
 
 _fastapi_app = create_app()
 
 # Conditionally wrap with Mangum for serverless deployment
 if settings.APP_ENV != 'development':
+    logger.info("Wrapping FastAPI app with Mangum for Lambda")
     app = Mangum(_fastapi_app)
 else:
     app = _fastapi_app # Use the raw FastAPI app for local dev
