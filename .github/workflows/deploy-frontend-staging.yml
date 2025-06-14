@@ -33,7 +33,7 @@ jobs:
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ap-south-1
+          aws-region: ap-south-2
 
       - name: Install Dependencies
         working-directory: ./curiosity-coach-frontend
@@ -79,5 +79,5 @@ jobs:
       - name: Invalidate CloudFront Cache
         run: |
           aws cloudfront create-invalidation \
-            --distribution-id E9VZZXA6K9U24 \
-            --paths "/*" # Invalidate everything 
+            --distribution-id E335ZR1Y2OB5KH \
+            --paths "/*" # Invalidate everything
