@@ -8,6 +8,7 @@ on:
       - 'curiosity-coach-frontend/**'
       - '.github/workflows/deploy-frontend.yml'
   workflow_dispatch: # Allows manual triggering
+  pull_request:
 
 permissions:
   contents: read # Required to check out the code
