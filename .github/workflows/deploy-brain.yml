@@ -8,6 +8,7 @@ on:
       - 'Brain/**' # Trigger only on changes within the Brain directory
       - '.github/workflows/deploy-brain.yml'
   workflow_dispatch: # Allows manual triggering
+  pull_request:
 
 permissions:
   contents: read
