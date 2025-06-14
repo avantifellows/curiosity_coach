@@ -58,7 +58,7 @@ jobs:
       - name: Get Brain API Gateway URL
         id: get_brain_url
         run: |
-          API_NAME="curiosity-coach-brain-dev-lambda-api"
+          API_NAME="curiosity-coach-brain-lambda-api"
           API_URL=$(aws apigatewayv2 get-apis --region ap-south-1 --query "Items[?Name=='$API_NAME'].ApiEndpoint" --output text)
           if [ -z "$API_URL" ]; then
             echo "Error: Could not find API Gateway with name $API_NAME"
