@@ -50,18 +50,6 @@ data "aws_vpc" "selected" {
   id = "vpc-0a25a54c34b446c2d" # The VPC ID we identified
 }
 
-# --- Data source to find private subnets ---
-data "aws_subnets" "private" {
-  filter {
-    name   = "vpc-id"
-    values = [data.aws_vpc.selected.id]
-  }
-  filter {
-    name   = "tag:aws-cdk:subnet-type"
-    values = ["Private"]
-  }
-}
-
 # --- Define the Public Subnet IDs ---
 # Identified public subnets in vpc-0a25a54c34b446c2d
 locals {
@@ -69,8 +57,6 @@ locals {
     "subnet-08bdce0ea3ad1826e", # ap-south-1a
     "subnet-017c528c08e874a5f"  # ap-south-1b
   ]
-  private_subnet_ids = data.aws_subnets.private.ids
-
   # Derive resource names consistently
   backend_prefix           = "${var.project_name}-backend-${var.environment}"
   backend_ecr_repo_name    = "${local.backend_prefix}-ecr"
@@ -311,56 +297,6 @@ resource "aws_security_group" "rds_sg" {
   tags = merge(local.backend_tags, { Name = "${local.rds_instance_identifier}-sg" })
 }
 
-# --- NAT Gateway for Private Subnet Egress ---
-
-# Allocate an Elastic IP for the NAT Gateway
-resource "aws_eip" "nat" {
-  domain = "vpc"
-
-  tags = merge(local.backend_tags, { Name = "${local.backend_prefix}-nat-eip" })
-}
-
-# Create the NAT Gateway in a public subnet
-resource "aws_nat_gateway" "nat" {
-  allocation_id = aws_eip.nat.id
-  # NAT Gateway must be in a public subnet to have a route to the Internet Gateway.
-  # We'll place it in the first public subnet from our list.
-  subnet_id = local.public_subnet_ids[0]
-
-  tags = merge(local.backend_tags, { Name = "${local.backend_prefix}-nat-gw" })
-
-  # Explicit dependency on the Internet Gateway being available,
-  # though in this case the IG is part of the pre-existing VPC.
-  # This is good practice if Terraform were managing the IG.
-  # depends_on = [aws_internet_gateway.igw]
-}
-
-# --- Route Table for Private Subnets ---
-
-# Find the existing private route table that is associated with our private subnets.
-data "aws_route_table" "private" {
-  # This filter finds the route table associated with our first private subnet.
-  # This assumes all private subnets use the same route table, which is standard.
-  filter {
-    name   = "association.subnet-id"
-    values = [local.private_subnet_ids[0]]
-  }
-}
-
-# This resource manages the default route for the private route table.
-# It will create the route if it doesn't exist, or update it if it does.
-# This ensures it points to the correct NAT Gateway for the active environment.
-resource "aws_route" "private_nat_gateway" {
-  route_table_id         = data.aws_route_table.private.id
-  destination_cidr_block = "0.0.0.0/0"
-  nat_gateway_id         = aws_nat_gateway.nat.id
-
-  # This is a common pattern when a route might be managed by an external
-  # process (like the old CDK stack). This allows Terraform to overwrite it.
-  # This is not strictly required here as we will import the route, but it is good practice.
-  # depends_on = [aws_nat_gateway.nat]
-}
-
 # --- RDS Subnet Group ---
 resource "aws_db_subnet_group" "rds_subnet_group" {
   name       = "${local.rds_instance_identifier}-subnet-group"
@@ -499,7 +435,7 @@ resource "aws_lambda_function" "backend_lambda" {
 
   # Configure VPC access for the Lambda function
   vpc_config {
-    subnet_ids         = local.private_subnet_ids
+    subnet_ids         = local.public_subnet_ids
     security_group_ids = [aws_security_group.lambda_sg.id]
   }
 
@@ -585,7 +521,6 @@ output "rds_database_password" {
 
 # --- Security Group for SQS VPC Endpoint ---
 resource "aws_security_group" "sqs_vpce_sg" {
-  count  = var.create_vpc_endpoints ? 1 : 0
   name        = "${local.backend_prefix}-sqs-vpce-sg"
   description = "Allow inbound HTTPS from Lambda SG to SQS VPC Endpoint"
   vpc_id      = data.aws_vpc.selected.id
@@ -610,20 +545,18 @@ resource "aws_security_group" "sqs_vpce_sg" {
 }
 
 resource "aws_vpc_endpoint" "sqs_endpoint" {
-  count = var.create_vpc_endpoints ? 1 : 0
   vpc_id              = data.aws_vpc.selected.id
   service_name        = "com.amazonaws.${data.aws_region.current.name}.sqs"
   vpc_endpoint_type   = "Interface"
   private_dns_enabled = true
-  security_group_ids  = [aws_security_group.sqs_vpce_sg[0].id]
-  subnet_ids          = local.private_subnet_ids
+  security_group_ids  = [aws_security_group.sqs_vpce_sg.id]
+  subnet_ids          = local.public_subnet_ids
 
   tags = merge(local.backend_tags, { Name = "${local.backend_prefix}-sqs-vpce" })
 }
 
 # --- Security Group for STS VPC Endpoint ---
 resource "aws_security_group" "sts_vpce_sg" {
-  count = var.create_vpc_endpoints ? 1 : 0
   name        = "${local.backend_prefix}-sts-vpce-sg"
   description = "Allow inbound HTTPS from Lambda SG to STS VPC Endpoint"
   vpc_id      = data.aws_vpc.selected.id
@@ -648,13 +581,12 @@ resource "aws_security_group" "sts_vpce_sg" {
 
 # --- STS VPC Endpoint ---
 resource "aws_vpc_endpoint" "sts_endpoint" {
-  count = var.create_vpc_endpoints ? 1 : 0
   vpc_id              = data.aws_vpc.selected.id
   service_name        = "com.amazonaws.${data.aws_region.current.name}.sts"
   vpc_endpoint_type   = "Interface"
   private_dns_enabled = true
-  security_group_ids  = [aws_security_group.sts_vpce_sg[0].id]
-  subnet_ids          = local.private_subnet_ids
+  security_group_ids  = [aws_security_group.sts_vpce_sg.id]
+  subnet_ids          = local.public_subnet_ids
 
   tags = merge(local.backend_tags, { Name = "${local.backend_prefix}-sts-vpce" })
 }
