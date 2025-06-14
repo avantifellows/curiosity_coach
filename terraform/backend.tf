@@ -47,16 +47,13 @@ data "aws_region" "current" {}
 
 # --- Added Specific VPC Data Source ---
 data "aws_vpc" "selected" {
-  id = "vpc-0a25a54c34b446c2d" # The VPC ID we identified
+  id = var.vpc_id # The VPC ID we identified
 }
 
 # --- Define the Public Subnet IDs ---
 # Identified public subnets in vpc-0a25a54c34b446c2d
 locals {
-  public_subnet_ids = [
-    "subnet-08bdce0ea3ad1826e", # ap-south-1a
-    "subnet-017c528c08e874a5f"  # ap-south-1b
-  ]
+  public_subnet_ids = var.public_subnet_ids
   # Derive resource names consistently
   backend_prefix           = "${var.project_name}-backend-${var.environment}"
   backend_ecr_repo_name    = "${local.backend_prefix}-ecr"
@@ -454,37 +451,31 @@ resource "aws_lambda_function" "backend_lambda" {
   ]
 }
 
-# --- Backend Lambda Function URL ---
-resource "aws_lambda_function_url" "backend_lambda_url" {
-  function_name      = aws_lambda_function.backend_lambda.function_name
-  authorization_type = "NONE" # Public access
+# --- Backend API Gateway (HTTP API) ---
+resource "aws_apigatewayv2_api" "backend_api" {
+  name          = "${local.backend_prefix}-api"
+  protocol_type = "HTTP"
+  target        = aws_lambda_function.backend_lambda.arn
 
-  depends_on = [aws_lambda_function.backend_lambda]
+  cors_configuration {
+    allow_origins = ["*"]
+    allow_methods = ["*"]
+    allow_headers = ["*"]
+  }
 }
 
-# --- Lambda Permission for Public Function URL Invocation ---
-resource "aws_lambda_permission" "allow_public_backend_lambda_url" {
-  statement_id           = "AllowPublicInvokeBackendFunctionUrl"
-  action                 = "lambda:InvokeFunctionUrl"
-  function_name          = aws_lambda_function.backend_lambda.function_name
-  principal              = "*"
-  function_url_auth_type = "NONE"
-
-  depends_on = [aws_lambda_function_url.backend_lambda_url]
+resource "aws_lambda_permission" "api_gateway_invoke_backend_lambda" {
+  statement_id  = "AllowAPIGatewayInvoke"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.backend_lambda.function_name
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "${aws_apigatewayv2_api.backend_api.execution_arn}/*/*"
 }
 
-
-# --- Removed API Gateway Resources ---
-# aws_apigatewayv2_api.backend_api
-# aws_apigatewayv2_integration.backend_lambda_integration
-# aws_apigatewayv2_route.backend_default_route
-# aws_apigatewayv2_stage.backend_api_stage
-# aws_lambda_permission.api_gateway_invoke_backend_lambda
-
-# --- Output the Lambda Function URL ---
-output "backend_lambda_function_url" {
-  description = "The public invocation URL for the backend Lambda function"
-  value       = aws_lambda_function_url.backend_lambda_url.function_url
+# --- Output the API Gateway endpoint URL ---
+output "backend_api_gateway_url" {
+  description = "The invocation URL for the backend API Gateway"
+  value       = aws_apigatewayv2_api.backend_api.api_endpoint
 }
 
 # --- Output RDS Connection Details ---

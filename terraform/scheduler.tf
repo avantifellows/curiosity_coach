@@ -46,8 +46,7 @@ resource "aws_lambda_function" "scheduler_lambda" {
 
   environment {
     variables = {
-      BACKEND_BASE_URL = aws_lambda_function_url.backend_lambda_url.function_url
-      BACKEND_ROUTE    = "/api/tasks/trigger-memory-generation"
+      BACKEND_BASE_URL = aws_apigatewayv2_api.backend_api.api_endpoint
     }
   }
 
@@ -59,7 +58,9 @@ resource "aws_lambda_function" "scheduler_lambda" {
 
   depends_on = [
     aws_iam_role.scheduler_lambda_role,
-    aws_lambda_function_url.backend_lambda_url
+    data.archive_file.scheduler_lambda_zip,
+    aws_cloudwatch_event_rule.scheduler_rule,
+    aws_apigatewayv2_api.backend_api
   ]
 }
 

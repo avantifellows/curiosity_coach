@@ -35,15 +35,15 @@ variable "lambda_function_name" {
 }
 
 variable "docker_image_tag" {
-  description = "The tag for the Docker image to be deployed"
+  description = "Tag for the docker image to be built & pushed to ECR"
   type        = string
   default     = "latest"
 }
 
 variable "aws_profile" {
-  description = "AWS profile to use for CLI commands during Docker push."
+  description = "The AWS profile to use."
   type        = string
-  default     = "deepansh-af" # Or leave empty to prompt/use environment default
+  default     = "deepansh-af"
 }
 
 variable "flow_config_s3_bucket_name" {
@@ -124,4 +124,14 @@ variable "existing_rds_db_name" {
   description = "The name of the database to use in the existing RDS instance. Overrides the instance's default DB name."
   type        = string
   default     = ""
+}
+
+variable "vpc_id" {
+  description = "The ID of the VPC to use."
+  type        = string
+}
+
+variable "public_subnet_ids" {
+  description = "A list of public subnet IDs to use."
+  type        = list(string)
 }

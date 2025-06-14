@@ -258,6 +258,33 @@ resource "aws_lambda_function" "app_lambda" {
   ]
 }
 
+# --- API Gateway (HTTP API) for Brain Lambda ---
+resource "aws_apigatewayv2_api" "app_api" {
+  name          = "${local.lambda_function_name}-api"
+  protocol_type = "HTTP"
+  target        = aws_lambda_function.app_lambda.arn
+
+  cors_configuration {
+    allow_origins = ["*"]
+    allow_methods = ["*"]
+    allow_headers = ["*"]
+  }
+}
+
+resource "aws_lambda_permission" "api_gateway_invoke_app_lambda" {
+  statement_id  = "AllowAPIGatewayInvoke"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.app_lambda.function_name
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "${aws_apigatewayv2_api.app_api.execution_arn}/*/*"
+}
+
+# --- Output the API Gateway endpoint URL ---
+output "brain_api_gateway_url" {
+  description = "The invocation URL for the brain API Gateway"
+  value       = aws_apigatewayv2_api.app_api.api_endpoint
+}
+
 # --- SQS Queue ---
 resource "aws_sqs_queue" "app_queue" {
   name                        = "${local.lambda_function_name}-queue" # Name based on lambda name
@@ -303,18 +330,4 @@ resource "aws_lambda_event_source_mapping" "sqs_trigger" {
       aws_sqs_queue.app_queue,
       aws_iam_role_policy_attachment.lambda_sqs_attachment # Ensure role has SQS permissions before mapping
   ]
-}
-
-# --- Lambda Function URL --- 
-resource "aws_lambda_function_url" "app_lambda_url" {
-  function_name      = aws_lambda_function.app_lambda.function_name
-  authorization_type = "NONE" # Or "AWS_IAM"
-}
-
-# Grant invoke permission because authorization_type is NONE
-resource "aws_lambda_permission" "allow_public_access" {
-  action        = "lambda:InvokeFunctionUrl"
-  function_name = aws_lambda_function.app_lambda.function_name
-  principal     = "*"
-  function_url_auth_type = "NONE"
 }
