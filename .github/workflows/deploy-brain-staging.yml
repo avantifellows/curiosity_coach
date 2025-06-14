@@ -25,7 +25,7 @@ jobs:
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ap-south-1 # Or your desired AWS region
+          aws-region: ap-south-2 # Or your desired AWS region
 
       - name: Login to Amazon ECR
         id: login-ecr
@@ -36,9 +36,9 @@ jobs:
         run: |
           # Find the Lambda function containing 'curiosity-coach-brain-staging'
           # Use the AWS_REGION secret or hardcode if preferred
-          FUNCTION_NAME=$(aws lambda list-functions --region ap-south-1 --query 'Functions[?contains(FunctionName, `curiosity-coach-brain-staging`)].FunctionName | [0]' --output text | head -n 1)
+          FUNCTION_NAME=$(aws lambda list-functions --region ap-south-2 --query 'Functions[?contains(FunctionName, `curiosity-coach-brain-staging`)].FunctionName | [0]' --output text | head -n 1)
           if [ -z "$FUNCTION_NAME" ] || [ "$FUNCTION_NAME" == "None" ]; then
-            echo "Error: Could not find Lambda function containing 'curiosity-coach-brain-staging' in region ap-south-1."
+            echo "Error: Could not find Lambda function containing 'curiosity-coach-brain-staging' in region ap-south-2."
             exit 1
           fi
           echo "Found Lambda function: $FUNCTION_NAME"
@@ -69,7 +69,7 @@ jobs:
           LAMBDA_FUNCTION_NAME: ${{ steps.find_lambda.outputs.function_name }}
         run: |
           echo "Waiting for function update to complete for $LAMBDA_FUNCTION_NAME..."
-          aws lambda wait function-updated --function-name $LAMBDA_FUNCTION_NAME --region ap-south-1
+          aws lambda wait function-updated --function-name $LAMBDA_FUNCTION_NAME --region ap-south-2
           echo "Function update completed."
 
       - name: Find Backend API Gateway URL
@@ -91,7 +91,7 @@ jobs:
         run: |
           echo "Updating environment variables for $BRAIN_LAMBDA_FUNCTION_NAME with Backend URL: $BACKEND_URL"
           # Get current environment variables JSON
-          CURRENT_ENV_VARS=$(aws lambda get-function-configuration --function-name $BRAIN_LAMBDA_FUNCTION_NAME --region ap-south-1 --query 'Environment.Variables' --output json)
+          CURRENT_ENV_VARS=$(aws lambda get-function-configuration --function-name $BRAIN_LAMBDA_FUNCTION_NAME --region ap-south-2 --query 'Environment.Variables' --output json)
 
           # Check if jq is installed, if not, install it (Ubuntu runners usually have it)
           if ! command -v jq &> /dev/null
@@ -116,6 +116,6 @@ jobs:
           echo "Environment payload for AWS CLI: $ENV_PAYLOAD"
 
           # Update the function configuration with the merged environment variables
-          aws lambda update-function-configuration --function-name $BRAIN_LAMBDA_FUNCTION_NAME --region ap-south-1 --environment "$ENV_PAYLOAD"
+          aws lambda update-function-configuration --function-name $BRAIN_LAMBDA_FUNCTION_NAME --region ap-south-2 --environment "$ENV_PAYLOAD"
 
-          echo "Lambda environment variables updated successfully." 
+          echo "Lambda environment variables updated successfully."
