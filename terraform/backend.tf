@@ -47,16 +47,13 @@ data "aws_region" "current" {}
 
 # --- Added Specific VPC Data Source ---
 data "aws_vpc" "selected" {
-  id = "vpc-0a25a54c34b446c2d" # The VPC ID we identified
+  id = var.vpc_id # The VPC ID we identified
 }
 
 # --- Define the Public Subnet IDs ---
 # Identified public subnets in vpc-0a25a54c34b446c2d
 locals {
-  public_subnet_ids = [
-    "subnet-08bdce0ea3ad1826e", # ap-south-1a
-    "subnet-017c528c08e874a5f"  # ap-south-1b
-  ]
+  public_subnet_ids = var.public_subnet_ids
   # Derive resource names consistently
   backend_prefix           = "${var.project_name}-backend-${var.environment}"
   backend_ecr_repo_name    = "${local.backend_prefix}-ecr"
@@ -83,7 +80,7 @@ locals {
   rds_details = {
     address   = var.create_rds_instance ? aws_db_instance.rds_instance[0].address : data.aws_db_instance.existing_rds[0].address
     port      = var.create_rds_instance ? aws_db_instance.rds_instance[0].port : data.aws_db_instance.existing_rds[0].port
-    db_name   = var.create_rds_instance ? aws_db_instance.rds_instance[0].db_name : data.aws_db_instance.existing_rds[0].db_name
+    db_name   = var.create_rds_instance ? aws_db_instance.rds_instance[0].db_name : (var.existing_rds_db_name != "" ? var.existing_rds_db_name : data.aws_db_instance.existing_rds[0].db_name)
     username  = var.create_rds_instance ? aws_db_instance.rds_instance[0].username : var.existing_rds_username
     password  = var.create_rds_instance ? random_password.db_password[0].result : var.existing_rds_password
   }
@@ -454,37 +451,31 @@ resource "aws_lambda_function" "backend_lambda" {
   ]
 }
 
-# --- Backend Lambda Function URL ---
-resource "aws_lambda_function_url" "backend_lambda_url" {
-  function_name      = aws_lambda_function.backend_lambda.function_name
-  authorization_type = "NONE" # Public access
+# --- Backend API Gateway (HTTP API) ---
+resource "aws_apigatewayv2_api" "backend_api" {
+  name          = "${local.backend_prefix}-api"
+  protocol_type = "HTTP"
+  target        = aws_lambda_function.backend_lambda.arn
 
-  depends_on = [aws_lambda_function.backend_lambda]
+  cors_configuration {
+    allow_origins = ["*"]
+    allow_methods = ["*"]
+    allow_headers = ["*"]
+  }
 }
 
-# --- Lambda Permission for Public Function URL Invocation ---
-resource "aws_lambda_permission" "allow_public_backend_lambda_url" {
-  statement_id           = "AllowPublicInvokeBackendFunctionUrl"
-  action                 = "lambda:InvokeFunctionUrl"
-  function_name          = aws_lambda_function.backend_lambda.function_name
-  principal              = "*"
-  function_url_auth_type = "NONE"
-
-  depends_on = [aws_lambda_function_url.backend_lambda_url]
+resource "aws_lambda_permission" "api_gateway_invoke_backend_lambda" {
+  statement_id  = "AllowAPIGatewayInvoke"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.backend_lambda.function_name
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "${aws_apigatewayv2_api.backend_api.execution_arn}/*/*"
 }
 
-
-# --- Removed API Gateway Resources ---
-# aws_apigatewayv2_api.backend_api
-# aws_apigatewayv2_integration.backend_lambda_integration
-# aws_apigatewayv2_route.backend_default_route
-# aws_apigatewayv2_stage.backend_api_stage
-# aws_lambda_permission.api_gateway_invoke_backend_lambda
-
-# --- Output the Lambda Function URL ---
-output "backend_lambda_function_url" {
-  description = "The public invocation URL for the backend Lambda function"
-  value       = aws_lambda_function_url.backend_lambda_url.function_url
+# --- Output the API Gateway endpoint URL ---
+output "backend_api_gateway_url" {
+  description = "The invocation URL for the backend API Gateway"
+  value       = aws_apigatewayv2_api.backend_api.api_endpoint
 }
 
 # --- Output RDS Connection Details ---
@@ -521,7 +512,6 @@ output "rds_database_password" {
 
 # --- Security Group for SQS VPC Endpoint ---
 resource "aws_security_group" "sqs_vpce_sg" {
-  count  = var.create_vpc_endpoints ? 1 : 0
   name        = "${local.backend_prefix}-sqs-vpce-sg"
   description = "Allow inbound HTTPS from Lambda SG to SQS VPC Endpoint"
   vpc_id      = data.aws_vpc.selected.id
@@ -546,12 +536,11 @@ resource "aws_security_group" "sqs_vpce_sg" {
 }
 
 resource "aws_vpc_endpoint" "sqs_endpoint" {
-  count = var.create_vpc_endpoints ? 1 : 0
   vpc_id              = data.aws_vpc.selected.id
   service_name        = "com.amazonaws.${data.aws_region.current.name}.sqs"
   vpc_endpoint_type   = "Interface"
   private_dns_enabled = true
-  security_group_ids  = [aws_security_group.sqs_vpce_sg[0].id]
+  security_group_ids  = [aws_security_group.sqs_vpce_sg.id]
   subnet_ids          = local.public_subnet_ids
 
   tags = merge(local.backend_tags, { Name = "${local.backend_prefix}-sqs-vpce" })
@@ -559,7 +548,6 @@ resource "aws_vpc_endpoint" "sqs_endpoint" {
 
 # --- Security Group for STS VPC Endpoint ---
 resource "aws_security_group" "sts_vpce_sg" {
-  count = var.create_vpc_endpoints ? 1 : 0
   name        = "${local.backend_prefix}-sts-vpce-sg"
   description = "Allow inbound HTTPS from Lambda SG to STS VPC Endpoint"
   vpc_id      = data.aws_vpc.selected.id
@@ -584,12 +572,11 @@ resource "aws_security_group" "sts_vpce_sg" {
 
 # --- STS VPC Endpoint ---
 resource "aws_vpc_endpoint" "sts_endpoint" {
-  count = var.create_vpc_endpoints ? 1 : 0
   vpc_id              = data.aws_vpc.selected.id
   service_name        = "com.amazonaws.${data.aws_region.current.name}.sts"
   vpc_endpoint_type   = "Interface"
   private_dns_enabled = true
-  security_group_ids  = [aws_security_group.sts_vpce_sg[0].id]
+  security_group_ids  = [aws_security_group.sts_vpce_sg.id]
   subnet_ids          = local.public_subnet_ids
 
   tags = merge(local.backend_tags, { Name = "${local.backend_prefix}-sts-vpce" })

@@ -279,7 +279,6 @@ async def receive_brain_response(payload: BrainResponsePayload, db: Session = De
             logger.debug(f"Processing pipeline data - keys: {list(payload.pipeline_data.keys())}")
             pipeline_data_to_save = payload.pipeline_data.copy() # Create a copy to modify
             pipeline_data_to_save.pop('query', None) # Remove 'query' if it exists
-            pipeline_data_to_save.pop('final_response', None) # Remove 'final_response' if it exists
 
         logger.debug(f"Saving brain response message - conversation_id: {payload.conversation_id}")
         saved_response = models.save_message(

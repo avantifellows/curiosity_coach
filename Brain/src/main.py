@@ -13,6 +13,7 @@ import boto3 # Added for S3 interaction
 from botocore.exceptions import NoCredentialsError, PartialCredentialsError, ClientError # Added for S3 error handling
 from mangum import Mangum
 from pathlib import Path
+import asyncio
 
 from src.process_query_entrypoint import process_query, process_follow_up, ProcessQueryResponse
 from src.utils.logger import logger
@@ -21,6 +22,9 @@ from src.utils.logger import logger
 # from src.core.learning_enhancement import generate_enhanced_response, LearningEnhancementError
 from src.config_models import FlowConfig
 from src.services.llm_service import LLMService
+from src.services.api_service import api_service
+from src.schemas import ConversationMemoryData
+from pydantic import ValidationError
 
 # Load environment variables from .env file
 load_dotenv()
@@ -183,6 +187,10 @@ class MessagePayload(BaseModel):
     is_follow_up_response: bool = False  # New field to indicate if this is a response to follow-up questions
     original_query: Optional[str] = None  # Original query if this is a follow-up response
     follow_up_questions: Optional[List[str]] = None  # Follow-up questions that were asked
+
+class BatchTaskRequest(BaseModel):
+    task_type: str
+    conversation_ids: List[int]
 
 # Updated dequeue function containing the core logic
 async def dequeue(message: MessagePayload, background_tasks: Optional[BackgroundTasks] = None):
@@ -592,6 +600,108 @@ async def handle_follow_up(message: MessagePayload, background_tasks: Background
     except Exception as e:
         logger.error(f"Unexpected error in /follow-up endpoint: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
+
+async def process_memory_generation_batch(conversation_ids: List[int]):
+    """
+    Processes a batch of conversation IDs to generate and save memories.
+    """
+    logger.info(f"Starting memory generation batch for {len(conversation_ids)} conversations.")
+    llm_service = LLMService()
+
+    # Load the prompt template from the file
+    try:
+        prompts_dir = Path(__file__).parent / "prompts"
+        with open(prompts_dir / "memory_generation_prompt.txt", "r") as f:
+            prompt_template = f.read()
+    except FileNotFoundError:
+        logger.error("Could not find memory_generation_prompt.txt. Aborting batch task.")
+        return
+
+    for conv_id in conversation_ids:
+        try:
+            logger.info(f"Processing conversation ID: {conv_id}")
+            history = await api_service.get_conversation_history(conv_id)
+
+            if history is None:
+                logger.warning(f"Could not retrieve history for conversation {conv_id}. Skipping.")
+                continue
+            
+            if not history:
+                logger.info(f"Conversation {conv_id} has no history. Skipping memory generation.")
+                continue
+
+            # 1. Format history for the LLM
+            formatted_history = "\n".join([f"{'User' if msg['is_user'] else 'AI'}: {msg['content']}" for msg in history])
+            
+            # 2. Call LLM to generate a structured memory
+            prompt = prompt_template.format(conversation_history=formatted_history)
+            
+            response_dict = await asyncio.to_thread(
+                llm_service.generate_response,
+                prompt,
+                call_type="response_generation" 
+            )
+            summary_json_str = response_dict.get("raw_response")
+
+            if not summary_json_str:
+                logger.error(f"LLM did not return a response for conversation {conv_id}.")
+                continue
+            
+            # 3. Parse and save the memory
+            try:
+                logger.info(f"[{conv_id}] Raw LLM response: '{summary_json_str}'")
+                # The output might be inside a code block, so we extract it.
+                if "```json" in summary_json_str:
+                    logger.info(f"[{conv_id}] JSON markdown detected. Stripping it.")
+                    summary_json_str = summary_json_str.split("```json\n")[1].split("\n```")[0]
+                    logger.info(f"[{conv_id}] Stripped JSON string: '{summary_json_str}'")
+                
+                logger.info(f"[{conv_id}] Attempting to parse JSON...")
+                summary_data = json.loads(summary_json_str)
+                logger.info(f"[{conv_id}] Successfully parsed JSON.")
+                
+                # Validate the data structure using the Pydantic model
+                logger.info(f"[{conv_id}] Attempting to validate data with Pydantic model...")
+                validated_data = ConversationMemoryData(**summary_data)
+                logger.info(f"[{conv_id}] Successfully validated data.")
+                
+                # import ipdb; ipdb.set_trace()
+                # Use the validated data (converted back to a dict) for saving
+                logger.info(f"[{conv_id}] Attempting to save memory...")
+                success = await api_service.save_memory(conv_id, validated_data.model_dump())
+
+                if success:
+                    logger.info(f"Successfully generated, validated, and saved memory for conversation {conv_id}.")
+                else:
+                    logger.error(f"Failed to save memory for conversation {conv_id} after validation.")
+            except json.JSONDecodeError:
+                logger.error(f"Failed to decode LLM response into JSON for conv {conv_id}. Response: '{summary_json_str}'")
+            except ValidationError as e:
+                logger.error(f"Pydantic validation failed for conversation {conv_id}. Errors: {e.json()}. Raw data: {summary_data}")
+            
+        except Exception as e:
+            logger.error(f"Error processing memory for conversation {conv_id}: {e}", exc_info=True)
+            # Continue to the next conversation even if one fails
+
+@app.post("/tasks", status_code=202)
+async def handle_batch_tasks(task_request: BatchTaskRequest, background_tasks: BackgroundTasks):
+    """
+    Generic endpoint to receive and delegate batch tasks.
+    Currently handles memory generation.
+    """
+    logger.info(f"Received task request: {task_request.model_dump()}")
+
+    if task_request.task_type == "GENERATE_MEMORY_BATCH":
+        if not task_request.conversation_ids:
+            logger.info("Received memory generation task with no conversation IDs.")
+            return {"message": "Task received, but no conversation IDs provided."}
+        
+        background_tasks.add_task(process_memory_generation_batch, task_request.conversation_ids)
+        logger.info(f"Queued background task for memory generation for {len(task_request.conversation_ids)} conversations.")
+        return {"message": f"Accepted task to generate memories for {len(task_request.conversation_ids)} conversations."}
+    else:
+        logger.warning(f"Received unknown task type: {task_request.task_type}")
+        raise HTTPException(status_code=400, detail=f"Unknown task type: {task_request.task_type}")
 
 if __name__ == '__main__':
     # Use uvicorn to run the app

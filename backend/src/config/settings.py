@@ -3,7 +3,7 @@ from pydantic_settings import BaseSettings
 from dotenv import load_dotenv
 
 # Load the appropriate environment file
-env_file = '.env.prod' # if os.getenv('APP_ENV') == 'development' else '.env'
+env_file = '.env.local' # if local or prod or staging
 load_dotenv(env_file)
 
 class Settings(BaseSettings):
@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     DB_PASSWORD: str = os.getenv('DB_PASSWORD', 'postgres')
     
     # Local Brain Endpoint (for development)
-    LOCAL_BRAIN_ENDPOINT_URL: str = os.getenv('LOCAL_BRAIN_ENDPOINT_URL', 'http://127.0.0.1:8000')
+    LOCAL_BRAIN_ENDPOINT_URL: str = os.getenv('LOCAL_BRAIN_ENDPOINT_URL', 'http://127.0.0.1:5001')
     
     # AWS settings
     AWS_ACCESS_KEY_ID: str = os.getenv('AWS_ACCESS_KEY_ID', '')
@@ -35,6 +35,9 @@ class Settings(BaseSettings):
     API_DOCS_URL: str = "/api/docs"
     API_REDOC_URL: str = "/api/redoc"
     API_OPENAPI_URL: str = "/api/openapi.json"
+    
+    # Memory Generation
+    MEMORY_INACTIVITY_THRESHOLD_HOURS: int = int(os.getenv('MEMORY_INACTIVITY_THRESHOLD_HOURS', 24))
     
     class Config:
         env_file = env_file

@@ -14,8 +14,8 @@ output "lambda_function_arn" {
 }
 
 output "lambda_function_url" {
-  description = "The URL to invoke the Lambda function."
-  value       = aws_lambda_function_url.app_lambda_url.function_url
+  description = "The URL for the brain lambda function"
+  value       = aws_apigatewayv2_api.app_api.api_endpoint
 }
 
 output "lambda_iam_role_arn" {
