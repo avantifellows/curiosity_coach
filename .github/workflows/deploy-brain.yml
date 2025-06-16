@@ -1,154 +1,101 @@
-name: Deploy Brain Changes
+name: Deploy Brain to AWS Lambda
 
 on:
   push:
     branches:
-      - main # Or your default branch
-    paths:
-      - 'Brain/**' # Trigger only on changes within the Brain directory
-      - '.github/workflows/deploy-brain.yml'
-  pull_request:
-    # branches:
-    #   - main # Or your default branch
-    # paths:
-    #   - 'Brain/**' # Trigger only on changes within the Brain directory
+      - main # Or your deployment branch
+  workflow_dispatch: # Allows manual triggering
+  pull_request: # allows PRs to trigger the workflow
 
 permissions:
-  contents: read
+  contents: read # Required to check out the code
 
 jobs:
-  wait-for-backend:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Wait for Backend Deployment
-        uses: lewagon/wait-on-check-action@v1.3.1
-        with:
-          ref: ${{ github.ref }}
-          check-name: 'Deploy Backend Changes'
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-          wait-interval: 10
-
   deploy:
-    needs: wait-for-backend
+    name: Build and Deploy Brain
     runs-on: ubuntu-latest
+    # Optional: Specify the environment if you use GitHub Environments
+    # environment: production
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20' # Specify your Node.js version
+          # Cache is now directory-specific
+          # cache: 'npm' 
 
       - name: Configure AWS Credentials with Access Keys
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ap-south-1 # Or your desired AWS region
+          aws-region: ap-south-1
 
-      - name: Login to Amazon ECR
-        id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v2
-
-      - name: Find Lambda Function Name
-        id: find_lambda
+      - name: Install Dependencies
+        working-directory: ./curiosity-coach-brain
         run: |
-          # Find the Lambda function containing 'curiosity-coach-brain'
-          # Use the AWS_REGION secret or hardcode if preferred
-          FUNCTION_NAME=$(aws lambda list-functions --region ap-south-1 --query 'Functions[?contains(FunctionName, `curiosity-coach-brain`)].FunctionName | [0]' --output text | head -n 1)
-          if [ -z "$FUNCTION_NAME" ] || [ "$FUNCTION_NAME" == "None" ]; then
-            echo "Error: Could not find Lambda function containing 'curiosity-coach-brain' in region ap-south-1."
-            exit 1
-          fi
-          echo "Found Lambda function: $FUNCTION_NAME"
-          echo "::set-output name=function_name::$FUNCTION_NAME"
+          npm ci # Faster and more reliable than 'npm install' for CI
 
-      - name: Build, tag, and push image to Amazon ECR
-        id: build-image
-        env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          # ECR repository name based on Terraform config (default: curiosity-coach-brain-dev-repo)
-          ECR_REPOSITORY: curiosity-coach-brain-ecr # Adjust if you override the default in Terraform variables
-          IMAGE_TAG: ${{ github.sha }}
-        working-directory: ./Brain # Set working directory to Brain
+      - name: Get Lambda Function URL
+        id: get_lambda_url
         run: |
-          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
-          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
-
-      - name: Update Lambda function code
-        env:
-          # Use the dynamically found function name from the previous step
-          LAMBDA_FUNCTION_NAME: ${{ steps.find_lambda.outputs.function_name }}
-        run: |
-          aws lambda update-function-code --function-name $LAMBDA_FUNCTION_NAME --image-uri ${{ steps.build-image.outputs.image }}
-
-      - name: Wait for Lambda function update to complete
-        env:
-          LAMBDA_FUNCTION_NAME: ${{ steps.find_lambda.outputs.function_name }}
-        run: |
-          echo "Waiting for function update to complete for $LAMBDA_FUNCTION_NAME..."
-          aws lambda wait function-updated --function-name $LAMBDA_FUNCTION_NAME --region ap-south-1
-          echo "Function update completed."
-
-      - name: Find Backend Lambda Function Name
-        id: find_backend_lambda
-        run: |
-          # Find the Lambda function containing 'curiosity-coach-backend'
+          # Find the Lambda function containing the specified string
+          # Pipe to head -n 1 to ensure only the first line (the actual name) is captured
           FUNCTION_NAME=$(aws lambda list-functions --region ap-south-1 --query 'Functions[?contains(FunctionName, `curiosity-coach-backend`)].FunctionName | [0]' --output text | head -n 1)
           if [ -z "$FUNCTION_NAME" ] || [ "$FUNCTION_NAME" == "None" ]; then
             echo "Error: Could not find Lambda function containing 'curiosity-coach-backend' in region ap-south-1."
             exit 1
           fi
-          echo "Found Backend Lambda function: $FUNCTION_NAME"
-          echo "::set-output name=function_name::$FUNCTION_NAME"
+          echo "Found Lambda function: $FUNCTION_NAME"
 
-      - name: Get Backend Lambda Function URL
-        id: get_backend_url
-        run: |
-          BACKEND_FUNCTION_NAME=${{ steps.find_backend_lambda.outputs.function_name }}
-          FUNCTION_URL_CONFIG=$(aws lambda get-function-url-config --function-name $BACKEND_FUNCTION_NAME --region ap-south-1 --output json)
-          # Use jq to parse the JSON and extract the FunctionUrl
-          FUNCTION_URL=$(echo $FUNCTION_URL_CONFIG | jq -r '.FunctionUrl')
+          # Get the full function URL configuration as JSON
+          CONFIG_OUTPUT=$(aws lambda get-function-url-config --region ap-south-1 --function-name "$FUNCTION_NAME" --output json 2>&1)
+          CONFIG_EXIT_CODE=$?
 
+          # Check if the AWS CLI command failed
+          if [ $CONFIG_EXIT_CODE -ne 0 ]; then
+            echo "Error: Failed to execute aws lambda get-function-url-config. Exit code: $CONFIG_EXIT_CODE"
+            echo "AWS CLI Output/Error:"
+            echo "$CONFIG_OUTPUT"
+            exit 1
+          fi
+
+          # Parse the FunctionUrl from the JSON output using jq
+          # Use -e flag to set exit code 1 if .FunctionUrl is null or not found
+          # Use -r flag to get raw string output without quotes
+          FUNCTION_URL=$(echo "$CONFIG_OUTPUT" | jq -e -r '.FunctionUrl')
+          JQ_EXIT_CODE=$?
+
+          # Check if jq failed or the extracted URL is empty/null
+          if [ $JQ_EXIT_CODE -ne 0 ] || [ -z "$FUNCTION_URL" ] || [ "$FUNCTION_URL" == "null" ]; then
+            echo "Error: Could not parse FunctionUrl from AWS CLI output or Function URL is not configured."
+            echo "jq Exit Code: $JQ_EXIT_CODE"
+            echo "Parsed URL: '$FUNCTION_URL'"
+            echo "Full AWS CLI Output:"
+            echo "$CONFIG_OUTPUT"
+            exit 1
+          fi
+
+          # Success path
+          echo "Successfully retrieved Function URL: $FUNCTION_URL"
           # Remove trailing slash if it exists
           FUNCTION_URL=${FUNCTION_URL%/}
+          echo "::set-output name=lambda_url::$FUNCTION_URL"
+          echo "FUNCTION_URL=$FUNCTION_URL" >> $GITHUB_ENV
 
-          if [ -z "$FUNCTION_URL" ] || [ "$FUNCTION_URL" == "null" ]; then
-             echo "Error: Could not retrieve Function URL for $BACKEND_FUNCTION_NAME. Ensure it has a Function URL configured and the IAM role has permissions for lambda:GetFunctionUrlConfig."
-             exit 1
-          fi
-          echo "Found Backend Function URL: $FUNCTION_URL"
-          echo "::set-output name=url::$FUNCTION_URL"
-
-      - name: Update Brain Lambda Environment Variables
+      - name: Build Brain Application
+        working-directory: ./curiosity-coach-brain
+        run: npm run build
         env:
-          BRAIN_LAMBDA_FUNCTION_NAME: ${{ steps.find_lambda.outputs.function_name }}
-          BACKEND_URL: ${{ steps.get_backend_url.outputs.url }}
+          # Use the dynamically fetched Lambda URL
+          REACT_APP_BACKEND_BASE_URL: ${{ env.FUNCTION_URL }}
+
+      - name: Deploy to Lambda
         run: |
-          echo "Updating environment variables for $BRAIN_LAMBDA_FUNCTION_NAME with Backend URL: $BACKEND_URL"
-          # Get current environment variables JSON
-          CURRENT_ENV_VARS=$(aws lambda get-function-configuration --function-name $BRAIN_LAMBDA_FUNCTION_NAME --region ap-south-1 --query 'Environment.Variables' --output json)
-
-          # Check if jq is installed, if not, install it (Ubuntu runners usually have it)
-          if ! command -v jq &> /dev/null
-          then
-              echo "jq could not be found, attempting to install..."
-              sudo apt-get update && sudo apt-get install -y jq
-          fi
-
-          # Use jq to merge the current variables with the new BACKEND_CALLBACK_BASE_URL
-          # This handles cases where Environment.Variables might not exist initially (null)
-          if [ "$CURRENT_ENV_VARS" == "null" ]; then
-            UPDATED_ENV_VARS=$(jq -n --arg url "$BACKEND_URL" '{"BACKEND_CALLBACK_BASE_URL": $url}')
-          else
-            UPDATED_ENV_VARS=$(echo $CURRENT_ENV_VARS | jq --arg url "$BACKEND_URL" '. + {BACKEND_CALLBACK_BASE_URL: $url}')
-          fi
-
-          echo "New environment variables JSON: $UPDATED_ENV_VARS"
-
-          # Construct the JSON payload for the --environment argument
-          # Ensure the UPDATED_ENV_VARS JSON is correctly embedded within the {"Variables": ...} structure
-          ENV_PAYLOAD=$(jq -n --argjson vars "$UPDATED_ENV_VARS" '{"Variables": $vars}')
-          echo "Environment payload for AWS CLI: $ENV_PAYLOAD"
-
-          # Update the function configuration with the merged environment variables
-          aws lambda update-function-configuration --function-name $BRAIN_LAMBDA_FUNCTION_NAME --region ap-south-1 --environment "$ENV_PAYLOAD"
-
-          echo "Lambda environment variables updated successfully." 
+          aws lambda update-function-code \
+            --function-name curiosity-coach-brain-dev-lambda \
+            --zip-file fileb://./curiosity-coach-brain/dist/index.zip 
