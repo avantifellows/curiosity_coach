@@ -98,39 +98,17 @@ jobs:
           fi
           echo "Found Brain Lambda function: $BRAIN_FUNCTION_NAME"
 
-          # Get the full function URL configuration as JSON
-          CONFIG_OUTPUT=$(aws lambda get-function-url-config --region ap-south-1 --function-name "$BRAIN_FUNCTION_NAME" --output json 2>&1)
-          CONFIG_EXIT_CODE=$?
-
-          # Check if the AWS CLI command failed
-          if [ $CONFIG_EXIT_CODE -ne 0 ]; then
-            echo "Error: Failed to execute aws lambda get-function-url-config for brain. Exit code: $CONFIG_EXIT_CODE"
-            echo "AWS CLI Output/Error:"
-            echo "$CONFIG_OUTPUT"
-            exit 1
-          fi
-
-          # Parse the FunctionUrl from the JSON output using jq
-          # Use -e flag to set exit code 1 if .FunctionUrl is null or not found
-          # Use -r flag to get raw string output without quotes
-          BRAIN_FUNCTION_URL_RAW=$(echo "$CONFIG_OUTPUT" | jq -e -r '.FunctionUrl')
-          JQ_EXIT_CODE=$?
-
-          # Check if jq failed or the extracted URL is empty/null
-          if [ $JQ_EXIT_CODE -ne 0 ] || [ -z "$BRAIN_FUNCTION_URL_RAW" ] || [ "$BRAIN_FUNCTION_URL_RAW" == "null" ]; then
-            echo "Error: Could not parse FunctionUrl for brain from AWS CLI output or Function URL is not configured."
-            echo "jq Exit Code: $JQ_EXIT_CODE"
-            echo "Parsed URL: '$BRAIN_FUNCTION_URL_RAW'"
-            echo "Full AWS CLI Output:"
-            echo "$CONFIG_OUTPUT"
+          # Get the function URL directly using --query
+          BRAIN_FUNCTION_URL=$(aws lambda get-function-url-config --region ap-south-1 --function-name "$BRAIN_FUNCTION_NAME" --query 'FunctionUrl' --output text)
+          if [ -z "$BRAIN_FUNCTION_URL" ] || [ "$BRAIN_FUNCTION_URL" == "None" ]; then
+            echo "Error: Could not get Function URL for brain lambda."
             exit 1
           fi
 
           # Success path
-          echo "Successfully retrieved Brain Function URL: $BRAIN_FUNCTION_URL_RAW"
+          echo "Successfully retrieved Brain Function URL: $BRAIN_FUNCTION_URL"
           # Remove trailing slash if it exists
-          BRAIN_FUNCTION_URL=${BRAIN_FUNCTION_URL_RAW%/}
-          echo "::set-output name=brain_lambda_url::$BRAIN_FUNCTION_URL"
+          BRAIN_FUNCTION_URL=${BRAIN_FUNCTION_URL%/}
           echo "BRAIN_FUNCTION_URL=$BRAIN_FUNCTION_URL" >> $GITHUB_ENV
 
       - name: Build Frontend Application
