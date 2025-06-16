@@ -91,9 +91,9 @@ jobs:
         id: get_brain_lambda_url
         run: |
           # Find the Lambda function containing the specified string
-          BRAIN_FUNCTION_NAME=$(aws lambda list-functions --region ap-south-1 --query 'Functions[?contains(FunctionName, `curiosity-coach-brain`)].FunctionName | [0]' --output text | head -n 1)
+          BRAIN_FUNCTION_NAME=$(aws lambda list-functions --region ap-south-1 --query 'Functions[?contains(FunctionName, `curiosity-coach-brain-lambda`)].FunctionName | [0]' --output text | head -n 1)
           if [ -z "$BRAIN_FUNCTION_NAME" ] || [ "$BRAIN_FUNCTION_NAME" == "None" ]; then
-            echo "Error: Could not find Lambda function containing 'curiosity-coach-brain' in region ap-south-1."
+            echo "Error: Could not find Lambda function containing 'curiosity-coach-brain-lambda' in region ap-south-1."
             exit 1
           fi
           echo "Found Brain Lambda function: $BRAIN_FUNCTION_NAME"
