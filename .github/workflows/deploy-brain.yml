@@ -24,7 +24,7 @@ jobs:
         uses: lewagon/wait-on-check-action@v1.3.1
         with:
           ref: ${{ github.ref }}
-          check-name: 'deploy'
+          check-name: 'Deploy Backend Changes'
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           wait-interval: 10
 
