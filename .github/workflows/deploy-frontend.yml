@@ -11,7 +11,19 @@ permissions:
   contents: read # Required to check out the code
 
 jobs:
+  wait-for-backend:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wait for Backend Deployment
+        uses: lewagon/wait-on-check-action@v1.3.1
+        with:
+          ref: ${{ github.ref }}
+          check-name: 'deploy'
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          wait-interval: 10
+
   deploy:
+    needs: wait-for-backend
     name: Build and Deploy Frontend
     runs-on: ubuntu-latest
     # Optional: Specify the environment if you use GitHub Environments
