@@ -10,6 +10,13 @@ import {
 import { ConversationSummary, Message, ChatHistory } from '../types';
 import { useAuth } from './AuthContext'; // Assuming AuthContext provides user info
 
+// Helper function to extract first 10 words from text
+const extractFirstTenWords = (text: string): string => {
+  const words = text.trim().split(/\s+/);
+  const firstTenWords = words.slice(0, 10).join(' ');
+  return firstTenWords || 'New Chat'; // Fallback if no words
+};
+
 interface ChatContextState {
   conversations: ConversationSummary[];
   currentConversationId: number | null;
@@ -73,6 +80,15 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const { user } = useAuth(); // Get user from AuthContext to fetch data only when logged in
   const cleanupPollingRef = useRef<(() => void) | null>(null); // Ref to hold the cleanup function
 
+  // --- Function to update title based on first message ---
+  const updateTitleFromFirstMessage = useCallback((conversationId: number, content: string, currentMessagesLength: number) => {
+    if (currentMessagesLength === 0) { // This is the first message in the conversation
+      const newTitle = extractFirstTenWords(content);
+      return newTitle;
+    }
+    return null;
+  }, []);
+
   // --- Fetch Conversations --- 
   const fetchConversations = useCallback(async () => {
     if (!user) return; // Don't fetch if not logged in
@@ -121,6 +137,60 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       setMessages([]); // Clear messages if no conversation is selected
     }
   }, [fetchMessages]);
+
+  // --- Update Conversation Title ---
+  const handleUpdateConversationTitle = useCallback(async (conversationId: number, newTitle: string) => {
+    if (!user) {
+      setUpdateConversationTitleError("User not authenticated.");
+      return;
+    }
+    if (!newTitle.trim()) {
+      setUpdateConversationTitleError("Title cannot be empty.");
+      // Or, revert to original, or let UI handle this (e.g. disable save if empty)
+      return;
+    }
+
+    setIsUpdatingConversationTitle(true);
+    setUpdateConversationTitleError(null);
+
+    try {
+      const updatedConversation = await updateConversationTitleApi(conversationId, newTitle.trim());
+
+      setConversations(prevConvs =>
+        prevConvs.map(conv =>
+          conv.id === conversationId ? { 
+            ...conv, // Spread existing summary fields
+            title: updatedConversation.title, 
+            updated_at: updatedConversation.updated_at 
+          } : conv
+        )
+      );
+
+    } catch (err: any) {
+      console.error("Failed to update conversation title:", err);
+      setUpdateConversationTitleError(err.message || 'An unknown error occurred while updating title');
+    } finally {
+      setIsUpdatingConversationTitle(false);
+    }
+  }, [user]);
+
+  // --- Create Conversation --- 
+  const handleCreateConversation = useCallback(async (title?: string): Promise<number | null> => {
+    if (!user) return null;
+    // Consider adding loading state for creation
+    setError(null);
+    try {
+      const newConversation = await createConversation(title);
+      setConversations(prev => [newConversation, ...prev]); // Add to top of list
+      setCurrentConversationId(newConversation.id);
+      setMessages([]); // Clear messages for new chat
+      setIsConfigViewActive(false); // Ensure config view is not active
+      return newConversation.id;
+    } catch (err: any) {
+      setError(err.message || 'Failed to create conversation');
+      return null;
+    }
+  }, [user]);
 
   // --- Poll for AI Response --- 
   const pollAiResponse = useCallback(async (userMessageId: number, currentConvId: number | null): Promise<(() => void) | undefined> => {
@@ -209,6 +279,9 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         status: 'sending',
     };
 
+    // Store current message length before adding new message
+    const currentMessagesLength = messages.length;
+
     setMessages(prev => [...prev, tempUserMessage]);
 
     try {
@@ -226,6 +299,15 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           ? { ...savedUserMessage, status: 'sent' } 
           : msg
       ));
+      
+      // Check if title should be updated
+      const newTitle = updateTitleFromFirstMessage(currentConversationId, content, currentMessagesLength);
+      if (newTitle) {
+        // Update the title using the existing function
+        handleUpdateConversationTitle(currentConversationId, newTitle).catch(err => {
+          console.error("Failed to update conversation title:", err);
+        });
+      }
       
       setIsBrainProcessing(true); 
       
@@ -245,25 +327,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     } finally {
       setIsSendingMessage(false);
     }
-  }, [currentConversationId, pollAiResponse]);
-
-  // --- Create Conversation --- 
-  const handleCreateConversation = useCallback(async (title?: string): Promise<number | null> => {
-    if (!user) return null;
-    // Consider adding loading state for creation
-    setError(null);
-    try {
-      const newConversation = await createConversation(title);
-      setConversations(prev => [newConversation, ...prev]); // Add to top of list
-      setCurrentConversationId(newConversation.id);
-      setMessages([]); // Clear messages for new chat
-      setIsConfigViewActive(false); // Ensure config view is not active
-      return newConversation.id;
-    } catch (err: any) {
-      setError(err.message || 'Failed to create conversation');
-      return null;
-    }
-  }, [user]);
+  }, [currentConversationId, pollAiResponse, messages, updateTitleFromFirstMessage, handleUpdateConversationTitle]);
 
   // --- Send Message with Auto-Conversation Creation --- 
   const handleSendMessageWithAutoConversation = useCallback(async (content: string, purpose: string = "chat") => {
@@ -287,6 +351,9 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         return;
       }
     }
+
+    // Store current message length before adding new message
+    const currentMessagesLength = messages.length;
 
     // Now send the message with the conversation ID
     // Clear any previous polling before starting a new send
@@ -325,6 +392,15 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           : msg
       ));
       
+      // Check if title should be updated
+      const newTitle = updateTitleFromFirstMessage(conversationId, content, currentMessagesLength);
+      if (newTitle) {
+        // Update the title using the existing function
+        handleUpdateConversationTitle(conversationId, newTitle).catch(err => {
+          console.error("Failed to update conversation title:", err);
+        });
+      }
+      
       setIsBrainProcessing(true); 
       
       const stopPollingCallback = await pollAiResponse(savedUserMessage.id!, conversationId);
@@ -343,7 +419,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     } finally {
       setIsSendingMessage(false);
     }
-  }, [user, currentConversationId, handleCreateConversation, pollAiResponse]);
+  }, [user, currentConversationId, handleCreateConversation, pollAiResponse, messages, updateTitleFromFirstMessage, handleUpdateConversationTitle]);
 
   // --- Fetch Brain Config Schema ---
   const fetchBrainConfigSchema = useCallback(async () => {
@@ -411,42 +487,6 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       setIsSavingBrainConfig(false);
     }
   }, [user]); // Removed fetchBrainConfigSchema from deps for now
-
-  // --- Update Conversation Title ---
-  const handleUpdateConversationTitle = useCallback(async (conversationId: number, newTitle: string) => {
-    if (!user) {
-      setUpdateConversationTitleError("User not authenticated.");
-      return;
-    }
-    if (!newTitle.trim()) {
-      setUpdateConversationTitleError("Title cannot be empty.");
-      // Or, revert to original, or let UI handle this (e.g. disable save if empty)
-      return;
-    }
-
-    setIsUpdatingConversationTitle(true);
-    setUpdateConversationTitleError(null);
-
-    try {
-      const updatedConversation = await updateConversationTitleApi(conversationId, newTitle.trim());
-
-      setConversations(prevConvs =>
-        prevConvs.map(conv =>
-          conv.id === conversationId ? { 
-            ...conv, // Spread existing summary fields
-            title: updatedConversation.title, 
-            updated_at: updatedConversation.updated_at 
-          } : conv
-        )
-      );
-
-    } catch (err: any) {
-      console.error("Failed to update conversation title:", err);
-      setUpdateConversationTitleError(err.message || 'An unknown error occurred while updating title');
-    } finally {
-      setIsUpdatingConversationTitle(false);
-    }
-  }, [user]);
 
   // --- Initial Fetch --- 
   useEffect(() => {
