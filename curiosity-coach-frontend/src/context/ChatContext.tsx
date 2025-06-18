@@ -184,6 +184,148 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   }, []);
 
+  // --- Create Conversation --- 
+  const handleCreateConversation = useCallback(async (title?: string): Promise<number | null> => {
+    if (!user) return null;
+    // Consider adding loading state for creation
+    setError(null);
+    try {
+      const newConversation = await createConversation(title);
+      setConversations(prev => [newConversation, ...prev]); // Add to top of list
+      setCurrentConversationId(newConversation.id);
+      setMessages([]); // Clear messages for new chat
+      setIsConfigViewActive(false); // Ensure config view is not active
+      return newConversation.id;
+    } catch (err: any) {
+      setError(err.message || 'Failed to create conversation');
+      return null;
+    }
+  }, [user]);
+
+  // --- Update Conversation Title ---
+  const handleUpdateConversationTitle = useCallback(async (conversationId: number, newTitle: string) => {
+    if (!user) {
+      setUpdateConversationTitleError("User not authenticated.");
+      return;
+    }
+    if (!newTitle.trim()) {
+      setUpdateConversationTitleError("Title cannot be empty.");
+      return;
+    }
+
+    setIsUpdatingConversationTitle(true);
+    setUpdateConversationTitleError(null);
+
+    try {
+      const updatedConversation = await updateConversationTitleApi(conversationId, newTitle.trim());
+
+      setConversations(prevConvs =>
+        prevConvs.map(conv =>
+          conv.id === conversationId ? { 
+            ...conv,
+            title: updatedConversation.title, 
+            updated_at: updatedConversation.updated_at 
+          } : conv
+        )
+      );
+
+    } catch (err: any) {
+      console.error("Failed to update conversation title:", err);
+      setUpdateConversationTitleError(err.message || 'An unknown error occurred while updating title');
+    } finally {
+      setIsUpdatingConversationTitle(false);
+    }
+  }, [user]);
+
+  // --- Send Message with Auto-Conversation Creation --- 
+  const handleSendMessageWithAutoConversation = useCallback(async (content: string, purpose: string = "chat") => {
+    if (!user) {
+      setError('User not authenticated');
+      return;
+    }
+
+    let conversationId = currentConversationId;
+    let isNewConversation = false;
+
+    // If no conversation is selected, create one first
+    if (conversationId === null) {
+      try {
+        conversationId = await handleCreateConversation();
+        if (conversationId === null) {
+          setError('Failed to create conversation');
+          return;
+        }
+        isNewConversation = true;
+      } catch (err: any) {
+        setError(err.message || 'Failed to create conversation');
+        return;
+      }
+    }
+
+    // Now send the message with the conversation ID
+    // Clear any previous polling before starting a new send
+    if (cleanupPollingRef.current) {
+        cleanupPollingRef.current();
+        cleanupPollingRef.current = null;
+    }
+    
+    setIsSendingMessage(true);
+    setIsBrainProcessing(false);
+    setError(null);
+    
+    const tempUserMessage: Message = {
+        id: Date.now(),
+        content,
+        is_user: true,
+        timestamp: new Date().toISOString(),
+        status: 'sending',
+    };
+
+    setMessages(prev => [...prev, tempUserMessage]);
+
+    try {
+      const response = await sendMessage(conversationId, content, purpose);
+      
+      if (!response.success || !response.message || typeof response.message.id !== 'number') {
+          console.error("Invalid response from sendMessage:", response);
+          throw new Error("Failed to save message or invalid response received.");
+      }
+      
+      const savedUserMessage = response.message; 
+      
+      setMessages(prev => prev.map(msg => 
+          msg.id === tempUserMessage.id 
+          ? { ...savedUserMessage, status: 'sent' } 
+          : msg
+      ));
+
+      // If this is a new conversation, rename it using the first 10 words of the message
+      if (isNewConversation) {
+        const words = content.split(/\s+/);
+        const firstTenWords = words.slice(0, 10).join(' ');
+        await handleUpdateConversationTitle(conversationId, firstTenWords);
+      }
+      
+      setIsBrainProcessing(true); 
+      
+      const stopPollingCallback = await pollAiResponse(savedUserMessage.id!, conversationId);
+      if (typeof stopPollingCallback === 'function') {
+          cleanupPollingRef.current = stopPollingCallback; // Store cleanup in ref
+      }
+
+    } catch (err: any) {
+      setError(err.message || 'Failed to send message');
+      setMessages(prev => prev.map(msg => 
+          msg.id === tempUserMessage.id 
+          ? { ...msg, status: 'error' } 
+          : msg
+      ));
+      setIsBrainProcessing(false);
+    } finally {
+      setIsSendingMessage(false);
+    }
+  }, [user, currentConversationId, handleCreateConversation, pollAiResponse, handleUpdateConversationTitle]);
+
   // --- Send Message --- 
   const handleSendMessage = useCallback(async (content: string, purpose: string = "chat") => {
     if (currentConversationId === null) {
@@ -246,104 +388,6 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       setIsSendingMessage(false);
     }
   }, [currentConversationId, pollAiResponse]);
-
-  // --- Create Conversation --- 
-  const handleCreateConversation = useCallback(async (title?: string): Promise<number | null> => {
-    if (!user) return null;
-    // Consider adding loading state for creation
-    setError(null);
-    try {
-      const newConversation = await createConversation(title);
-      setConversations(prev => [newConversation, ...prev]); // Add to top of list
-      setCurrentConversationId(newConversation.id);
-      setMessages([]); // Clear messages for new chat
-      setIsConfigViewActive(false); // Ensure config view is not active
-      return newConversation.id;
-    } catch (err: any) {
-      setError(err.message || 'Failed to create conversation');
-      return null;
-    }
-  }, [user]);
-
-  // --- Send Message with Auto-Conversation Creation --- 
-  const handleSendMessageWithAutoConversation = useCallback(async (content: string, purpose: string = "chat") => {
-    if (!user) {
-      setError('User not authenticated');
-      return;
-    }
-
-    let conversationId = currentConversationId;
-
-    // If no conversation is selected, create one first
-    if (conversationId === null) {
-      try {
-        conversationId = await handleCreateConversation();
-        if (conversationId === null) {
-          setError('Failed to create conversation');
-          return;
-        }
-      } catch (err: any) {
-        setError(err.message || 'Failed to create conversation');
-        return;
-      }
-    }
-
-    // Now send the message with the conversation ID
-    // Clear any previous polling before starting a new send
-    if (cleanupPollingRef.current) {
-        cleanupPollingRef.current();
-        cleanupPollingRef.current = null;
-    }
-    
-    setIsSendingMessage(true);
-    setIsBrainProcessing(false);
-    setError(null);
-    
-    const tempUserMessage: Message = {
-        id: Date.now(),
-        content,
-        is_user: true,
-        timestamp: new Date().toISOString(),
-        status: 'sending',
-    };
-
-    setMessages(prev => [...prev, tempUserMessage]);
-
-    try {
-      const response = await sendMessage(conversationId, content, purpose);
-      
-      if (!response.success || !response.message || typeof response.message.id !== 'number') {
-          console.error("Invalid response from sendMessage:", response);
-          throw new Error("Failed to save message or invalid response received.");
-      }
-      
-      const savedUserMessage = response.message; 
-      
-      setMessages(prev => prev.map(msg => 
-          msg.id === tempUserMessage.id 
-          ? { ...savedUserMessage, status: 'sent' } 
-          : msg
-      ));
-      
-      setIsBrainProcessing(true); 
-      
-      const stopPollingCallback = await pollAiResponse(savedUserMessage.id!, conversationId);
-      if (typeof stopPollingCallback === 'function') {
-          cleanupPollingRef.current = stopPollingCallback; // Store cleanup in ref
-      }
-
-    } catch (err: any) {
-      setError(err.message || 'Failed to send message');
-      setMessages(prev => prev.map(msg => 
-          msg.id === tempUserMessage.id 
-          ? { ...msg, status: 'error' } 
-          : msg
-      ));
-      setIsBrainProcessing(false);
-    } finally {
-      setIsSendingMessage(false);
-    }
-  }, [user, currentConversationId, handleCreateConversation, pollAiResponse]);
 
   // --- Fetch Brain Config Schema ---
   const fetchBrainConfigSchema = useCallback(async () => {
@@ -411,42 +455,6 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       setIsSavingBrainConfig(false);
     }
   }, [user]); // Removed fetchBrainConfigSchema from deps for now
-
-  // --- Update Conversation Title ---
-  const handleUpdateConversationTitle = useCallback(async (conversationId: number, newTitle: string) => {
-    if (!user) {
-      setUpdateConversationTitleError("User not authenticated.");
-      return;
-    }
-    if (!newTitle.trim()) {
-      setUpdateConversationTitleError("Title cannot be empty.");
-      // Or, revert to original, or let UI handle this (e.g. disable save if empty)
-      return;
-    }
-
-    setIsUpdatingConversationTitle(true);
-    setUpdateConversationTitleError(null);
-
-    try {
-      const updatedConversation = await updateConversationTitleApi(conversationId, newTitle.trim());
-
-      setConversations(prevConvs =>
-        prevConvs.map(conv =>
-          conv.id === conversationId ? { 
-            ...conv, // Spread existing summary fields
-            title: updatedConversation.title, 
-            updated_at: updatedConversation.updated_at 
-          } : conv
-        )
-      );
-
-    } catch (err: any) {
-      console.error("Failed to update conversation title:", err);
-      setUpdateConversationTitleError(err.message || 'An unknown error occurred while updating title');
-    } finally {
-      setIsUpdatingConversationTitle(false);
-    }
-  }, [user]);
 
   // --- Initial Fetch --- 
   useEffect(() => {

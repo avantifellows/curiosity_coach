@@ -84,7 +84,7 @@ const ConversationSidebar: React.FC<ConversationSidebarProps> = ({ onConversatio
   };
 
   return (
-    <div className="w-64 bg-gray-800 text-white flex flex-col h-screen">
+    <div className="w-80 bg-gray-800 text-white flex flex-col h-screen">
       {/* Header / New Chat Button */}
       <div className="p-4 border-b border-gray-700">
         <button 
