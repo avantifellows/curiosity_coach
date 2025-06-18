@@ -9,6 +9,8 @@ anyio==4.9.0
     #   httpx
     #   starlette
     #   watchfiles
+asttokens==3.0.0
+    # via stack-data
 bcrypt==4.3.0
     # via passlib
 boto3==1.28.57
@@ -27,10 +29,18 @@ click==8.1.8
     # via uvicorn
 cryptography==44.0.2
     # via python-jose
+decorator==5.2.1
+    # via
+    #   ipdb
+    #   ipython
 ecdsa==0.19.1
     # via python-jose
 exceptiongroup==1.2.2
-    # via anyio
+    # via
+    #   anyio
+    #   ipython
+executing==2.2.0
+    # via stack-data
 fastapi==0.115.12
     # via -r requirements.txt
 gunicorn==21.2.0
@@ -49,6 +59,12 @@ idna==3.10
     # via
     #   anyio
     #   httpx
+ipdb==0.13.13
+    # via -r requirements.txt
+ipython==8.18.1
+    # via ipdb
+jedi==0.19.2
+    # via ipython
 jmespath==1.0.1
     # via
     #   boto3
@@ -59,12 +75,24 @@ mangum==0.19.0
     # via -r requirements.txt
 markupsafe==3.0.2
     # via mako
+matplotlib-inline==0.1.7
+    # via ipython
 packaging==25.0
     # via gunicorn
+parso==0.8.4
+    # via jedi
 passlib==1.7.4
     # via -r requirements.txt
+pexpect==4.9.0
+    # via ipython
+prompt-toolkit==3.0.51
+    # via ipython
 psycopg2-binary==2.9.9
     # via -r requirements.txt
+ptyprocess==0.7.0
+    # via pexpect
+pure-eval==0.2.3
+    # via stack-data
 pyasn1==0.4.8
     # via
     #   python-jose
@@ -80,6 +108,8 @@ pydantic-core==2.33.1
     # via pydantic
 pydantic-settings==2.9.1
     # via -r requirements.txt
+pygments==2.19.1
+    # via ipython
 python-dateutil==2.9.0.post0
     # via botocore
 python-dotenv==1.0.0
@@ -105,13 +135,22 @@ sqlalchemy==2.0.23
     # via
     #   -r requirements.txt
     #   alembic
+stack-data==0.6.3
+    # via ipython
 starlette==0.46.2
     # via fastapi
+tomli==2.2.1
+    # via ipdb
+traitlets==5.14.3
+    # via
+    #   ipython
+    #   matplotlib-inline
 typing-extensions==4.13.2
     # via
     #   alembic
     #   anyio
     #   fastapi
+    #   ipython
     #   mangum
     #   pydantic
     #   pydantic-core
@@ -133,5 +172,7 @@ uvloop==0.21.0
     # via uvicorn
 watchfiles==1.0.5
     # via uvicorn
+wcwidth==0.2.13
+    # via prompt-toolkit
 websockets==15.0.1
     # via uvicorn

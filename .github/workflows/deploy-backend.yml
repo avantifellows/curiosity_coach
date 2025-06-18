@@ -3,14 +3,11 @@ name: Deploy Backend Changes
 on:
   push:
     branches:
-      - main # Or your default branch
+      - release
     paths:
       - 'backend/**' # Trigger only on changes within the backend directory
-  pull_request:
-    # branches:
-    #   - main # Or your default branch
-    # paths:
-    #   - 'backend/**' # Trigger only on changes within the backend directory
+      - '.github/workflows/deploy-backend.yml'
+  workflow_dispatch: # Allows manual triggering
 
 permissions:
   contents: read

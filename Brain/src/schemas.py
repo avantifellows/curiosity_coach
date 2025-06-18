@@ -91,3 +91,31 @@ class ProcessQueryResponse(BaseModel):
     follow_up_questions: Optional[List[str]] = Field(None, description="List of follow-up questions if clarification is needed")
     needs_clarification: bool = Field(False, description="Whether clarification is needed from the user")
     partial_understanding: Optional[str] = Field(None, description="Partial understanding of the query when clarification is needed")
+
+# --- Conversation Memory Schemas ---
+
+class TopicDiscussed(BaseModel):
+    topic: str = Field(..., description="The main educational topic.")
+    keywords: List[str] = Field(..., description="List of key technical or conceptual terms.")
+    student_initial_knowledge: str = Field(..., description="What the student knew or believed at the start.")
+    key_learnings: List[str] = Field(..., description="Main concepts the student learned.")
+
+class InferredInterest(BaseModel):
+    interest: str = Field(..., description="Inferred underlying interest of the student.")
+    confidence_score: float = Field(..., description="Confidence score (0.0 to 1.0) for the inference.")
+    evidence: str = Field(..., description="Evidence from the conversation supporting the inference.")
+
+class StudentProfileInsights(BaseModel):
+    inferred_interests: List[InferredInterest]
+    learning_patterns: List[str] = Field(..., description="Observations about the student's learning style.")
+    personality_traits: List[str] = Field(..., description="Observed personality traits relevant to learning.")
+
+class FutureConversationHook(BaseModel):
+    hook_question: str = Field(..., description="An engaging question to ask in a future conversation.")
+    related_topic: str = Field(..., description="The broader topic related to the hook question.")
+
+class ConversationMemoryData(BaseModel):
+    conversation_summary: str = Field(..., description="A brief, narrative summary of the conversation.")
+    topics_discussed: List[TopicDiscussed]
+    student_profile_insights: StudentProfileInsights
+    future_conversation_hooks: List[FutureConversationHook]
