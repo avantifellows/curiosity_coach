@@ -121,6 +121,12 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ mode }) => {
       setIsLoadingSteps(false);
     }
   };
+  
+  const getHeaderTitle = () => {
+    if (isConfigViewActive) return 'Brain Configuration';
+    if (currentConversationId) return mode === 'chat' ? 'Chat' : 'Test Prompt';
+    return 'Curiosity Coach';
+  };
 
   const handleViewMemory = async () => {
     if (!currentConversationId) return;
