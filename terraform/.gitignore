@@ -27,3 +27,7 @@ override.tf.json
 terraform.rc 
 
 terraform_outputs.json
+terraform_outputs_staging.txt
+*.zip
+terraform_outputs_staging.json
+terraform_outputs_prod.json

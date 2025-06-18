@@ -3,9 +3,11 @@ name: Deploy Frontend to AWS S3 and CloudFront
 on:
   push:
     branches:
-      - main # Or your deployment branch
+      - release
+    paths:
+      - 'curiosity-coach-frontend/**'
+      - '.github/workflows/deploy-frontend.yml'
   workflow_dispatch: # Allows manual triggering
-  pull_request: # allows PRs to trigger the workflow
 
 permissions:
   contents: read # Required to check out the code
@@ -40,76 +42,29 @@ jobs:
         run: |
           npm ci # Faster and more reliable than 'npm install' for CI
 
-      - name: Get Lambda Function URL
-        id: get_lambda_url
+      - name: Get Backend API Gateway URL
+        id: get_backend_url
         run: |
-          # Find the Lambda function containing the specified string
-          # Pipe to head -n 1 to ensure only the first line (the actual name) is captured
-          FUNCTION_NAME=$(aws lambda list-functions --region ap-south-1 --query 'Functions[?contains(FunctionName, `curiosity-coach-backend`)].FunctionName | [0]' --output text | head -n 1)
-          if [ -z "$FUNCTION_NAME" ] || [ "$FUNCTION_NAME" == "None" ]; then
-            echo "Error: Could not find Lambda function containing 'curiosity-coach-backend' in region ap-south-1."
+          API_NAME="curiosity-coach-backend-dev-api"
+          API_URL=$(aws apigatewayv2 get-apis --region ap-south-1 --query "Items[?Name=='$API_NAME'].ApiEndpoint" --output text)
+          if [ -z "$API_URL" ]; then
+            echo "Error: Could not find API Gateway with name $API_NAME"
             exit 1
           fi
-          echo "Found Lambda function: $FUNCTION_NAME"
+          echo "Found Backend API URL: $API_URL"
+          echo "FUNCTION_URL=$API_URL" >> $GITHUB_ENV
 
-          # Get the full function URL configuration as JSON
-          CONFIG_OUTPUT=$(aws lambda get-function-url-config --region ap-south-1 --function-name "$FUNCTION_NAME" --output json 2>&1)
-          CONFIG_EXIT_CODE=$?
-
-          # Check if the AWS CLI command failed
-          if [ $CONFIG_EXIT_CODE -ne 0 ]; then
-            echo "Error: Failed to execute aws lambda get-function-url-config. Exit code: $CONFIG_EXIT_CODE"
-            echo "AWS CLI Output/Error:"
-            echo "$CONFIG_OUTPUT"
-            exit 1
-          fi
-
-          # Parse the FunctionUrl from the JSON output using jq
-          # Use -e flag to set exit code 1 if .FunctionUrl is null or not found
-          # Use -r flag to get raw string output without quotes
-          FUNCTION_URL=$(echo "$CONFIG_OUTPUT" | jq -e -r '.FunctionUrl')
-          JQ_EXIT_CODE=$?
-
-          # Check if jq failed or the extracted URL is empty/null
-          if [ $JQ_EXIT_CODE -ne 0 ] || [ -z "$FUNCTION_URL" ] || [ "$FUNCTION_URL" == "null" ]; then
-            echo "Error: Could not parse FunctionUrl from AWS CLI output or Function URL is not configured."
-            echo "jq Exit Code: $JQ_EXIT_CODE"
-            echo "Parsed URL: '$FUNCTION_URL'"
-            echo "Full AWS CLI Output:"
-            echo "$CONFIG_OUTPUT"
-            exit 1
-          fi
-
-          # Success path
-          echo "Successfully retrieved Function URL: $FUNCTION_URL"
-          # Remove trailing slash if it exists
-          FUNCTION_URL=${FUNCTION_URL%/}
-          echo "::set-output name=lambda_url::$FUNCTION_URL"
-          echo "FUNCTION_URL=$FUNCTION_URL" >> $GITHUB_ENV
-
-      - name: Get Brain Lambda Function URL
-        id: get_brain_lambda_url
+      - name: Get Brain API Gateway URL
+        id: get_brain_url
         run: |
-          # Find the Lambda function containing the specified string
-          BRAIN_FUNCTION_NAME=$(aws lambda list-functions --region ap-south-1 --query 'Functions[?contains(FunctionName, `curiosity-coach-brain-lambda`)].FunctionName | [0]' --output text | head -n 1)
-          if [ -z "$BRAIN_FUNCTION_NAME" ] || [ "$BRAIN_FUNCTION_NAME" == "None" ]; then
-            echo "Error: Could not find Lambda function containing 'curiosity-coach-brain-lambda' in region ap-south-1."
+          API_NAME="curiosity-coach-brain-lambda-api"
+          API_URL=$(aws apigatewayv2 get-apis --region ap-south-1 --query "Items[?Name=='$API_NAME'].ApiEndpoint" --output text)
+          if [ -z "$API_URL" ]; then
+            echo "Error: Could not find API Gateway with name $API_NAME"
             exit 1
           fi
-          echo "Found Brain Lambda function: $BRAIN_FUNCTION_NAME"
-
-          # Get the function URL directly using --query
-          BRAIN_FUNCTION_URL=$(aws lambda get-function-url-config --region ap-south-1 --function-name "$BRAIN_FUNCTION_NAME" --query 'FunctionUrl' --output text)
-          if [ -z "$BRAIN_FUNCTION_URL" ] || [ "$BRAIN_FUNCTION_URL" == "None" ]; then
-            echo "Error: Could not get Function URL for brain lambda."
-            exit 1
-          fi
-
-          # Success path
-          echo "Successfully retrieved Brain Function URL: $BRAIN_FUNCTION_URL"
-          # Remove trailing slash if it exists
-          BRAIN_FUNCTION_URL=${BRAIN_FUNCTION_URL%/}
-          echo "BRAIN_FUNCTION_URL=$BRAIN_FUNCTION_URL" >> $GITHUB_ENV
+          echo "Found Brain API URL: $API_URL"
+          echo "BRAIN_FUNCTION_URL=$API_URL" >> $GITHUB_ENV
 
       - name: Build Frontend Application
         working-directory: ./curiosity-coach-frontend

@@ -4,11 +4,12 @@ import ChatMessage from './ChatMessage';
 import ConversationSidebar from './ConversationSidebar';
 import BrainConfigView from './BrainConfigView';
 import { useChat } from '../context/ChatContext';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { LogoutOutlined, Send, Visibility, Menu, Close } from '@mui/icons-material';
-import { getPipelineSteps } from '../services/api';
+import { LogoutOutlined, Send, Visibility, Menu, Close, Psychology } from '@mui/icons-material';
+import { getPipelineSteps, getConversationMemory } from '../services/api';
 import PipelineStepsModal, { PipelineStep } from './PipelineStepsModal';
+import MemoryViewModal from './MemoryViewModal';
 
 interface ChatInterfaceProps {
   mode: 'chat' | 'test-prompt';
@@ -38,11 +39,22 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ mode }) => {
   const [pipelineError, setPipelineError] = useState<string | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
+  // State for memory view
+  const [showMemoryModal, setShowMemoryModal] = useState(false);
+  const [memoryData, setMemoryData] = useState<any>(null);
+  const [isLoadingMemory, setIsLoadingMemory] = useState(false);
+  const [memoryError, setMemoryError] = useState<string | null>(null);
+
   const { user, logout } = useAuth();
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const navigate = useNavigate();
+  const location = useLocation();
+
+  // Check for debug mode
+  const queryParams = new URLSearchParams(location.search);
+  const isDebugMode = queryParams.get('debug') === 'true';
 
   useEffect(() => {
     if (!isConfigViewActive) {
@@ -109,11 +121,28 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ mode }) => {
       setIsLoadingSteps(false);
     }
   };
-
+  
   const getHeaderTitle = () => {
     if (isConfigViewActive) return 'Brain Configuration';
     if (currentConversationId) return mode === 'chat' ? 'Chat' : 'Test Prompt';
     return 'Curiosity Coach';
+  };
+
+  const handleViewMemory = async () => {
+    if (!currentConversationId) return;
+    setIsLoadingMemory(true);
+    setMemoryError(null);
+    setMemoryData(null);
+
+    try {
+      const data = await getConversationMemory(currentConversationId);
+      setMemoryData(data);
+    } catch (error: any) {
+      setMemoryError(error.message || "An unknown error occurred while fetching memory.");
+    } finally {
+      setIsLoadingMemory(false);
+      setShowMemoryModal(true);
+    }
   };
 
   return (
@@ -165,6 +194,19 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ mode }) => {
               </div>
             </div>
             <div className="flex items-center space-x-2 sm:space-x-3 flex-shrink-0">
+              {isDebugMode && currentConversationId && !isConfigViewActive && (
+                <button
+                  onClick={handleViewMemory}
+                  className="flex items-center px-2 sm:px-3 py-1.5 bg-blue-500 text-white rounded hover:bg-blue-600 transition duration-150 ease-in-out text-sm"
+                  title="See AI Generated Memory for this conversation"
+                  disabled={isLoadingMemory}
+                >
+                  <Psychology fontSize="small" className="mr-0 sm:mr-1"/>
+                  <span className="hidden sm:inline">
+                    {isLoadingMemory ? 'Loading...' : 'See Memory'}
+                  </span>
+                </button>
+              )}
               <button 
                 onClick={handleLogout}
                 className="flex items-center px-2 sm:px-3 py-1.5 bg-red-500 text-white rounded hover:bg-red-600 transition duration-150 ease-in-out text-sm"
@@ -268,6 +310,18 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ mode }) => {
         isLoading={isLoadingSteps}
         error={pipelineError}
         steps={pipelineSteps}
+      />
+
+      {/* Memory View Modal */}
+      <MemoryViewModal
+        showModal={showMemoryModal}
+        onClose={() => {
+          setShowMemoryModal(false);
+          setMemoryError(null);
+        }}
+        isLoading={isLoadingMemory}
+        error={memoryError}
+        memoryData={memoryData}
       />
     </div>
   );
