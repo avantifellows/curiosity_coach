@@ -11,7 +11,11 @@ import { getPipelineSteps, getConversationMemory } from '../services/api';
 import PipelineStepsModal, { PipelineStep } from './PipelineStepsModal';
 import MemoryViewModal from './MemoryViewModal';
 
-const ChatInterface: React.FC = () => {
+interface ChatInterfaceProps {
+  mode: 'chat' | 'test-prompt';
+}
+
+const ChatInterface: React.FC<ChatInterfaceProps> = ({ mode }) => {
   const {
     messages,
     currentConversationId,
@@ -88,7 +92,7 @@ const ChatInterface: React.FC = () => {
     const contentToSend = newMessage.trim();
     setNewMessage('');
 
-    await handleSendMessageWithAutoConversation(contentToSend, "chat");
+    await handleSendMessageWithAutoConversation(contentToSend, mode);
   };
 
   const handleLogout = () => {
@@ -174,7 +178,7 @@ const ChatInterface: React.FC = () => {
               
               <div className="min-w-0 flex-1">
                 <h2 className="text-lg font-semibold text-gray-800 truncate">
-                  {isConfigViewActive ? 'Brain Configuration' : (currentConversationId ? `Chat` : 'Curiosity Coach')}
+                  {getHeaderTitle()}
                 </h2>
                 {user && !isConfigViewActive && (
                   <p className="text-xs text-gray-500 hidden sm:block truncate">

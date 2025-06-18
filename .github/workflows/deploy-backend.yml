@@ -30,7 +30,7 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Find Lambda Function Name
+      - name: Find Lambda Function
         id: find_lambda
         run: |
           # Find the Lambda function containing 'curiosity-coach-backend'
@@ -61,4 +61,17 @@ jobs:
           # Use the dynamically found function name from the previous step
           LAMBDA_FUNCTION_NAME: ${{ steps.find_lambda.outputs.function_name }}
         run: |
-          aws lambda update-function-code --function-name $LAMBDA_FUNCTION_NAME --image-uri ${{ steps.build-image.outputs.image }} 
+          aws lambda update-function-code --function-name $LAMBDA_FUNCTION_NAME --image-uri ${{ steps.build-image.outputs.image }}
+
+      - name: Create Lambda Function URL if not exists
+        env:
+          LAMBDA_FUNCTION_NAME: ${{ steps.find_lambda.outputs.function_name }}
+        run: |
+          # Check if function URL exists
+          if ! aws lambda get-function-url-config --function-name $LAMBDA_FUNCTION_NAME --region ap-south-1 2>/dev/null; then
+            echo "Creating function URL for $LAMBDA_FUNCTION_NAME"
+            aws lambda create-function-url-config \
+              --function-name $LAMBDA_FUNCTION_NAME \
+              --auth-type NONE \
+              --region ap-south-1
+          fi 
