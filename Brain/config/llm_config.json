@@ -30,6 +30,12 @@
             "model": "gpt-4o",
             "temperature": 0.8,
             "max_tokens": 1000
+        },
+        "hallucination_check": {
+            "provider": "openai",
+            "model": "gpt-4o-mini",
+            "temperature": 0.1,
+            "max_tokens": 10
         }
     },
     "providers": {
@@ -39,6 +45,11 @@
         "groq": {
             "api_key_env": "GROQ_API_KEY"
         }
+    },
+    "hallucination_checker": {
+        "enabled": true,
+        "max_retries": 2,
+        "retry_with_context": true
     }
 } 
 

@@ -171,7 +171,7 @@ def _get_default_prompt_name(step_name: str) -> str:
         logger.warning(f"Unknown step name: {step_name}, returning the step name as prompt name")
         return step_name
 
-async def generate_simplified_response(query: str, conversation_history: Optional[str] = None, purpose: str = "chat") -> Tuple[str, str, Dict[str, Any]]:
+async def generate_simplified_response(query: str, conversation_history: Optional[str] = None, purpose: str = "chat", retry_count: int = 0, hallucination_history: List[Dict] = None) -> Tuple[str, str, Dict[str, Any]]:
     """
     Generate a simplified response using a single prompt approach.
     
@@ -179,11 +179,13 @@ async def generate_simplified_response(query: str, conversation_history: Optiona
         query (str): The user's query
         conversation_history (Optional[str]): Previous conversation history if available
         purpose (str): The purpose of the query
+        retry_count (int): Number of retries due to hallucination detection
+        hallucination_history (List[Dict]): History of hallucination checks
         
     Returns:
         Tuple[str, str, Dict[str, Any]]: The response, the prompt used, and the full structured response data
     """
-    logger.info(f"Generating simplified response for query: {query} (purpose: {purpose})")
+    logger.info(f"Generating simplified response for query: {query} (purpose: {purpose}, retry: {retry_count})")
     
     # Define prompt file path
     prompt_file_path = os.path.join(os.path.dirname(__file__), "prompts", "simplified_conversation_prompt.txt")
@@ -234,7 +236,104 @@ async def generate_simplified_response(query: str, conversation_history: Optiona
             else:
                 # Get the normal response
                 formatted_response = response_data.get("response", "")
+            
+            # Hallucination check
+            logger.info("=== HALLUCINATION CHECK START ===")
+            logger.info(f"Initializing hallucination checker for message")
+            
+            from src.services.hallucination_checker import HallucinationChecker
+            hallucination_checker = HallucinationChecker(llm_service)
+            
+            logger.info(f"Hallucination checker enabled: {hallucination_checker.enabled}")
+            
+            # Load config to check max retries
+            config_path = os.path.join(os.path.dirname(__file__), "..", "config", "llm_config.json")
+            with open(config_path, 'r') as f:
+                llm_config = json.load(f)
+            
+            hallucination_config = llm_config.get("hallucination_checker", {})
+            max_retries = hallucination_config.get("max_retries", 2)
+            
+            logger.info(f"Hallucination checker config: max_retries={max_retries}, current_retry_count={retry_count}")
+            
+            # Perform hallucination check if enabled and not already at max retries
+            if hallucination_checker.enabled and retry_count < max_retries:
+                logger.info(f"Proceeding with hallucination check (retry {retry_count}/{max_retries})")
+                # Convert conversation history string to list format for the checker
+                history_list = []
+                if conversation_history and conversation_history != "No previous conversation.":
+                    # Simple parsing - this could be enhanced based on actual format
+                    history_list = [{"role": "assistant", "content": conversation_history}]
                 
+                logger.info(f"Checking response for hallucinations: '{formatted_response[:100]}...'")
+                
+                has_hallucination, check_details = await hallucination_checker.check_for_hallucination(
+                    query=query,
+                    response=formatted_response,
+                    conversation_history=history_list
+                )
+                
+                logger.info(f"Hallucination check result: has_hallucination={has_hallucination}")
+                logger.info(f"Hallucination check details: {check_details}")
+                
+                # Add hallucination check details to response data
+                response_data["hallucination_check"] = check_details
+                
+                if has_hallucination:
+                    logger.warning(f"🚨 HALLUCINATION DETECTED! Will retry generation (attempt {retry_count + 2}/{max_retries + 1})")
+                    
+                    # Update conversation history with context about hallucination
+                    enhanced_history = conversation_history or ""
+                    if hallucination_config.get("retry_with_context", True):
+                        enhanced_history += f"\n\n[System Note: Previous response was flagged for potential inaccuracies. Please provide a more accurate and grounded response.]"
+                    
+                    # Track hallucination history
+                    if hallucination_history is None:
+                        hallucination_history = []
+                    hallucination_history.append({
+                        "retry_count": retry_count,
+                        "flagged_response": formatted_response[:200] + "...",
+                        "check_details": check_details
+                    })
+                    
+                    # Recursive retry with incremented count
+                    retry_response, retry_prompt, retry_data = await generate_simplified_response(
+                        query=query,
+                        conversation_history=enhanced_history,
+                        purpose=purpose,
+                        retry_count=retry_count + 1,
+                        hallucination_history=hallucination_history
+                    )
+                    
+                    # Add hallucination history to the final response data
+                    retry_data["hallucination_history"] = hallucination_history
+                    logger.info(f"=== HALLUCINATION CHECK END (RETRYING) ===")
+                    return retry_response, retry_prompt, retry_data
+                else:
+                    logger.info(f"✅ No hallucination detected. Proceeding with response.")
+            else:
+                if not hallucination_checker.enabled:
+                    logger.info("⏭️  Hallucination checker is DISABLED - skipping check")
+                else:
+                    logger.warning(f"⚠️  Maximum retries reached ({retry_count}/{max_retries}) - sending response despite potential hallucination")
+                    # Still check for hallucination but don't retry
+                    if hallucination_checker.enabled:
+                        history_list = []
+                        if conversation_history and conversation_history != "No previous conversation.":
+                            history_list = [{"role": "assistant", "content": conversation_history}]
+                        
+                        has_hallucination, check_details = await hallucination_checker.check_for_hallucination(
+                            query=query,
+                            response=formatted_response,
+                            conversation_history=history_list
+                        )
+                        response_data["hallucination_check"] = check_details
+                        response_data["max_retries_reached"] = True
+                        
+                        if has_hallucination:
+                            logger.error(f"🚨 HALLUCINATION STILL DETECTED after max retries! Sending anyway.")
+            
+            logger.info("=== HALLUCINATION CHECK END ===")
             return formatted_response, formatted_prompt, response_data
             
         except json.JSONDecodeError:
