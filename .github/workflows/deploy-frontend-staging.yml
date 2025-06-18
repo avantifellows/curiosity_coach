@@ -1,0 +1,83 @@
+name: Deploy Frontend to AWS S3 and CloudFront (Staging)
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch: # Allows manual triggering
+  pull_request: # allows PRs to trigger the workflow
+
+permissions:
+  contents: read # Required to check out the code
+
+jobs:
+  deploy:
+    name: Build and Deploy Frontend (Staging)
+    runs-on: ubuntu-latest
+    # Optional: Specify the environment if you use GitHub Environments
+    # environment: staging
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20' # Specify your Node.js version
+          # Cache is now directory-specific
+          # cache: 'npm'
+
+      - name: Configure AWS Credentials with Access Keys
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ap-south-2
+
+      - name: Install Dependencies
+        working-directory: ./curiosity-coach-frontend
+        run: |
+          npm ci # Faster and more reliable than 'npm install' for CI
+
+      - name: Get Backend API Gateway URL
+        id: get_backend_url
+        run: |
+          API_NAME="curiosity-coach-backend-staging-api"
+          API_URL=$(aws apigatewayv2 get-apis --region ap-south-2 --query "Items[?Name=='$API_NAME'].ApiEndpoint" --output text)
+          if [ -z "$API_URL" ]; then
+            echo "Error: Could not find API Gateway with name $API_NAME"
+            exit 1
+          fi
+          echo "Found Backend API URL: $API_URL"
+          echo "FUNCTION_URL=$API_URL" >> $GITHUB_ENV
+
+      - name: Get Brain API Gateway URL
+        id: get_brain_url
+        run: |
+          API_NAME="curiosity-coach-brain-staging-lambda-api"
+          API_URL=$(aws apigatewayv2 get-apis --region ap-south-2 --query "Items[?Name=='$API_NAME'].ApiEndpoint" --output text)
+          if [ -z "$API_URL" ]; then
+            echo "Error: Could not find API Gateway with name $API_NAME"
+            exit 1
+          fi
+          echo "Found Brain API URL: $API_URL"
+          echo "BRAIN_FUNCTION_URL=$API_URL" >> $GITHUB_ENV
+
+      - name: Build Frontend Application
+        working-directory: ./curiosity-coach-frontend
+        run: npm run build
+        env:
+          # Use the dynamically fetched Lambda URL
+          REACT_APP_BACKEND_BASE_URL: ${{ env.FUNCTION_URL }}
+          REACT_APP_BRAIN_API_URL: ${{ env.BRAIN_FUNCTION_URL }}
+
+      - name: Deploy to S3 Bucket
+        run: |
+          aws s3 sync ./curiosity-coach-frontend/build s3://curiosity-coach-frontend-staging --delete
+
+      - name: Invalidate CloudFront Cache
+        run: |
+          aws cloudfront create-invalidation \
+            --distribution-id E335ZR1Y2OB5KH \
+            --paths "/*" # Invalidate everything
