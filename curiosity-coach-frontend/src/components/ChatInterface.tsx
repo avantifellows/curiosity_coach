@@ -232,7 +232,11 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ mode }) => {
             </div>
           ) : messages.length === 0 ? (
             <div className="flex justify-center items-center h-full">
-              <p className="text-gray-500 text-center px-4">Send a message to start chatting!</p>
+              <div className="bg-gradient-to-r from-indigo-100 to-purple-100 p-6 rounded-xl shadow-md transform transition-all duration-300 hover:scale-105 hover:shadow-lg">
+                <h2 className="text-2xl md:text-3xl font-bold text-indigo-600 text-center">
+                  What are you curious about today? <span className="inline-block animate-bounce">🤔</span>
+                </h2>
+              </div>
             </div>
           ) : (
             messages.map((msg, index) => (
