@@ -226,12 +226,12 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ mode }) => {
                   </div>
                 </div>
               ) : (
-                <div className="space-y-6 py-4 flex flex-col">
+                <div className="py-4 flex flex-col">
                   {messages.map((msg, index) => (
-                    <React.Fragment key={msg.id || `msg-${index}`}>
+                    <div key={msg.id || `msg-${index}`} className="mb-6">
                       <ChatMessage message={msg} />
                       {!msg.is_user && msg.id && !isConfigViewActive && (
-                        <div className="flex justify-start pl-4 sm:pl-10 -mt-2 mb-2">
+                        <div className="flex justify-start pl-2 mt-1">
                           <button
                             onClick={() => handleViewPipelineSteps(msg.id!)}
                             className="text-xs text-indigo-600 hover:text-indigo-800 hover:underline focus:outline-none flex items-center"
@@ -242,7 +242,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ mode }) => {
                           </button>
                         </div>
                       )}
-                    </React.Fragment>
+                    </div>
                   ))}
                 </div>
               )}
