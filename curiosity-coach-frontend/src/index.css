@@ -137,6 +137,17 @@
     text-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
   }
   
+  /* Cross-mobile viewport height fix */
+  .h-screen-mobile {
+    height: 100vh; /* Fallback for older browsers */
+    height: 100dvh; /* Dynamic viewport height for modern browsers */
+  }
+  
+  /* Alternative approach using CSS custom properties */
+  .h-screen-safe {
+    height: calc(var(--vh, 1vh) * 100);
+  }
+  
   /* Touch-specific utilities */
   .touch-manipulation {
     touch-action: manipulation;

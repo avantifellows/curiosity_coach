@@ -6,7 +6,7 @@ import BrainConfigView from './BrainConfigView';
 import { useChat } from '../context/ChatContext';
 import { useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { Send, Visibility, Menu, Close, Psychology } from '@mui/icons-material';
+import { Visibility, Menu, Close, Psychology, Telegram } from '@mui/icons-material';
 import { getPipelineSteps, getConversationMemory } from '../services/api';
 import PipelineStepsModal, { PipelineStep } from './PipelineStepsModal';
 import MemoryViewModal from './MemoryViewModal';
@@ -133,7 +133,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ mode }) => {
   };
 
   return (
-    <div className="flex h-screen bg-gray-100">
+    <div className="flex h-screen-mobile bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50">
       {/* Mobile overlay */}
       {isSidebarOpen && (
         <div 
@@ -155,7 +155,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ mode }) => {
         <ConversationSidebar onConversationSelect={() => setIsSidebarOpen(false)} />
       </div>
       
-      <div className="flex-1 flex flex-col h-screen">
+      <div className="flex-1 flex flex-col h-screen-mobile">
         {/* Mobile hamburger menu button */}
         <div className="lg:hidden p-3 bg-gradient-to-r from-indigo-500 to-purple-500 shadow-lg flex items-center justify-between z-40 relative">
           <button
@@ -186,16 +186,16 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ mode }) => {
           )}
         </div>
 
-        <main className="flex-1 overflow-y-auto p-2 sm:p-4 space-y-4 bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 flex justify-center">
-          <div className="w-full max-w-4xl relative">
+        <main className="flex-1 overflow-y-auto p-2 sm:p-4 flex justify-center">
+          <div className="w-full max-w-4xl relative flex flex-col justify-end min-h-full">
             {/* Decorative elements - subtle and non-distracting */}
             <div className="absolute top-0 right-0 w-32 h-32 bg-yellow-200 rounded-full mix-blend-multiply filter blur-xl opacity-20 animate-blob"></div>
             <div className="absolute top-0 -left-4 w-36 h-36 bg-purple-200 rounded-full mix-blend-multiply filter blur-xl opacity-20 animate-blob animation-delay-2000"></div>
             <div className="absolute -bottom-8 left-20 w-36 h-36 bg-pink-200 rounded-full mix-blend-multiply filter blur-xl opacity-20 animate-blob animation-delay-4000"></div>
             
             {/* Content container with higher z-index */}
-            <div className="relative z-10">
-              {/* Show conversation title */}
+            <div className="relative z-10 flex flex-col flex-1">
+              {/* Show conversation title - stays at top */}
               {!isConfigViewActive && messages.length > 0 && currentConversationId && (
                 <div className="bg-gradient-to-r from-indigo-500 via-purple-500 to-indigo-500 rounded-xl shadow-md p-4 mb-6 text-center transform transition-all duration-300 hover:shadow-lg">
                   <h2 className="text-xl font-bold text-white">
@@ -203,6 +203,9 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ mode }) => {
                   </h2>
                 </div>
               )}
+              
+              {/* Messages container that grows and pushes messages to bottom */}
+              <div className="flex flex-col justify-end flex-1">
             
               {isConfigViewActive ? (
                 <BrainConfigView 
@@ -215,7 +218,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ mode }) => {
                   <CircularProgress />
                 </div>
               ) : messages.length === 0 ? (
-                <div className="flex justify-center items-center h-full py-20">
+                <div className="flex justify-center items-center flex-1 py-20">
                   <div className="bg-gradient-to-r from-indigo-100 to-purple-100 p-6 rounded-xl shadow-md transform transition-all duration-300 hover:scale-105 hover:shadow-lg backdrop-filter backdrop-blur-sm bg-opacity-90">
                     <h2 className="text-2xl md:text-3xl font-bold text-indigo-600 text-center">
                       What are you curious about today? <span className="inline-block animate-bounce">🤔</span>
@@ -223,7 +226,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ mode }) => {
                   </div>
                 </div>
               ) : (
-                <div className="space-y-6 py-4">
+                <div className="space-y-6 py-4 flex flex-col">
                   {messages.map((msg, index) => (
                     <React.Fragment key={msg.id || `msg-${index}`}>
                       <ChatMessage message={msg} />
@@ -261,19 +264,20 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ mode }) => {
                 </div>
               )}
               <div ref={messagesEndRef} />
+              </div>
             </div>
           </div>
         </main>
 
         {!isConfigViewActive && (
-          <footer className="bg-gradient-to-r from-blue-50 via-indigo-50 to-purple-50 border-t-2 border-indigo-200">
+          <footer className="">
             <div className="p-3 sm:p-6 flex justify-center">
-              <form onSubmit={handleFormSubmit} className="flex items-end space-x-3 w-full max-w-4xl">
+              <form onSubmit={handleFormSubmit} className="flex items-center space-x-3 w-full max-w-4xl">
               <textarea
                 ref={textareaRef}
                 className="flex-1 resize-none border-2 border-indigo-200 rounded-2xl p-4 bg-white focus:outline-none focus:ring-3 focus:ring-indigo-300 focus:border-indigo-400 disabled:opacity-50 disabled:cursor-not-allowed text-base min-h-[3rem] max-h-32 shadow-lg placeholder-gray-400"
                 rows={1}
-                placeholder="What's making you curious today? 🤔"
+                placeholder=""
                 value={newMessage}
                 onChange={(e) => setNewMessage(e.target.value)}
                 onKeyDown={(e) => {
@@ -286,16 +290,13 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ mode }) => {
               />
               <button
                 type="submit"
-                className={`px-5 py-3 bg-gradient-to-r from-indigo-500 to-purple-500 text-white rounded-2xl hover:from-indigo-600 hover:to-purple-600 focus:outline-none focus:ring-3 focus:ring-indigo-300 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0 ${isSendingMessage ? 'animate-pulse' : ''} transition-all duration-200 hover:scale-105 shadow-lg font-medium`}
+                className={`px-5 py-4 bg-gradient-to-r from-indigo-500 to-purple-500 text-white rounded-2xl hover:from-indigo-600 hover:to-purple-600 focus:outline-none focus:ring-3 focus:ring-indigo-300 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0 h-12 flex items-center justify-center ${isSendingMessage ? 'animate-pulse' : ''} transition-all duration-200 hover:scale-105 shadow-lg font-medium`}
                 disabled={!newMessage.trim() || isSendingMessage}
               >
                 {isSendingMessage ? (
                     <CircularProgress size={24} color="inherit" />
                 ) : (
-                    <div className="flex items-center space-x-2">
-                      <Send fontSize="medium" />
-                      <span className="hidden sm:inline">Send</span>
-                    </div>
+                    <Telegram fontSize="medium" />
                 )}
               </button>
               </form>
