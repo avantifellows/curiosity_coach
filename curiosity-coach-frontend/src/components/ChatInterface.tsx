@@ -4,9 +4,9 @@ import ChatMessage from './ChatMessage';
 import ConversationSidebar from './ConversationSidebar';
 import BrainConfigView from './BrainConfigView';
 import { useChat } from '../context/ChatContext';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { Send, Visibility, Menu, Close, Psychology, Chat } from '@mui/icons-material';
+import { Send, Visibility, Menu, Close, Psychology } from '@mui/icons-material';
 import { getPipelineSteps, getConversationMemory } from '../services/api';
 import PipelineStepsModal, { PipelineStep } from './PipelineStepsModal';
 import MemoryViewModal from './MemoryViewModal';
@@ -24,7 +24,6 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ mode }) => {
     isSendingMessage,
     error: chatError,
     handleSendMessageWithAutoConversation,
-    selectConversation,
     isBrainProcessing,
     isConfigViewActive,
     brainConfigSchema,
@@ -46,11 +45,10 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ mode }) => {
   const [isLoadingMemory, setIsLoadingMemory] = useState(false);
   const [memoryError, setMemoryError] = useState<string | null>(null);
 
-  const { user, logout } = useAuth();
+  const { user } = useAuth();
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const navigate = useNavigate();
   const location = useLocation();
 
   // Check for debug mode
@@ -94,12 +92,6 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ mode }) => {
     setNewMessage('');
 
     await handleSendMessageWithAutoConversation(contentToSend, mode);
-  };
-
-  const handleLogout = () => {
-    logout();
-    selectConversation(null);
-    navigate('/');
   };
 
   const handleViewPipelineSteps = async (messageId: number | string) => {
