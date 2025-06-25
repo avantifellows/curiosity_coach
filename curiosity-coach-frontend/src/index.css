@@ -150,6 +150,12 @@
     touch-action: pan-y;
   }
   
+  /* Mobile sidebar utilities */
+  .sidebar-hidden {
+    transform: translateX(-100%);
+    visibility: hidden;
+  }
+  
   /* Disable text selection for better touch UX */
   .select-none-touch {
     -webkit-user-select: none;

@@ -144,34 +144,33 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ mode }) => {
       {/* Mobile overlay */}
       {isSidebarOpen && (
         <div 
-          className="fixed inset-0 bg-black bg-opacity-50 z-40 lg:hidden"
+          className="fixed inset-0 bg-black bg-opacity-50 z-30 lg:hidden"
           onClick={() => setIsSidebarOpen(false)}
         />
       )}
 
       {/* Sidebar */}
       <div className={`
-        ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} 
-        lg:translate-x-0 
+        ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'} 
         fixed lg:static 
         inset-y-0 left-0 
         z-50 lg:z-auto
-        w-64 
+        w-72 
         transition-transform duration-300 ease-in-out
         lg:transition-none
       `}>
         <ConversationSidebar onConversationSelect={() => setIsSidebarOpen(false)} />
       </div>
       
-      <div className="flex-1 flex flex-col h-screen lg:ml-0">
+      <div className="flex-1 flex flex-col h-screen lg:ml-72">
         {/* Mobile hamburger menu button */}
-        <div className="lg:hidden p-4 bg-white shadow-sm flex items-center">
+        <div className="lg:hidden p-4 bg-white shadow-md flex items-center z-40 relative border-b border-gray-200">
           <button
             onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-            className="p-2 rounded-md text-gray-600 hover:text-gray-800 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            className="p-2 rounded-md text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 flex items-center justify-center min-w-[44px] min-h-[44px]"
             aria-label="Toggle sidebar"
           >
-            {isSidebarOpen ? <Close /> : <Menu />}
+            {isSidebarOpen ? <Close fontSize="medium" /> : <Menu fontSize="medium" />}
           </button>
           
           {currentConversationId && !isConfigViewActive && (
