@@ -2,7 +2,7 @@ import React from 'react';
 import { useChat } from '../context/ChatContext';
 import { useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { LogoutOutlined, Chat, Settings, Add } from '@mui/icons-material';
+import { LogoutOutlined, Settings, Add } from '@mui/icons-material';
 
 interface ConversationSidebarProps {
   onConversationSelect?: () => void;
