@@ -75,6 +75,13 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ mode }) => {
     }
   }, [isConfigViewActive, isSendingMessage, isLoadingMessages]);
 
+  // Auto-scroll to latest message when messages load or new messages arrive
+  useEffect(() => {
+    if (messages.length > 0 && messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [messages]);
+
   const handleFormSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newMessage.trim() || !user || isSendingMessage) return;
@@ -176,8 +183,8 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ mode }) => {
           )}
         </div>
 
-        <main className="flex-1 overflow-y-auto p-2 sm:p-4 flex justify-center">
-          <div className="w-full max-w-4xl relative flex flex-col justify-end min-h-full">
+        <main className="flex-1 overflow-y-auto p-2 sm:p-4 flex justify-center custom-scrollbar">
+          <div className="w-full max-w-4xl relative flex flex-col min-h-full">
             {/* Decorative elements - subtle and non-distracting */}
             <div className="absolute top-0 right-0 w-32 h-32 bg-yellow-200 rounded-full mix-blend-multiply filter blur-xl opacity-20 animate-blob"></div>
             <div className="absolute top-0 -left-4 w-36 h-36 bg-purple-200 rounded-full mix-blend-multiply filter blur-xl opacity-20 animate-blob animation-delay-2000"></div>
@@ -186,8 +193,13 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ mode }) => {
             {/* Content container with higher z-index */}
             <div className="relative z-10 flex flex-col flex-1">
               
-              {/* Messages container that grows and pushes messages to bottom */}
-              <div className="flex flex-col justify-end flex-1">
+              {/* Empty space pusher for when there are few messages */}
+              {messages.length > 0 && messages.length < 4 && (
+                <div className="flex-1"></div>
+              )}
+              
+              {/* Messages container */}
+              <div className="flex flex-col">
             
               {isConfigViewActive ? (
                 <BrainConfigView 
