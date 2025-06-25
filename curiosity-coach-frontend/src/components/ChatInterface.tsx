@@ -183,15 +183,15 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ mode }) => {
           )}
         </div>
 
-        <main className="flex-1 overflow-y-auto p-2 sm:p-4 flex justify-center custom-scrollbar">
-          <div className="w-full max-w-4xl relative flex flex-col min-h-full">
+        <main className="flex-1 p-2 sm:p-4 flex justify-center overflow-hidden">
+          <div className="w-full max-w-4xl relative flex flex-col h-full">
             {/* Decorative elements - subtle and non-distracting */}
             <div className="absolute top-0 right-0 w-32 h-32 bg-yellow-200 rounded-full mix-blend-multiply filter blur-xl opacity-20 animate-blob"></div>
             <div className="absolute top-0 -left-4 w-36 h-36 bg-purple-200 rounded-full mix-blend-multiply filter blur-xl opacity-20 animate-blob animation-delay-2000"></div>
             <div className="absolute -bottom-8 left-20 w-36 h-36 bg-pink-200 rounded-full mix-blend-multiply filter blur-xl opacity-20 animate-blob animation-delay-4000"></div>
             
             {/* Content container with higher z-index */}
-            <div className="relative z-10 flex flex-col flex-1">
+            <div className="relative z-10 flex flex-col flex-1 overflow-y-auto custom-scrollbar">
               
               {/* Empty space pusher for when there are few messages */}
               {messages.length > 0 && messages.length < 4 && (
@@ -264,7 +264,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ mode }) => {
         </main>
 
         {!isConfigViewActive && (
-          <footer>
+          <footer className="flex-shrink-0">
             <div className="p-3 sm:p-6 flex justify-center">
               <form onSubmit={handleFormSubmit} className="flex items-center space-x-3 w-full max-w-4xl">
               <textarea
