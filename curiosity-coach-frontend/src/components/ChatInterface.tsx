@@ -6,7 +6,7 @@ import BrainConfigView from './BrainConfigView';
 import { useChat } from '../context/ChatContext';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { LogoutOutlined, Send, Visibility, Menu, Close, Psychology } from '@mui/icons-material';
+import { Send, Visibility, Menu, Close, Psychology } from '@mui/icons-material';
 import { getPipelineSteps, getConversationMemory } from '../services/api';
 import PipelineStepsModal, { PipelineStep } from './PipelineStepsModal';
 import MemoryViewModal from './MemoryViewModal';
@@ -18,6 +18,7 @@ interface ChatInterfaceProps {
 const ChatInterface: React.FC<ChatInterfaceProps> = ({ mode }) => {
   const {
     messages,
+    conversations,
     currentConversationId,
     isLoadingMessages,
     isSendingMessage,
@@ -121,12 +122,6 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ mode }) => {
       setIsLoadingSteps(false);
     }
   };
-  
-  const getHeaderTitle = () => {
-    if (isConfigViewActive) return 'Brain Configuration';
-    if (currentConversationId) return mode === 'chat' ? 'Chat' : 'Test Prompt';
-    return 'Curiosity Coach';
-  };
 
   const handleViewMemory = async () => {
     if (!currentConversationId) return;
@@ -143,6 +138,13 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ mode }) => {
       setIsLoadingMemory(false);
       setShowMemoryModal(true);
     }
+  };
+
+  // Get the current conversation title
+  const getCurrentConversationTitle = () => {
+    if (!currentConversationId || !conversations) return "New Chat";
+    const conversation = conversations.find(conv => conv.id === currentConversationId);
+    return conversation?.title || "New Chat";
   };
 
   return (
@@ -170,62 +172,44 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ mode }) => {
       </div>
       
       <div className="flex-1 flex flex-col h-screen lg:ml-0">
-        <header className="bg-white shadow-xs border-b border-gray-200">
-          <div className="px-4 sm:px-6 py-3 flex justify-between items-center">
-            <div className="flex items-center min-w-0 flex-1">
-              {/* Hamburger menu button */}
-              <button
-                onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-                className="lg:hidden mr-3 p-2 rounded-md text-gray-600 hover:text-gray-800 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 flex-shrink-0"
-                aria-label="Toggle sidebar"
-              >
-                {isSidebarOpen ? <Close /> : <Menu />}
-              </button>
-              
-              <div className="min-w-0 flex-1">
-                <h2 className="text-lg font-semibold text-gray-800 truncate">
-                  {getHeaderTitle()}
-                </h2>
-                {user && !isConfigViewActive && (
-                  <p className="text-xs text-gray-500 hidden sm:block truncate">
-                    Logged in as: {user.phone_number}
-                  </p>
-                )}
-              </div>
-            </div>
-            <div className="flex items-center space-x-2 sm:space-x-3 flex-shrink-0">
-              {isDebugMode && currentConversationId && !isConfigViewActive && (
-                <button
-                  onClick={handleViewMemory}
-                  className="flex items-center px-2 sm:px-3 py-1.5 bg-blue-500 text-white rounded hover:bg-blue-600 transition duration-150 ease-in-out text-sm"
-                  title="See AI Generated Memory for this conversation"
-                  disabled={isLoadingMemory}
-                >
-                  <Psychology fontSize="small" className="mr-0 sm:mr-1"/>
-                  <span className="hidden sm:inline">
-                    {isLoadingMemory ? 'Loading...' : 'See Memory'}
-                  </span>
-                </button>
-              )}
-              <button 
-                onClick={handleLogout}
-                className="flex items-center px-2 sm:px-3 py-1.5 bg-red-500 text-white rounded hover:bg-red-600 transition duration-150 ease-in-out text-sm"
-                title="Logout"
-              >
-                <LogoutOutlined fontSize="small" className="mr-0 sm:mr-1"/> 
-                <span className="hidden sm:inline">Logout</span>
-              </button>
-            </div>
-          </div>
-        </header>
+        {/* Mobile hamburger menu button */}
+        <div className="lg:hidden p-4 bg-white shadow-sm flex items-center">
+          <button
+            onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+            className="p-2 rounded-md text-gray-600 hover:text-gray-800 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            aria-label="Toggle sidebar"
+          >
+            {isSidebarOpen ? <Close /> : <Menu />}
+          </button>
+          
+          {currentConversationId && !isConfigViewActive && (
+            <h2 className="ml-3 text-lg font-semibold text-gray-800 truncate">
+              {getCurrentConversationTitle()}
+            </h2>
+          )}
+          
+          {isDebugMode && currentConversationId && !isConfigViewActive && (
+            <button
+              onClick={handleViewMemory}
+              className="ml-auto flex items-center px-2 sm:px-3 py-1.5 bg-blue-500 text-white rounded hover:bg-blue-600 transition duration-150 ease-in-out text-sm"
+              title="See AI Generated Memory for this conversation"
+              disabled={isLoadingMemory}
+            >
+              <Psychology fontSize="small" className="mr-0 sm:mr-1"/>
+              <span className="hidden sm:inline">
+                {isLoadingMemory ? 'Loading...' : 'See Memory'}
+              </span>
+            </button>
+          )}
+        </div>
 
         <main className="flex-1 overflow-y-auto p-2 sm:p-4 space-y-4 bg-gray-50 flex justify-center">
           <div className="w-full max-w-4xl">
-            {/* Welcome header for chat */}
-            {!isConfigViewActive && messages.length > 0 && (
+            {/* Show conversation title */}
+            {!isConfigViewActive && messages.length > 0 && currentConversationId && (
               <div className="bg-white rounded-lg shadow-sm p-4 mb-4 text-center">
                 <h2 className="text-xl font-bold text-indigo-600">
-                  {currentConversationId ? "Let's explore together! 🚀" : "Curiosity Coach"}
+                  {getCurrentConversationTitle()}
                 </h2>
               </div>
             )}
