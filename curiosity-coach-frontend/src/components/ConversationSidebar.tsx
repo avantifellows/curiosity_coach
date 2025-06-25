@@ -1,6 +1,8 @@
 import React from 'react';
 import { useChat } from '../context/ChatContext';
 import { useLocation } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
+import { LogoutOutlined } from '@mui/icons-material';
 
 interface ConversationSidebarProps {
   onConversationSelect?: () => void;
@@ -19,12 +21,18 @@ const ConversationSidebar: React.FC<ConversationSidebarProps> = ({ onConversatio
     isUpdatingConversationTitle,
   } = useChat();
 
+  const { user, logout } = useAuth();
   const location = useLocation();
   const isChatEndpoint = location.pathname === '/chat';
 
   const [editingConversationId, setEditingConversationId] = React.useState<number | null>(null);
   const [editingTitle, setEditingTitle] = React.useState<string>('');
   const inputRef = React.useRef<HTMLInputElement>(null);
+
+  const handleLogout = () => {
+    logout();
+    selectConversation(null);
+  };
 
   const handleDoubleClick = (conv: { id: number; title: string | null }) => {
     setEditingConversationId(conv.id);
@@ -159,9 +167,6 @@ const ConversationSidebar: React.FC<ConversationSidebarProps> = ({ onConversatio
         )}
       </div>
 
-      {/* Optional: Footer/User Info */}
-      {/* <div className="p-4 border-t border-gray-700">User Info</div> */}
-
       {/* Brain Config Button - Hide for the /chat endpoint */}
       {!isChatEndpoint && (
         <div className="p-4 border-t border-gray-700">
@@ -173,6 +178,24 @@ const ConversationSidebar: React.FC<ConversationSidebarProps> = ({ onConversatio
           >
             Brain Config
           </button>
+        </div>
+      )}
+
+      {/* User Info and Logout Button */}
+      {user && (
+        <div className="p-4 border-t border-gray-700">
+          <div className="flex flex-col space-y-3">
+            <div className="text-sm text-gray-300">
+              Logged in as: <span className="font-medium text-white">{user.phone_number}</span>
+            </div>
+            <button 
+              onClick={handleLogout}
+              className="w-full flex items-center justify-center bg-red-500 hover:bg-red-600 text-white py-2 px-4 rounded transition duration-150 ease-in-out"
+            >
+              <LogoutOutlined fontSize="small" className="mr-2" />
+              Logout
+            </button>
+          </div>
         </div>
       )}
     </div>
