@@ -6,7 +6,7 @@ import BrainConfigView from './BrainConfigView';
 import { useChat } from '../context/ChatContext';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { Send, Visibility, Menu, Close, Psychology } from '@mui/icons-material';
+import { Send, Visibility, Menu, Close, Psychology, Chat } from '@mui/icons-material';
 import { getPipelineSteps, getConversationMemory } from '../services/api';
 import PipelineStepsModal, { PipelineStep } from './PipelineStepsModal';
 import MemoryViewModal from './MemoryViewModal';
@@ -203,74 +203,82 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ mode }) => {
           )}
         </div>
 
-        <main className="flex-1 overflow-y-auto p-2 sm:p-4 space-y-4 bg-gray-50 flex justify-center">
-          <div className="w-full max-w-4xl">
-            {/* Show conversation title */}
-            {!isConfigViewActive && messages.length > 0 && currentConversationId && (
-              <div className="bg-white rounded-lg shadow-sm p-4 mb-4 text-center">
-                <h2 className="text-xl font-bold text-indigo-600">
-                  {getCurrentConversationTitle()}
-                </h2>
-              </div>
-            )}
-          
-            {isConfigViewActive ? (
-              <BrainConfigView 
-                isLoadingBrainConfig={isLoadingBrainConfig}
-                brainConfigSchema={brainConfigSchema}
-                brainConfigError={brainConfigError}
-              />
-            ) : isLoadingMessages ? (
-              <div className="flex justify-center items-center h-full py-20">
-                <CircularProgress />
-              </div>
-            ) : messages.length === 0 ? (
-              <div className="flex justify-center items-center h-full py-20">
-                <div className="bg-gradient-to-r from-indigo-100 to-purple-100 p-6 rounded-xl shadow-md transform transition-all duration-300 hover:scale-105 hover:shadow-lg">
-                  <h2 className="text-2xl md:text-3xl font-bold text-indigo-600 text-center">
-                    What are you curious about today? <span className="inline-block animate-bounce">🤔</span>
+        <main className="flex-1 overflow-y-auto p-2 sm:p-4 space-y-4 bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 flex justify-center">
+          <div className="w-full max-w-4xl relative">
+            {/* Decorative elements - subtle and non-distracting */}
+            <div className="absolute top-0 right-0 w-32 h-32 bg-yellow-200 rounded-full mix-blend-multiply filter blur-xl opacity-20 animate-blob"></div>
+            <div className="absolute top-0 -left-4 w-36 h-36 bg-purple-200 rounded-full mix-blend-multiply filter blur-xl opacity-20 animate-blob animation-delay-2000"></div>
+            <div className="absolute -bottom-8 left-20 w-36 h-36 bg-pink-200 rounded-full mix-blend-multiply filter blur-xl opacity-20 animate-blob animation-delay-4000"></div>
+            
+            {/* Content container with higher z-index */}
+            <div className="relative z-10">
+              {/* Show conversation title */}
+              {!isConfigViewActive && messages.length > 0 && currentConversationId && (
+                <div className="bg-gradient-to-r from-indigo-500 via-purple-500 to-indigo-500 rounded-xl shadow-md p-4 mb-6 text-center transform transition-all duration-300 hover:shadow-lg">
+                  <h2 className="text-xl font-bold text-white">
+                    {getCurrentConversationTitle()}
                   </h2>
                 </div>
-              </div>
-            ) : (
-              <div className="space-y-6 py-4">
-                {messages.map((msg, index) => (
-                  <React.Fragment key={msg.id || `msg-${index}`}>
-                    <ChatMessage message={msg} />
-                    {!msg.is_user && msg.id && !isConfigViewActive && (
-                      <div className="flex justify-start pl-4 sm:pl-10 -mt-2 mb-2">
-                        <button
-                          onClick={() => handleViewPipelineSteps(msg.id!)}
-                          className="text-xs text-indigo-600 hover:text-indigo-800 hover:underline focus:outline-none flex items-center"
-                          disabled={isLoadingSteps}
-                        >
-                          <Visibility fontSize="inherit" className="mr-1" />
-                          {isLoadingSteps && showPipelineModal ? 'Loading steps...' : 'View thinking steps'}
-                        </button>
-                      </div>
-                    )}
-                  </React.Fragment>
-                ))}
-              </div>
-            )}
-            {chatError && (
-              <div className="text-center text-red-500 bg-red-100 p-2 rounded mx-2">Error: {chatError}</div>
-            )}
-            {isBrainProcessing && (
-              <div className="flex justify-start pl-2">
-                <div className="flex items-center bg-gradient-to-r from-gray-100 to-blue-100 text-gray-700 rounded-lg px-4 py-2 max-w-[85%] sm:max-w-xs lg:max-w-md shadow">
-                  <div className="mr-2">
-                    <div className="animate-pulse flex space-x-1">
-                      <div className="h-2 w-2 bg-blue-400 rounded-full"></div>
-                      <div className="h-2 w-2 bg-blue-400 rounded-full"></div>
-                      <div className="h-2 w-2 bg-blue-400 rounded-full"></div>
-                    </div>
-                  </div>
-                  Thinking...
+              )}
+            
+              {isConfigViewActive ? (
+                <BrainConfigView 
+                  isLoadingBrainConfig={isLoadingBrainConfig}
+                  brainConfigSchema={brainConfigSchema}
+                  brainConfigError={brainConfigError}
+                />
+              ) : isLoadingMessages ? (
+                <div className="flex justify-center items-center h-full py-20">
+                  <CircularProgress />
                 </div>
-              </div>
-            )}
-            <div ref={messagesEndRef} />
+              ) : messages.length === 0 ? (
+                <div className="flex justify-center items-center h-full py-20">
+                  <div className="bg-gradient-to-r from-indigo-100 to-purple-100 p-6 rounded-xl shadow-md transform transition-all duration-300 hover:scale-105 hover:shadow-lg backdrop-filter backdrop-blur-sm bg-opacity-90">
+                    <h2 className="text-2xl md:text-3xl font-bold text-indigo-600 text-center">
+                      What are you curious about today? <span className="inline-block animate-bounce">🤔</span>
+                    </h2>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-6 py-4">
+                  {messages.map((msg, index) => (
+                    <React.Fragment key={msg.id || `msg-${index}`}>
+                      <ChatMessage message={msg} />
+                      {!msg.is_user && msg.id && !isConfigViewActive && (
+                        <div className="flex justify-start pl-4 sm:pl-10 -mt-2 mb-2">
+                          <button
+                            onClick={() => handleViewPipelineSteps(msg.id!)}
+                            className="text-xs text-indigo-600 hover:text-indigo-800 hover:underline focus:outline-none flex items-center"
+                            disabled={isLoadingSteps}
+                          >
+                            <Visibility fontSize="inherit" className="mr-1" />
+                            {isLoadingSteps && showPipelineModal ? 'Loading steps...' : 'View thinking steps'}
+                          </button>
+                        </div>
+                      )}
+                    </React.Fragment>
+                  ))}
+                </div>
+              )}
+              {chatError && (
+                <div className="text-center text-red-500 bg-red-100 p-2 rounded mx-2">Error: {chatError}</div>
+              )}
+              {isBrainProcessing && (
+                <div className="flex justify-start pl-2">
+                  <div className="flex items-center bg-gradient-to-r from-gray-100 to-blue-100 text-gray-700 rounded-lg px-4 py-2 max-w-[85%] sm:max-w-xs lg:max-w-md shadow backdrop-filter backdrop-blur-sm bg-opacity-90">
+                    <div className="mr-2">
+                      <div className="animate-pulse flex space-x-1">
+                        <div className="h-2 w-2 bg-blue-400 rounded-full"></div>
+                        <div className="h-2 w-2 bg-blue-400 rounded-full"></div>
+                        <div className="h-2 w-2 bg-blue-400 rounded-full"></div>
+                      </div>
+                    </div>
+                    Thinking...
+                  </div>
+                </div>
+              )}
+              <div ref={messagesEndRef} />
+            </div>
           </div>
         </main>
 
