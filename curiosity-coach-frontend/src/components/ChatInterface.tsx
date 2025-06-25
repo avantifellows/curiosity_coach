@@ -18,7 +18,6 @@ interface ChatInterfaceProps {
 const ChatInterface: React.FC<ChatInterfaceProps> = ({ mode }) => {
   const {
     messages,
-    conversations,
     currentConversationId,
     isLoadingMessages,
     isSendingMessage,
@@ -55,7 +54,6 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ mode }) => {
   const queryParams = new URLSearchParams(location.search);
   const isDebugMode = queryParams.get('debug') === 'true';
 
-
   useEffect(() => {
     if (isConfigViewActive && !brainConfigSchema && !isLoadingBrainConfig && !brainConfigError) {
       fetchBrainConfigSchema();
@@ -89,14 +87,12 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ mode }) => {
 
   const handleViewPipelineSteps = async (messageId: number | string) => {
     if (!messageId) return;
-    console.log("Fetching pipeline steps for message ID:", messageId);
     setIsLoadingSteps(true);
     setPipelineError(null);
     setPipelineSteps([]); // Clear previous steps
 
     try {
       const stepsData: PipelineStep[] = await getPipelineSteps(messageId);
-      console.log("Fetched steps:", stepsData);
       setPipelineSteps(stepsData);
       setShowPipelineModal(true);
     } catch (error: any) {
@@ -125,12 +121,6 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ mode }) => {
     }
   };
 
-  // Get the current conversation title
-  const getCurrentConversationTitle = () => {
-    if (!currentConversationId || !conversations) return "New Chat";
-    const conversation = conversations.find(conv => conv.id === currentConversationId);
-    return conversation?.title || "New Chat";
-  };
 
   return (
     <div className="flex h-screen-mobile bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50">
@@ -195,14 +185,6 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ mode }) => {
             
             {/* Content container with higher z-index */}
             <div className="relative z-10 flex flex-col flex-1">
-              {/* Show conversation title - stays at top */}
-              {!isConfigViewActive && messages.length > 0 && currentConversationId && (
-                <div className="bg-gradient-to-r from-indigo-500 via-purple-500 to-indigo-500 rounded-xl shadow-md p-4 mb-6 text-center transform transition-all duration-300 hover:shadow-lg">
-                  <h2 className="text-xl font-bold text-white">
-                    {getCurrentConversationTitle()}
-                  </h2>
-                </div>
-              )}
               
               {/* Messages container that grows and pushes messages to bottom */}
               <div className="flex flex-col justify-end flex-1">
@@ -270,7 +252,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ mode }) => {
         </main>
 
         {!isConfigViewActive && (
-          <footer className="">
+          <footer>
             <div className="p-3 sm:p-6 flex justify-center">
               <form onSubmit={handleFormSubmit} className="flex items-center space-x-3 w-full max-w-4xl">
               <textarea
@@ -290,7 +272,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ mode }) => {
               />
               <button
                 type="submit"
-                className={`px-5 py-4 bg-gradient-to-r from-indigo-500 to-purple-500 text-white rounded-2xl hover:from-indigo-600 hover:to-purple-600 focus:outline-none focus:ring-3 focus:ring-indigo-300 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0 h-12 flex items-center justify-center ${isSendingMessage ? 'animate-pulse' : ''} transition-all duration-200 hover:scale-105 shadow-lg font-medium`}
+                className={`px-5 py-4 bg-gradient-to-r from-indigo-500 to-purple-500 text-white rounded-2xl hover:from-indigo-600 hover:to-purple-600 focus:outline-none focus:ring-3 focus:ring-indigo-300 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0 h-12 flex items-center justify-center transition-all duration-200 hover:scale-105 shadow-lg font-medium ${isSendingMessage ? 'animate-pulse' : ''}`}
                 disabled={!newMessage.trim() || isSendingMessage}
               >
                 {isSendingMessage ? (
