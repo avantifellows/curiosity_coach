@@ -55,13 +55,6 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ mode }) => {
   const queryParams = new URLSearchParams(location.search);
   const isDebugMode = queryParams.get('debug') === 'true';
 
-  useEffect(() => {
-    if (!isConfigViewActive) {
-      setTimeout(() => {
-          messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-      }, 100); 
-    }
-  }, [messages, isConfigViewActive]);
 
   useEffect(() => {
     if (isConfigViewActive && !brainConfigSchema && !isLoadingBrainConfig && !brainConfigError) {
@@ -162,7 +155,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ mode }) => {
         <ConversationSidebar onConversationSelect={() => setIsSidebarOpen(false)} />
       </div>
       
-      <div className="flex-1 flex flex-col h-screen lg:ml-72">
+      <div className="flex-1 flex flex-col h-screen">
         {/* Mobile hamburger menu button */}
         <div className="lg:hidden p-4 bg-white shadow-md flex items-center z-40 relative border-b border-gray-200">
           <button
@@ -274,13 +267,14 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ mode }) => {
         </main>
 
         {!isConfigViewActive && (
-          <footer className="bg-white p-2 sm:p-4 border-t border-gray-200 flex justify-center">
-            <form onSubmit={handleFormSubmit} className="flex items-end space-x-2 sm:space-x-3 w-full max-w-4xl">
+          <footer className="bg-gradient-to-r from-blue-50 via-indigo-50 to-purple-50 border-t-2 border-indigo-200">
+            <div className="p-3 sm:p-6 flex justify-center">
+              <form onSubmit={handleFormSubmit} className="flex items-end space-x-3 w-full max-w-4xl">
               <textarea
                 ref={textareaRef}
-                className="flex-1 resize-none border rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed text-sm sm:text-base min-h-[2.5rem] max-h-32 shadow-sm"
+                className="flex-1 resize-none border-2 border-indigo-200 rounded-2xl p-4 bg-white focus:outline-none focus:ring-3 focus:ring-indigo-300 focus:border-indigo-400 disabled:opacity-50 disabled:cursor-not-allowed text-base min-h-[3rem] max-h-32 shadow-lg placeholder-gray-400"
                 rows={1}
-                placeholder="Type your message..."
+                placeholder="What's making you curious today? 🤔"
                 value={newMessage}
                 onChange={(e) => setNewMessage(e.target.value)}
                 onKeyDown={(e) => {
@@ -293,16 +287,20 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ mode }) => {
               />
               <button
                 type="submit"
-                className={`p-2 sm:px-4 sm:py-2 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0 ${isSendingMessage ? 'animate-pulse' : ''} transition-all duration-200 hover:scale-105`}
+                className={`px-5 py-3 bg-gradient-to-r from-indigo-500 to-purple-500 text-white rounded-2xl hover:from-indigo-600 hover:to-purple-600 focus:outline-none focus:ring-3 focus:ring-indigo-300 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0 ${isSendingMessage ? 'animate-pulse' : ''} transition-all duration-200 hover:scale-105 shadow-lg font-medium`}
                 disabled={!newMessage.trim() || isSendingMessage}
               >
                 {isSendingMessage ? (
-                    <CircularProgress size={20} color="inherit" />
+                    <CircularProgress size={24} color="inherit" />
                 ) : (
-                    <Send fontSize="small" />
+                    <div className="flex items-center space-x-2">
+                      <Send fontSize="medium" />
+                      <span className="hidden sm:inline">Send</span>
+                    </div>
                 )}
               </button>
-            </form>
+              </form>
+            </div>
           </footer>
         )}
       </div>
