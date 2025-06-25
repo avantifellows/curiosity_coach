@@ -219,63 +219,83 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ mode }) => {
           </div>
         </header>
 
-        <main className="flex-1 overflow-y-auto p-2 sm:p-4 space-y-4 bg-gray-50">
-          {isConfigViewActive ? (
-            <BrainConfigView 
-              isLoadingBrainConfig={isLoadingBrainConfig}
-              brainConfigSchema={brainConfigSchema}
-              brainConfigError={brainConfigError}
-            />
-          ) : isLoadingMessages ? (
-            <div className="flex justify-center items-center h-full">
-              <CircularProgress />
-            </div>
-          ) : messages.length === 0 ? (
-            <div className="flex justify-center items-center h-full">
-              <div className="bg-gradient-to-r from-indigo-100 to-purple-100 p-6 rounded-xl shadow-md transform transition-all duration-300 hover:scale-105 hover:shadow-lg">
-                <h2 className="text-2xl md:text-3xl font-bold text-indigo-600 text-center">
-                  What are you curious about today? <span className="inline-block animate-bounce">🤔</span>
+        <main className="flex-1 overflow-y-auto p-2 sm:p-4 space-y-4 bg-gray-50 flex justify-center">
+          <div className="w-full max-w-4xl">
+            {/* Welcome header for chat */}
+            {!isConfigViewActive && messages.length > 0 && (
+              <div className="bg-white rounded-lg shadow-sm p-4 mb-4 text-center">
+                <h2 className="text-xl font-bold text-indigo-600">
+                  {currentConversationId ? "Let's explore together! 🚀" : "Curiosity Coach"}
                 </h2>
               </div>
-            </div>
-          ) : (
-            messages.map((msg, index) => (
-              <React.Fragment key={msg.id || `msg-${index}`}>
-                <ChatMessage message={msg} />
-                {!msg.is_user && msg.id && !isConfigViewActive && ( // Only show "View thinking steps" when not in config view
-                  <div className="flex justify-start pl-4 sm:pl-10 -mt-2 mb-2">
-                    <button
-                      onClick={() => handleViewPipelineSteps(msg.id!)}
-                      className="text-xs text-indigo-600 hover:text-indigo-800 hover:underline focus:outline-none flex items-center"
-                      disabled={isLoadingSteps}
-                    >
-                      <Visibility fontSize="inherit" className="mr-1" />
-                      {isLoadingSteps && showPipelineModal ? 'Loading steps...' : 'View thinking steps'}
-                    </button>
+            )}
+          
+            {isConfigViewActive ? (
+              <BrainConfigView 
+                isLoadingBrainConfig={isLoadingBrainConfig}
+                brainConfigSchema={brainConfigSchema}
+                brainConfigError={brainConfigError}
+              />
+            ) : isLoadingMessages ? (
+              <div className="flex justify-center items-center h-full py-20">
+                <CircularProgress />
+              </div>
+            ) : messages.length === 0 ? (
+              <div className="flex justify-center items-center h-full py-20">
+                <div className="bg-gradient-to-r from-indigo-100 to-purple-100 p-6 rounded-xl shadow-md transform transition-all duration-300 hover:scale-105 hover:shadow-lg">
+                  <h2 className="text-2xl md:text-3xl font-bold text-indigo-600 text-center">
+                    What are you curious about today? <span className="inline-block animate-bounce">🤔</span>
+                  </h2>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-6 py-4">
+                {messages.map((msg, index) => (
+                  <React.Fragment key={msg.id || `msg-${index}`}>
+                    <ChatMessage message={msg} />
+                    {!msg.is_user && msg.id && !isConfigViewActive && (
+                      <div className="flex justify-start pl-4 sm:pl-10 -mt-2 mb-2">
+                        <button
+                          onClick={() => handleViewPipelineSteps(msg.id!)}
+                          className="text-xs text-indigo-600 hover:text-indigo-800 hover:underline focus:outline-none flex items-center"
+                          disabled={isLoadingSteps}
+                        >
+                          <Visibility fontSize="inherit" className="mr-1" />
+                          {isLoadingSteps && showPipelineModal ? 'Loading steps...' : 'View thinking steps'}
+                        </button>
+                      </div>
+                    )}
+                  </React.Fragment>
+                ))}
+              </div>
+            )}
+            {chatError && (
+              <div className="text-center text-red-500 bg-red-100 p-2 rounded mx-2">Error: {chatError}</div>
+            )}
+            {isBrainProcessing && (
+              <div className="flex justify-start pl-2">
+                <div className="flex items-center bg-gradient-to-r from-gray-100 to-blue-100 text-gray-700 rounded-lg px-4 py-2 max-w-[85%] sm:max-w-xs lg:max-w-md shadow">
+                  <div className="mr-2">
+                    <div className="animate-pulse flex space-x-1">
+                      <div className="h-2 w-2 bg-blue-400 rounded-full"></div>
+                      <div className="h-2 w-2 bg-blue-400 rounded-full"></div>
+                      <div className="h-2 w-2 bg-blue-400 rounded-full"></div>
+                    </div>
                   </div>
-                )}
-              </React.Fragment>
-            ))
-          )}
-          {chatError && (
-            <div className="text-center text-red-500 bg-red-100 p-2 rounded mx-2">Error: {chatError}</div>
-          )}
-          {isBrainProcessing && (
-            <div className="flex justify-start pl-2">
-                <div className="bg-gray-200 text-gray-700 rounded-lg px-4 py-2 max-w-[85%] sm:max-w-xs lg:max-w-md shadow animate-pulse">
                   Thinking...
                 </div>
-            </div>
-          )}
-          <div ref={messagesEndRef} />
+              </div>
+            )}
+            <div ref={messagesEndRef} />
+          </div>
         </main>
 
         {!isConfigViewActive && (
-          <footer className="bg-white p-2 sm:p-4 border-t border-gray-200">
-            <form onSubmit={handleFormSubmit} className="flex items-end space-x-2 sm:space-x-3">
+          <footer className="bg-white p-2 sm:p-4 border-t border-gray-200 flex justify-center">
+            <form onSubmit={handleFormSubmit} className="flex items-end space-x-2 sm:space-x-3 w-full max-w-4xl">
               <textarea
                 ref={textareaRef}
-                className="flex-1 resize-none border rounded-md p-2 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed text-sm sm:text-base min-h-[2.5rem] max-h-32"
+                className="flex-1 resize-none border rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed text-sm sm:text-base min-h-[2.5rem] max-h-32 shadow-sm"
                 rows={1}
                 placeholder="Type your message..."
                 value={newMessage}
@@ -290,7 +310,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ mode }) => {
               />
               <button
                 type="submit"
-                className={`p-2 sm:px-4 sm:py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0 ${isSendingMessage ? 'animate-pulse' : ''}`}
+                className={`p-2 sm:px-4 sm:py-2 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0 ${isSendingMessage ? 'animate-pulse' : ''} transition-all duration-200 hover:scale-105`}
                 disabled={!newMessage.trim() || isSendingMessage}
               >
                 {isSendingMessage ? (
