@@ -157,31 +157,30 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ mode }) => {
       
       <div className="flex-1 flex flex-col h-screen">
         {/* Mobile hamburger menu button */}
-        <div className="lg:hidden p-4 bg-white shadow-md flex items-center z-40 relative border-b border-gray-200">
+        <div className="lg:hidden p-3 bg-gradient-to-r from-indigo-500 to-purple-500 shadow-lg flex items-center justify-between z-40 relative">
           <button
             onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-            className="p-2 rounded-md text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 flex items-center justify-center min-w-[44px] min-h-[44px]"
+            className="p-3 rounded-xl bg-white bg-opacity-20 backdrop-blur-sm text-white hover:bg-opacity-30 focus:outline-none focus:ring-2 focus:ring-white focus:ring-opacity-50 flex items-center justify-center transition-all duration-200 hover:scale-105"
             aria-label="Toggle sidebar"
           >
             {isSidebarOpen ? <Close fontSize="medium" /> : <Menu fontSize="medium" />}
           </button>
           
-          {currentConversationId && !isConfigViewActive && (
-            <h2 className="ml-3 text-lg font-semibold text-gray-800 truncate">
-              {getCurrentConversationTitle()}
-            </h2>
-          )}
+          <div className="flex items-center space-x-2">
+            <span className="text-white font-medium text-lg">Curiosity Coach</span>
+            <span className="text-2xl">🤔</span>
+          </div>
           
           {isDebugMode && currentConversationId && !isConfigViewActive && (
             <button
               onClick={handleViewMemory}
-              className="ml-auto flex items-center px-2 sm:px-3 py-1.5 bg-blue-500 text-white rounded hover:bg-blue-600 transition duration-150 ease-in-out text-sm"
+              className="flex items-center px-3 py-2 bg-white bg-opacity-20 backdrop-blur-sm text-white rounded-xl hover:bg-opacity-30 transition-all duration-200 hover:scale-105 text-sm"
               title="See AI Generated Memory for this conversation"
               disabled={isLoadingMemory}
             >
-              <Psychology fontSize="small" className="mr-0 sm:mr-1"/>
+              <Psychology fontSize="small" className="mr-1"/>
               <span className="hidden sm:inline">
-                {isLoadingMemory ? 'Loading...' : 'See Memory'}
+                {isLoadingMemory ? 'Loading...' : 'Memory'}
               </span>
             </button>
           )}
