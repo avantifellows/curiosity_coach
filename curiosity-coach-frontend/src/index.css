@@ -1,32 +1,54 @@
+/**
+ * Curiosity Coach - Main Stylesheet
+ * 
+ * This file contains the main styles for the Curiosity Coach application.
+ * It's organized into layers following Tailwind CSS conventions:
+ * - Base: Global styles and resets
+ * - Components: Reusable component classes
+ * - Utilities: Utility classes and helpers
+ */
+
+/* Import Google Fonts */
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 
+/* Tailwind directives */
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
+/* CSS Custom Properties Theme */
 @theme {
+  /* Primary Colors */
   --color-primary-light: #4dabf5;
   --color-primary: #1976d2;
   --color-primary-dark: #1565c0;
 
+  /* Secondary Colors */
   --color-secondary-light: #ff4081;
   --color-secondary: #f50057;
   --color-secondary-dark: #c51162;
 
+  /* Gray Scale */
   --color-gray-lightest: #f5f5f5;
   --color-gray-light: #e0e0e0;
   --color-gray: #9e9e9e;
   --color-gray-dark: #616161;
   --color-gray-darkest: #212121;
 
+  /* Typography */
   --font-sans: Inter, system-ui, sans-serif;
 }
 
+/* ==========================================================================
+   BASE LAYER - Global styles and element defaults
+   ========================================================================== */
+
 @layer base {
+  /* HTML and Body Defaults */
   html {
     /* Prevent iOS zoom on form fields */
     -webkit-text-size-adjust: 100%;
-    /* Smooth scrolling */
+    /* Smooth scrolling behavior */
     scroll-behavior: smooth;
   }
   
@@ -40,6 +62,7 @@
     background-attachment: fixed;
   }
   
+  /* Typography Defaults */
   h1 {
     @apply text-2xl font-bold;
   }
@@ -48,24 +71,21 @@
     @apply text-xl font-semibold;
   }
   
+  /* Form Element Defaults */
   input, textarea {
     @apply border border-gray-300 rounded-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent;
     /* Prevent iOS zoom on form fields */
     font-size: 16px;
   }
   
-  /* Better button touch targets for mobile */
+  /* Touch-friendly button targets */
   button, [role="button"] {
     min-height: 44px;
     min-width: 44px;
     touch-action: manipulation;
   }
 
-  /*
-    The default border color has changed to `currentcolor` in Tailwind CSS v4,
-    so we've added these compatibility styles to make sure everything still
-    looks the same as it did with Tailwind CSS v3.
-  */
+  /* Tailwind v4 compatibility - ensures consistent border colors */
   *,
   ::after,
   ::before,
@@ -75,7 +95,14 @@
   }
 }
 
+/* ==========================================================================
+   COMPONENTS LAYER - Reusable component classes
+   ========================================================================== */
+
 @layer components {
+  /* ===================
+     Button Components 
+     =================== */
   .btn {
     @apply px-4 py-2 rounded-sm font-medium focus:outline-none focus:ring-2 focus:ring-opacity-50 transition-colors;
     min-height: 44px;
@@ -87,9 +114,37 @@
   .btn-secondary {
     @apply btn bg-secondary text-white hover:bg-secondary-dark focus:ring-secondary;
   }
+  
+  /* Glass Button - Modern glass morphism effect */
+  .btn-glass {
+    @apply p-3 rounded-xl bg-white bg-opacity-20 backdrop-blur-sm text-white hover:bg-opacity-30 focus:outline-none focus:ring-2 focus:ring-white focus:ring-opacity-50 flex items-center justify-center transition-all duration-200 hover:scale-105;
+    min-height: 44px;
+    touch-action: manipulation;
+  }
+  
+  /* Gradient Buttons */
+  .btn-gradient-primary {
+    @apply px-5 py-4 bg-gradient-to-r from-indigo-500 to-purple-500 text-white rounded-2xl hover:from-indigo-600 hover:to-purple-600 focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0 h-12 flex items-center justify-center transition-all duration-200 hover:scale-105 shadow-xl font-medium;
+  }
+  
+  .btn-gradient-secondary {
+    @apply flex items-center px-3 py-2 bg-white bg-opacity-20 backdrop-blur-sm text-white rounded-xl hover:bg-opacity-30 transition-all duration-200 hover:scale-105 text-sm;
+  }
+  
+  /* ===================
+     Card Components 
+     =================== */
   .card {
     @apply bg-white rounded-lg shadow-md p-4;
   }
+  
+  .card-gradient {
+    @apply bg-gradient-to-r from-indigo-100 to-purple-100 p-6 rounded-xl shadow-md transform transition-all duration-300 hover:scale-105 hover:shadow-lg backdrop-filter backdrop-blur-sm bg-opacity-90;
+  }
+  
+  /* ===================
+     Chat Components 
+     =================== */
   .chat-bubble {
     @apply max-w-[85%] sm:max-w-[75%] p-3 rounded-lg break-words;
   }
@@ -100,6 +155,155 @@
     @apply chat-bubble bg-gray-lightest text-gray-darkest;
   }
   
+  /* Thinking indicator */
+  .thinking-bubble {
+    @apply flex items-center bg-gradient-to-r from-gray-100 to-blue-100 text-gray-700 rounded-lg px-4 py-2 max-w-[85%] sm:max-w-xs lg:max-w-md shadow backdrop-filter backdrop-blur-sm bg-opacity-90;
+  }
+  
+  /* ===================
+     Header Components 
+     =================== */
+  .mobile-header {
+    @apply p-3 bg-gradient-to-r from-indigo-500 to-purple-500 shadow-lg flex items-center justify-between z-40 relative;
+  }
+  
+  /* ===================
+     Layout Components 
+     =================== */
+  .main-gradient-bg {
+    @apply bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50;
+  }
+  
+  .sidebar-overlay {
+    @apply fixed inset-0 bg-black bg-opacity-50 z-30 lg:hidden;
+  }
+  
+  .sidebar-container {
+    @apply fixed lg:static inset-y-0 left-0 z-50 lg:z-auto w-72 transition-transform duration-300 ease-in-out lg:transition-none;
+  }
+  
+  /* ===================
+     Input Components 
+     =================== */
+  .floating-input {
+    @apply flex-1 resize-none border-2 border-indigo-200 rounded-2xl p-4 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:border-indigo-400 disabled:opacity-50 disabled:cursor-not-allowed text-base min-h-[3rem] max-h-32 shadow-xl placeholder-gray-400 backdrop-blur-sm;
+  }
+  
+  .floating-input-container {
+    @apply fixed bottom-0 left-0 right-0 z-50 lg:left-72;
+  }
+  
+  .floating-input-bg {
+    @apply p-3 sm:p-6 flex justify-center bg-gradient-to-t from-white via-white to-transparent;
+  }
+  
+  /* ===================
+     Sidebar Components 
+     =================== */
+  .sidebar-main {
+    @apply w-72 bg-gradient-to-b from-indigo-600 via-indigo-700 to-purple-800 text-white flex flex-col h-screen;
+  }
+  
+  .sidebar-header {
+    @apply p-5 border-b border-indigo-500/30;
+  }
+  
+  .new-chat-btn {
+    @apply w-full bg-white text-indigo-700 hover:bg-indigo-100 font-bold py-3 px-4 rounded-xl transition-all duration-200 ease-in-out transform hover:scale-105 hover:shadow-lg flex items-center justify-center;
+  }
+  
+  .conversation-list {
+    @apply flex-1 overflow-y-auto px-3 py-4;
+  }
+  
+  .conversation-list-header {
+    @apply text-indigo-200 text-sm font-semibold uppercase tracking-wider mb-3 px-2;
+  }
+  
+  .conversation-list-loading {
+    @apply p-4 text-center text-indigo-200 animate-pulse;
+  }
+  
+  .conversation-list-empty {
+    @apply p-6 text-center text-indigo-200 bg-indigo-800/30 rounded-xl;
+  }
+  
+  .conversation-item {
+    @apply transition-all duration-200 hover:translate-x-1;
+  }
+  
+  .conversation-edit-container {
+    @apply p-2 bg-indigo-500/50 rounded-xl;
+  }
+  
+  .conversation-edit-input {
+    @apply w-full p-2 border border-indigo-400 rounded-lg bg-indigo-700 text-white text-sm focus:ring-indigo-300 focus:border-indigo-300 disabled:opacity-50;
+  }
+  
+  .conversation-edit-btn-save {
+    @apply px-3 py-1 bg-green-500 hover:bg-green-600 text-white text-xs rounded-lg disabled:opacity-50 transition-colors duration-200;
+  }
+  
+  .conversation-edit-btn-cancel {
+    @apply px-3 py-1 bg-red-500 hover:bg-red-600 text-white text-xs rounded-lg disabled:opacity-50 transition-colors duration-200;
+  }
+  
+  .conversation-btn-base {
+    @apply w-full text-left px-4 py-3 rounded-xl transition-all duration-200 ease-in-out flex items-center;
+  }
+  
+  .conversation-btn-active {
+    @apply conversation-btn-base bg-indigo-500 shadow-lg;
+  }
+  
+  .conversation-btn-inactive {
+    @apply conversation-btn-base hover:bg-indigo-500/50;
+  }
+  
+  .conversation-emoji {
+    @apply w-8 h-8 flex-shrink-0 flex items-center justify-center bg-indigo-400/30 rounded-full mr-3;
+  }
+  
+  .conversation-content {
+    @apply flex-1 min-w-0;
+  }
+  
+  .conversation-title {
+    @apply font-medium truncate;
+  }
+  
+  .conversation-date {
+    @apply block text-xs text-indigo-200 mt-1;
+  }
+  
+  .brain-config-btn {
+    @apply w-full bg-teal-500 hover:bg-teal-600 text-white font-bold py-3 px-4 rounded-xl transition-all duration-200 ease-in-out flex items-center justify-center;
+  }
+  
+  .brain-config-btn-active {
+    @apply brain-config-btn bg-teal-700 shadow-inner;
+  }
+  
+  .sidebar-section {
+    @apply p-4 border-t border-indigo-500/30;
+  }
+  
+  .user-info-section {
+    @apply p-4 border-t border-indigo-500/30 bg-indigo-900/30;
+  }
+  
+  .user-info-text {
+    @apply text-sm text-indigo-200;
+  }
+  
+  .logout-btn {
+    @apply w-full flex items-center justify-center bg-red-500 hover:bg-red-600 text-white py-2 px-4 rounded-xl transition-all duration-200 ease-in-out hover:shadow-lg;
+  }
+  
+  /* ===================
+     Modal Components 
+     =================== */
+     
   /* Mobile-friendly modal */
   .mobile-modal {
     @apply fixed inset-0 z-50 overflow-y-auto;
@@ -136,11 +340,28 @@
   }
 }
 
+/* ==========================================================================
+   UTILITIES LAYER - Utility classes and helpers
+   ========================================================================== */
+
 @layer utilities {
+  /* ===================
+     Text Utilities 
+     =================== */
+     
   .text-shadow {
     text-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
   }
   
+  /* Responsive text sizing for better mobile readability */
+  .text-responsive {
+    font-size: clamp(0.875rem, 2.5vw, 1rem);
+  }
+  
+  /* ===================
+     Viewport Utilities 
+     =================== */
+     
   /* Cross-mobile viewport height fix */
   .h-screen-mobile {
     height: 100vh; /* Fallback for older browsers */
@@ -152,6 +373,10 @@
     height: calc(var(--vh, 1vh) * 100);
   }
   
+  /* ===================
+     Touch Utilities 
+     =================== */
+     
   /* Touch-specific utilities */
   .touch-manipulation {
     touch-action: manipulation;
@@ -165,6 +390,10 @@
     touch-action: pan-y;
   }
   
+  /* ===================
+     Mobile Utilities 
+     =================== */
+     
   /* Mobile sidebar utilities */
   .sidebar-hidden {
     transform: translateX(-100%);
@@ -179,14 +408,13 @@
     user-select: none;
     -webkit-touch-callout: none;
   }
-  
-  /* Responsive text sizing for better mobile readability */
-  .text-responsive {
-    font-size: clamp(0.875rem, 2.5vw, 1rem);
-  }
 }
 
-/* Animation styles for blob effect */
+/* ==========================================================================
+   ANIMATIONS - Keyframes and animation classes
+   ========================================================================== */
+
+/* Blob animation for background decorative elements */
 @keyframes blob {
   0% {
     transform: translate(0px, 0px) scale(1);
@@ -202,6 +430,7 @@
   }
 }
 
+/* Animation utility classes */
 .animate-blob {
   animation: blob 7s infinite;
 }
