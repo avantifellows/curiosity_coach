@@ -130,34 +130,29 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ mode }) => {
 
 
   return (
-    <div className="flex h-screen-mobile bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50">
+    <div className="flex h-screen-mobile main-gradient-bg">
       {/* Mobile overlay */}
       {isSidebarOpen && (
         <div 
-          className="fixed inset-0 bg-black bg-opacity-50 z-30 lg:hidden"
+          className="sidebar-overlay"
           onClick={() => setIsSidebarOpen(false)}
         />
       )}
 
       {/* Sidebar */}
       <div className={`
-        ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'} 
-        fixed lg:static 
-        inset-y-0 left-0 
-        z-50 lg:z-auto
-        w-72 
-        transition-transform duration-300 ease-in-out
-        lg:transition-none
+        sidebar-container
+        ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
       `}>
         <ConversationSidebar onConversationSelect={() => setIsSidebarOpen(false)} />
       </div>
       
       <div className="flex-1 flex flex-col h-screen-mobile">
         {/* Mobile hamburger menu button */}
-        <div className="lg:hidden p-3 bg-gradient-to-r from-indigo-500 to-purple-500 shadow-lg flex items-center justify-between z-40 relative">
+        <div className="lg:hidden mobile-header">
           <button
             onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-            className="p-3 rounded-xl bg-white bg-opacity-20 backdrop-blur-sm text-white hover:bg-opacity-30 focus:outline-none focus:ring-2 focus:ring-white focus:ring-opacity-50 flex items-center justify-center transition-all duration-200 hover:scale-105"
+            className="btn-glass"
             aria-label="Toggle sidebar"
           >
             {isSidebarOpen ? <Close fontSize="medium" /> : <Menu fontSize="medium" />}
@@ -171,7 +166,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ mode }) => {
           {isDebugMode && currentConversationId && !isConfigViewActive && (
             <button
               onClick={handleViewMemory}
-              className="flex items-center px-3 py-2 bg-white bg-opacity-20 backdrop-blur-sm text-white rounded-xl hover:bg-opacity-30 transition-all duration-200 hover:scale-105 text-sm"
+              className="btn-gradient-secondary"
               title="See AI Generated Memory for this conversation"
               disabled={isLoadingMemory}
             >
@@ -213,7 +208,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ mode }) => {
                 </div>
               ) : messages.length === 0 ? (
                 <div className="flex justify-center items-center flex-1 py-20">
-                  <div className="bg-gradient-to-r from-indigo-100 to-purple-100 p-6 rounded-xl shadow-md transform transition-all duration-300 hover:scale-105 hover:shadow-lg backdrop-filter backdrop-blur-sm bg-opacity-90">
+                  <div className="card-gradient">
                     <h2 className="text-2xl md:text-3xl font-bold text-indigo-600 text-center">
                       What are you curious about today? <span className="inline-block animate-bounce">🤔</span>
                     </h2>
@@ -245,7 +240,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ mode }) => {
               )}
               {isBrainProcessing && (
                 <div className="flex justify-start pl-2">
-                  <div className="flex items-center bg-gradient-to-r from-gray-100 to-blue-100 text-gray-700 rounded-lg px-4 py-2 max-w-[85%] sm:max-w-xs lg:max-w-md shadow backdrop-filter backdrop-blur-sm bg-opacity-90">
+                  <div className="thinking-bubble">
                     <div className="mr-2">
                       <div className="animate-pulse flex space-x-1">
                         <div className="h-2 w-2 bg-blue-400 rounded-full"></div>
@@ -265,12 +260,12 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ mode }) => {
 
         {/* Floating input box */}
         {!isConfigViewActive && (
-          <div className="fixed bottom-0 left-0 right-0 z-50 lg:left-72">
-            <div className="p-3 sm:p-6 flex justify-center bg-gradient-to-t from-white via-white to-transparent">
+          <div className="floating-input-container">
+            <div className="floating-input-bg">
               <form onSubmit={handleFormSubmit} className="flex items-center space-x-3 w-full max-w-4xl">
                 <textarea
                   ref={textareaRef}
-                  className="flex-1 resize-none border-2 border-indigo-200 rounded-2xl p-4 bg-white focus:outline-none focus:ring-3 focus:ring-indigo-300 focus:border-indigo-400 disabled:opacity-50 disabled:cursor-not-allowed text-base min-h-[3rem] max-h-32 shadow-xl placeholder-gray-400 backdrop-blur-sm"
+                  className="floating-input"
                   rows={1}
                   placeholder=""
                   value={newMessage}
@@ -285,7 +280,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ mode }) => {
                 />
                 <button
                   type="submit"
-                  className={`px-5 py-4 bg-gradient-to-r from-indigo-500 to-purple-500 text-white rounded-2xl hover:from-indigo-600 hover:to-purple-600 focus:outline-none focus:ring-3 focus:ring-indigo-300 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0 h-12 flex items-center justify-center transition-all duration-200 hover:scale-105 shadow-xl font-medium ${isSendingMessage ? 'animate-pulse' : ''}`}
+                  className={`btn-gradient-primary ${isSendingMessage ? 'animate-pulse' : ''}`}
                   disabled={!newMessage.trim() || isSendingMessage}
                 >
                   {isSendingMessage ? (
