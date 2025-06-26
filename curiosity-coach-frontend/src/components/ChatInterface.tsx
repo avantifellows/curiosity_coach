@@ -183,15 +183,15 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ mode }) => {
           )}
         </div>
 
-        <main className="flex-1 p-2 sm:p-4 flex justify-center overflow-hidden">
+        <main className="flex-1 p-2 sm:p-4 flex justify-center overflow-hidden relative">
           <div className="w-full max-w-4xl relative flex flex-col h-full">
             {/* Decorative elements - subtle and non-distracting */}
             <div className="absolute top-0 right-0 w-32 h-32 bg-yellow-200 rounded-full mix-blend-multiply filter blur-xl opacity-20 animate-blob"></div>
             <div className="absolute top-0 -left-4 w-36 h-36 bg-purple-200 rounded-full mix-blend-multiply filter blur-xl opacity-20 animate-blob animation-delay-2000"></div>
             <div className="absolute -bottom-8 left-20 w-36 h-36 bg-pink-200 rounded-full mix-blend-multiply filter blur-xl opacity-20 animate-blob animation-delay-4000"></div>
             
-            {/* Content container with higher z-index */}
-            <div className="relative z-10 flex flex-col flex-1 overflow-y-auto custom-scrollbar">
+            {/* Content container with higher z-index and bottom padding for floating input */}
+            <div className="relative z-10 flex flex-col flex-1 overflow-y-auto custom-scrollbar pb-32">
               
               {/* Empty space pusher for when there are few messages */}
               {messages.length > 0 && messages.length < 4 && (
@@ -263,39 +263,40 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ mode }) => {
           </div>
         </main>
 
+        {/* Floating input box */}
         {!isConfigViewActive && (
-          <footer className="flex-shrink-0">
-            <div className="p-3 sm:p-6 flex justify-center">
+          <div className="fixed bottom-0 left-0 right-0 z-50 lg:left-72">
+            <div className="p-3 sm:p-6 flex justify-center bg-gradient-to-t from-white via-white to-transparent">
               <form onSubmit={handleFormSubmit} className="flex items-center space-x-3 w-full max-w-4xl">
-              <textarea
-                ref={textareaRef}
-                className="flex-1 resize-none border-2 border-indigo-200 rounded-2xl p-4 bg-white focus:outline-none focus:ring-3 focus:ring-indigo-300 focus:border-indigo-400 disabled:opacity-50 disabled:cursor-not-allowed text-base min-h-[3rem] max-h-32 shadow-lg placeholder-gray-400"
-                rows={1}
-                placeholder=""
-                value={newMessage}
-                onChange={(e) => setNewMessage(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault();
-                    handleFormSubmit(e);
-                  }
-                }}
-                disabled={isSendingMessage}
-              />
-              <button
-                type="submit"
-                className={`px-5 py-4 bg-gradient-to-r from-indigo-500 to-purple-500 text-white rounded-2xl hover:from-indigo-600 hover:to-purple-600 focus:outline-none focus:ring-3 focus:ring-indigo-300 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0 h-12 flex items-center justify-center transition-all duration-200 hover:scale-105 shadow-lg font-medium ${isSendingMessage ? 'animate-pulse' : ''}`}
-                disabled={!newMessage.trim() || isSendingMessage}
-              >
-                {isSendingMessage ? (
-                    <CircularProgress size={24} color="inherit" />
-                ) : (
-                    <Telegram fontSize="medium" />
-                )}
-              </button>
+                <textarea
+                  ref={textareaRef}
+                  className="flex-1 resize-none border-2 border-indigo-200 rounded-2xl p-4 bg-white focus:outline-none focus:ring-3 focus:ring-indigo-300 focus:border-indigo-400 disabled:opacity-50 disabled:cursor-not-allowed text-base min-h-[3rem] max-h-32 shadow-xl placeholder-gray-400 backdrop-blur-sm"
+                  rows={1}
+                  placeholder=""
+                  value={newMessage}
+                  onChange={(e) => setNewMessage(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault();
+                      handleFormSubmit(e);
+                    }
+                  }}
+                  disabled={isSendingMessage}
+                />
+                <button
+                  type="submit"
+                  className={`px-5 py-4 bg-gradient-to-r from-indigo-500 to-purple-500 text-white rounded-2xl hover:from-indigo-600 hover:to-purple-600 focus:outline-none focus:ring-3 focus:ring-indigo-300 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0 h-12 flex items-center justify-center transition-all duration-200 hover:scale-105 shadow-xl font-medium ${isSendingMessage ? 'animate-pulse' : ''}`}
+                  disabled={!newMessage.trim() || isSendingMessage}
+                >
+                  {isSendingMessage ? (
+                      <CircularProgress size={24} color="inherit" />
+                  ) : (
+                      <Telegram fontSize="medium" />
+                  )}
+                </button>
               </form>
             </div>
-          </footer>
+          </div>
         )}
       </div>
 
