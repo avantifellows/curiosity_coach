@@ -36,6 +36,8 @@
     overflow-x: hidden;
     /* Improve touch scrolling on iOS */
     -webkit-overflow-scrolling: touch;
+    /* Prevent black area on iOS overscroll */
+    background-attachment: fixed;
   }
   
   h1 {
@@ -112,6 +114,8 @@
   .custom-scrollbar {
     scrollbar-width: thin;
     scrollbar-color: rgba(156, 163, 175, 0.5) transparent;
+    /* Disable scroll bounce while keeping smooth scrolling */
+    overscroll-behavior: none;
   }
   
   .custom-scrollbar::-webkit-scrollbar {
@@ -137,6 +141,17 @@
     text-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
   }
   
+  /* Cross-mobile viewport height fix */
+  .h-screen-mobile {
+    height: 100vh; /* Fallback for older browsers */
+    height: 100dvh; /* Dynamic viewport height for modern browsers */
+  }
+  
+  /* Alternative approach using CSS custom properties */
+  .h-screen-safe {
+    height: calc(var(--vh, 1vh) * 100);
+  }
+  
   /* Touch-specific utilities */
   .touch-manipulation {
     touch-action: manipulation;
@@ -148,6 +163,12 @@
   
   .touch-pan-y {
     touch-action: pan-y;
+  }
+  
+  /* Mobile sidebar utilities */
+  .sidebar-hidden {
+    transform: translateX(-100%);
+    visibility: hidden;
   }
   
   /* Disable text selection for better touch UX */
@@ -163,4 +184,32 @@
   .text-responsive {
     font-size: clamp(0.875rem, 2.5vw, 1rem);
   }
+}
+
+/* Animation styles for blob effect */
+@keyframes blob {
+  0% {
+    transform: translate(0px, 0px) scale(1);
+  }
+  33% {
+    transform: translate(30px, -50px) scale(1.1);
+  }
+  66% {
+    transform: translate(-20px, 20px) scale(0.9);
+  }
+  100% {
+    transform: translate(0px, 0px) scale(1);
+  }
+}
+
+.animate-blob {
+  animation: blob 7s infinite;
+}
+
+.animation-delay-2000 {
+  animation-delay: 2s;
+}
+
+.animation-delay-4000 {
+  animation-delay: 4s;
 }
