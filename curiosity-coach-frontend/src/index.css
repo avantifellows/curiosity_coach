@@ -36,6 +36,8 @@
     overflow-x: hidden;
     /* Improve touch scrolling on iOS */
     -webkit-overflow-scrolling: touch;
+    /* Prevent black area on iOS overscroll */
+    background-attachment: fixed;
   }
   
   h1 {
@@ -112,6 +114,8 @@
   .custom-scrollbar {
     scrollbar-width: thin;
     scrollbar-color: rgba(156, 163, 175, 0.5) transparent;
+    /* Disable scroll bounce while keeping smooth scrolling */
+    overscroll-behavior: none;
   }
   
   .custom-scrollbar::-webkit-scrollbar {
