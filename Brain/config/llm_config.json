@@ -30,6 +30,12 @@
             "model": "gpt-4o",
             "temperature": 0.8,
             "max_tokens": 1000
+        },
+        "user_persona_generation": {
+            "provider": "groq",
+            "model": "llama-3.3-70b-versatile",
+            "temperature": 0.5,
+            "max_tokens": 4096
         }
     },
     "providers": {

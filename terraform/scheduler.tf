@@ -59,26 +59,52 @@ resource "aws_lambda_function" "scheduler_lambda" {
   depends_on = [
     aws_iam_role.scheduler_lambda_role,
     data.archive_file.scheduler_lambda_zip,
-    aws_cloudwatch_event_rule.scheduler_rule,
     aws_apigatewayv2_api.backend_api
   ]
 }
 
-resource "aws_cloudwatch_event_rule" "scheduler_rule" {
-  name                = "${var.project_name}-scheduler-rule-${var.environment}"
-  description         = "Fires every 10 minutes to trigger the scheduler lambda"
-  schedule_expression = "rate(10 minutes)"
+# Rule for Memory Generation
+resource "aws_cloudwatch_event_rule" "memory_generation_rule" {
+  name                = "${var.project_name}-memory-generation-rule-${var.environment}"
+  description         = "Fires every 3 hours to trigger memory generation"
+  schedule_expression = "rate(3 hours)"
 }
 
-resource "aws_cloudwatch_event_target" "scheduler_target" {
-  rule = aws_cloudwatch_event_rule.scheduler_rule.name
-  arn  = aws_lambda_function.scheduler_lambda.arn
+resource "aws_cloudwatch_event_target" "memory_generation_target" {
+  rule  = aws_cloudwatch_event_rule.memory_generation_rule.name
+  arn   = aws_lambda_function.scheduler_lambda.arn
+  input = jsonencode({
+    "task" : "memory_generation"
+  })
 }
 
-resource "aws_lambda_permission" "allow_eventbridge_to_call_scheduler" {
-  statement_id  = "AllowEventBridgeInvoke"
+resource "aws_lambda_permission" "allow_eventbridge_to_call_for_memory" {
+  statement_id  = "AllowEventBridgeInvokeMemory"
   action        = "lambda:InvokeFunction"
   function_name = aws_lambda_function.scheduler_lambda.function_name
   principal     = "events.amazonaws.com"
-  source_arn    = aws_cloudwatch_event_rule.scheduler_rule.arn
+  source_arn    = aws_cloudwatch_event_rule.memory_generation_rule.arn
+}
+
+# Rule for User Persona Generation
+resource "aws_cloudwatch_event_rule" "user_persona_generation_rule" {
+  name                = "${var.project_name}-user-persona-generation-rule-${var.environment}"
+  description         = "Fires every 4 hours to trigger user persona generation"
+  schedule_expression = "rate(4 hours)"
+}
+
+resource "aws_cloudwatch_event_target" "user_persona_generation_target" {
+  rule  = aws_cloudwatch_event_rule.user_persona_generation_rule.name
+  arn   = aws_lambda_function.scheduler_lambda.arn
+  input = jsonencode({
+    "task" : "persona_generation"
+  })
+}
+
+resource "aws_lambda_permission" "allow_eventbridge_to_call_for_persona" {
+  statement_id  = "AllowEventBridgeInvokePersona"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.scheduler_lambda.function_name
+  principal     = "events.amazonaws.com"
+  source_arn    = aws_cloudwatch_event_rule.user_persona_generation_rule.arn
 } 

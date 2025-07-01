@@ -9,6 +9,8 @@ from src.health.router import router as health_router
 from src.memories.router import router as memories_router
 from src.prompts.router import router as prompts_router
 from src.tasks.router import router as tasks_router
+from src.user_personas.router import router as user_personas_router
+from src.internal.router import router as internal_router
 from src.config.settings import settings
 from src.database import init_db
 from mangum import Mangum
@@ -101,6 +103,8 @@ def create_app() -> FastAPI:
     app.include_router(messages_router)
     app.include_router(prompts_router)
     app.include_router(tasks_router)
+    app.include_router(user_personas_router)
+    app.include_router(internal_router)
     
     logger.info("FastAPI app created successfully")
     return app
