@@ -66,13 +66,14 @@ class LLMService:
             raise ValueError(f"Unknown call type: {call_type}")
         return self.config["calls"][call_type]
     
-    def get_completion(self, messages: list, call_type: Optional[str] = None) -> str:
+    def get_completion(self, messages: list, call_type: Optional[str] = None, json_mode: bool = False) -> str:
         """
         Get completion from the configured LLM provider
         
         Args:
             messages: List of message dictionaries
             call_type: Optional call type to use specific configuration
+            json_mode: Optional flag to enable JSON response format
         """
         if os.getenv("APP_ENV") == "test":
             logger.info(f"APP_ENV is 'test', returning mocked LLM completion for call_type: {call_type}")
@@ -119,12 +120,17 @@ class LLMService:
             logger.info(f"Making LLM call to {provider} with model {call_config['model']}")
             client = self.get_client(provider)
             
-            response = client.chat.completions.create(
-                model=call_config["model"],
-                messages=messages,
-                temperature=call_config["temperature"],
-                max_tokens=call_config["max_tokens"]
-            )
+            request_params = {
+                "model": call_config["model"],
+                "messages": messages,
+                "temperature": call_config["temperature"],
+                "max_tokens": call_config["max_tokens"]
+            }
+
+            if json_mode:
+                request_params["response_format"] = {"type": "json_object"}
+            
+            response = client.chat.completions.create(**request_params)
             
             logger.debug("Successfully received completion from LLM")
             return response.choices[0].message.content
@@ -133,24 +139,25 @@ class LLMService:
             logger.error(f"Error getting completion: {str(e)}", exc_info=True)
             raise
 
-    def generate_response(self, final_prompt: str, call_type: Optional[str] = None) -> Dict[str, str]:
+    def generate_response(self, final_prompt: str, call_type: Optional[str] = None, json_mode: bool = False) -> Dict[str, str]:
         """
         Generate a response from the final prompt and return it in a dictionary format.
         
         Args:
             final_prompt (str): The final prompt to generate a response from
             call_type (str, optional): The type of call to use specific configuration
+            json_mode (bool, optional): Whether to enable JSON mode for the response
             
         Returns:
             Dict[str, str]: A dictionary with 'raw_response' as the key and the generated text as the value
         """
-        logger.debug(f"Generating response for prompt with call type: {call_type}")
+        logger.debug(f"Generating response for prompt with call type: {call_type}, JSON mode: {json_mode}")
         messages = [
             {"role": "user", "content": final_prompt}
         ]
         
         try:
-            generated_text = self.get_completion(messages, call_type)
+            generated_text = self.get_completion(messages, call_type, json_mode=json_mode)
             logger.debug("Successfully generated response")
             return {"raw_response": generated_text}
         except Exception as e:
