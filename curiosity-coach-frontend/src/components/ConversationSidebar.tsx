@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useChat } from '../context/ChatContext';
 import { useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
@@ -6,9 +6,10 @@ import { LogoutOutlined, Settings, Add } from '@mui/icons-material';
 
 interface ConversationSidebarProps {
   onConversationSelect?: () => void;
+  onOpenFeedbackModal: () => void;
 }
 
-const ConversationSidebar: React.FC<ConversationSidebarProps> = ({ onConversationSelect }) => {
+const ConversationSidebar: React.FC<ConversationSidebarProps> = ({ onConversationSelect, onOpenFeedbackModal }) => {
   const {
     conversations,
     currentConversationId,
@@ -198,6 +199,14 @@ const ConversationSidebar: React.FC<ConversationSidebarProps> = ({ onConversatio
       {user && (
         <div className="user-info-section">
           <div className="flex flex-col space-y-3">
+            <div className="mb-2">
+                <button 
+                    onClick={onOpenFeedbackModal}
+                    className="text-sm text-gray-300 hover:text-white transition-colors duration-200"
+                >
+                    Liked it? Give feedback
+                </button>
+            </div>
             <div className="user-info-text">
               Logged in as: <span className="font-medium text-white">{user.phone_number}</span>
             </div>
