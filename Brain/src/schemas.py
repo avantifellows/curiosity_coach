@@ -115,7 +115,6 @@ class FutureConversationHook(BaseModel):
     related_topic: str = Field(..., description="The broader topic related to the hook question.")
 
 class ConversationMemoryData(BaseModel):
-    conversation_summary: str = Field(..., description="A brief, narrative summary of the conversation.")
-    topics_discussed: List[TopicDiscussed]
-    student_profile_insights: StudentProfileInsights
-    future_conversation_hooks: List[FutureConversationHook]
+    main_topics: List[str] = Field(..., description="List of topics that are discussed in the discussion")
+    action: List[str] = Field(..., description="List of actions suggested by the AI to explore to kid")
+    typical_observation: str = Field(..., description="Typical and in-depth observation about the kid")

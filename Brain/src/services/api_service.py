@@ -51,5 +51,67 @@ class APIService:
             logger.error(f"Error response {e.response.status_code} while fetching history for {conversation_id}: {e.response.text}")
             return None
 
+    async def get_conversation_memories_for_user(self, user_id: int) -> Optional[List[Dict[str, Any]]]:
+        """
+        Fetches all conversation memories for a specific user from the backend.
+        """
+        url = f"{self.backend_url}/api/internal/users/{user_id}/memories"
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(url)
+                response.raise_for_status()
+                # Assuming the endpoint returns a list of memories directly
+                return response.json()
+        except httpx.RequestError as e:
+            logger.error(f"Error fetching conversation memories for user {user_id}: {e}")
+            return None
+        except httpx.HTTPStatusError as e:
+            logger.error(f"Error response {e.response.status_code} while fetching memories for user {user_id}: {e.response.text}")
+            return None
+
+    async def get_user_persona(self, user_id: int) -> Optional[Dict[str, Any]]:
+        """
+        Fetches the user persona for a specific user from the backend.
+        """
+        # Note: This endpoint is hypothetical and needs to be implemented in the backend.
+        url = f"{self.backend_url}/api/internal/users/{user_id}/persona"
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(url)
+                if response.status_code == 404:
+                    logger.info(f"No persona found for user {user_id}.")
+                    return None
+                response.raise_for_status()
+                # Assuming the endpoint returns the persona data directly
+                return response.json().get("persona_data")
+        except httpx.RequestError as e:
+            logger.error(f"Error fetching user persona for user {user_id}: {e}")
+            return None
+        except httpx.HTTPStatusError as e:
+            logger.error(f"Error response {e.response.status_code} while fetching persona for user {user_id}: {e.response.text}")
+            return None
+
+    async def post_user_persona(self, user_id: int, persona_data: Dict[str, Any]) -> bool:
+        """
+        Posts the generated user persona to the backend.
+        """
+        url = f"{self.backend_url}/api/user-personas"
+        payload = {
+            "user_id": user_id,
+            "persona_data": persona_data
+        }
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.post(url, json=payload)
+                response.raise_for_status()
+                logger.info(f"Successfully posted persona for user {user_id}")
+                return True
+        except httpx.RequestError as e:
+            logger.error(f"Error posting persona for user {user_id}: {e}")
+            return False
+        except httpx.HTTPStatusError as e:
+            logger.error(f"Error response {e.response.status_code} while posting persona for user {user_id}: {e.response.text}")
+            return False
+
 # Singleton instance
 api_service = APIService() 

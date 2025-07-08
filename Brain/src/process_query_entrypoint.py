@@ -171,13 +171,14 @@ def _get_default_prompt_name(step_name: str) -> str:
         logger.warning(f"Unknown step name: {step_name}, returning the step name as prompt name")
         return step_name
 
-async def generate_simplified_response(query: str, conversation_history: Optional[str] = None, purpose: str = "chat") -> Tuple[str, str, Dict[str, Any]]:
+async def generate_simplified_response(query: str, conversation_history: Optional[str] = None, user_persona: Optional[Dict[str, Any]] = None, purpose: str = "chat") -> Tuple[str, str, Dict[str, Any]]:
     """
     Generate a simplified response using a single prompt approach.
     
     Args:
         query (str): The user's query
         conversation_history (Optional[str]): Previous conversation history if available
+        user_persona (Optional[Dict[str, Any]]): The user's persona data
         purpose (str): The purpose of the query
         
     Returns:
@@ -200,6 +201,13 @@ async def generate_simplified_response(query: str, conversation_history: Optiona
         else:
             formatted_prompt = formatted_prompt.replace("{{CONVERSATION_HISTORY}}", "No previous conversation.")
         
+        if "{{USER_PERSONA}}" in formatted_prompt:
+            if user_persona:
+                persona_str = json.dumps(user_persona, indent=2)
+                formatted_prompt = formatted_prompt.replace("{{USER_PERSONA}}", persona_str)
+            else:
+                formatted_prompt = formatted_prompt.replace("{{USER_PERSONA}}", "User persona not available.")
+
         # Call LLM service
         from src.services.llm_service import LLMService
         llm_service = LLMService()
@@ -330,7 +338,7 @@ async def _get_prompt_from_backend(prompt_name: str, purpose: str = "chat") -> O
         logger.warning(f"Error getting prompt version from backend: {e}")
         return None
 
-async def process_query(query: str, config: Optional[FlowConfig] = None, conversation_history: Optional[str] = None, purpose: str = "chat") -> ProcessQueryResponse:
+async def process_query(query: str, config: Optional[FlowConfig] = None, conversation_history: Optional[str] = None, user_persona: Optional[Dict[str, Any]] = None, purpose: str = "chat") -> ProcessQueryResponse:
     """
     Process a user query through the intent identification and response generation pipeline.
     
@@ -339,6 +347,7 @@ async def process_query(query: str, config: Optional[FlowConfig] = None, convers
         config (Optional[FlowConfig]): Configuration object for the processing pipeline.
             If None, default configuration will be used.
         conversation_history (Optional[str]): The conversation history between the user and the system.
+        user_persona (Optional[Dict[str, Any]]): The user's persona data.
         purpose (str): The purpose of the query
         
     Returns:
@@ -373,7 +382,7 @@ async def process_query(query: str, config: Optional[FlowConfig] = None, convers
             logger.info("Using simplified conversation mode")
             
             # Generate simplified response
-            response, prompt, response_data = await generate_simplified_response(query, conversation_history, purpose)
+            response, prompt, response_data = await generate_simplified_response(query, conversation_history, user_persona, purpose)
             
             # Check if we need clarification
             needs_clarification = response_data.get("needs_clarification", False)
@@ -580,6 +589,7 @@ async def process_follow_up(
     student_response: str,
     config: Optional[FlowConfig] = None,
     conversation_history: Optional[str] = None,
+    user_persona: Optional[Dict[str, Any]] = None,
     purpose: str = "chat"
 ) -> ProcessQueryResponse:
     """
@@ -591,6 +601,7 @@ async def process_follow_up(
         student_response (str): The student's response to the follow-up questions
         config (Optional[FlowConfig]): Configuration object for the processing pipeline
         conversation_history (Optional[str]): Previous conversation history
+        user_persona (Optional[Dict[str, Any]]): The user's persona data.
         purpose (str): The purpose of the query
         
     Returns:
@@ -630,7 +641,7 @@ async def process_follow_up(
                 enhanced_conversation_history = f"User: {original_query}\nAI: {', '.join(follow_up_questions)}\nUser: {student_response}"
             
             # Generate simplified response
-            response, prompt, response_data = await generate_simplified_response(student_response, enhanced_conversation_history, purpose)
+            response, prompt, response_data = await generate_simplified_response(student_response, enhanced_conversation_history, user_persona, purpose)
             
             # Check if we need clarification (again)
             needs_clarification = response_data.get("needs_clarification", False)

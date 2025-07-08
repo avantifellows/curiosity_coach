@@ -193,6 +193,16 @@ class QueueService:
                 print(f"SQS Error (Non-ClientError): Failed sending message to {self.queue_url}. Error Type: {error_type}, Details: {e}")
                 return {"error": f"SQS send failed: {str(e)}"}
 
+    async def send_user_persona_generation_task(self, user_id: int):
+        """
+        Sends a task to generate a user persona.
+        """
+        task_body = {
+            "task_type": "USER_PERSONA_GENERATION",
+            "user_id": user_id
+        }
+        return await self.send_batch_task(task_body)
+
     async def send_batch_task(self, task_body: dict):
         """
         Sends a batch task message to the SQS queue or a local HTTP endpoint.
