@@ -16,6 +16,7 @@ if project_root not in sys.path:
 
 # Import the FastAPI app and the dequeue function
 from src.main import app, dequeue, MessagePayload, process_memory_generation_batch
+from src.core.user_persona_generator import generate_persona_for_user
 from pydantic import ValidationError
 
 logger = logging.getLogger()
@@ -70,6 +71,17 @@ def lambda_handler(event, context):
                         logger.warning("GENERATE_MEMORY_BATCH task received with no conversation_ids.")
                         failed_messages += 1
                     continue # Move to the next record
+                
+                elif task_type == "USER_PERSONA_GENERATION":
+                    user_id = message_body.get("user_id")
+                    if user_id:
+                        logger.info(f"Detected USER_PERSONA_GENERATION task for user_id: {user_id}.")
+                        asyncio.run(generate_persona_for_user(user_id))
+                        processed_messages += 1
+                    else:
+                        logger.warning("USER_PERSONA_GENERATION task received with no user_id.")
+                        failed_messages += 1
+                    continue
 
                 # --- Regular message processing ---
                 # Parse the dictionary into the Pydantic model

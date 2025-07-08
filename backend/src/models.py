@@ -16,6 +16,18 @@ class User(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     conversations = relationship("Conversation", back_populates="user", cascade="all, delete-orphan")
+    persona = relationship("UserPersona", back_populates="user", uselist=False, cascade="all, delete-orphan")
+
+class UserPersona(Base):
+    __tablename__ = "user_personas"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), unique=True, nullable=False, index=True)
+    persona_data = Column(JSON, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    user = relationship("User", back_populates="persona")
 
 class Conversation(Base):
     __tablename__ = "conversations"
@@ -240,13 +252,12 @@ def get_conversations_needing_memory(db: Session) -> List[int]:
     Get IDs of conversations that have been inactive for a certain period
     and either don't have a memory or their memory is older than their last update.
     """
-    # import ipdb; ipdb.set_trace()
     inactivity_threshold = datetime.utcnow() - timedelta(hours=settings.MEMORY_INACTIVITY_THRESHOLD_HOURS)
 
     # Find conversations that were updated before the threshold
     # and either have no memory or the memory is older than the last conversation update.
     conversations_to_process = (
-        db.query(Conversation.id)
+        db.query(Conversation)
         .outerjoin(ConversationMemory, Conversation.id == ConversationMemory.conversation_id)
         .filter(
             Conversation.updated_at < inactivity_threshold,
@@ -257,6 +268,38 @@ def get_conversations_needing_memory(db: Session) -> List[int]:
     )
     
     return [c.id for c in conversations_to_process]
+
+def get_users_needing_persona_generation(db: Session) -> List[int]:
+    """
+    Returns a list of user IDs who need their persona generated or updated.
+    """
+    # 1. Users with an existing persona but newer memories
+    users_to_update = (
+        db.query(User.id)
+        .join(UserPersona)
+        .join(Conversation, User.id == Conversation.user_id)
+        .join(ConversationMemory, Conversation.id == ConversationMemory.conversation_id)
+        .group_by(User.id, UserPersona.updated_at)
+        .having(func.max(ConversationMemory.created_at) > UserPersona.updated_at)
+        .all()
+    )
+
+    # 2. Users with memories but no persona
+    users_to_create = (
+        db.query(User.id)
+        .join(Conversation, User.id == Conversation.user_id)
+        .join(ConversationMemory, Conversation.id == ConversationMemory.conversation_id)
+        .outerjoin(UserPersona, User.id == UserPersona.user_id)
+        .filter(UserPersona.id == None)
+        .group_by(User.id)
+        .all()
+    )
+
+    # Combine and get unique user IDs
+    user_ids_to_update = {u[0] for u in users_to_update}
+    user_ids_to_create = {u[0] for u in users_to_create}
+    
+    return list(user_ids_to_update.union(user_ids_to_create))
 
 def save_message_pipeline_data(db: Session, message_id: int, pipeline_data_dict: dict) -> MessagePipelineData:
     """Saves pipeline data for a specific message."""
