@@ -1,4 +1,6 @@
 /** @type {import('tailwindcss').Config} */
+const { colors, spacing, borderRadius, typography, breakpoints, zIndex, mobile } = require('./src/constants/design');
+
 module.exports = {
   content: [
     "./src/**/*.{js,jsx,ts,tsx}",
@@ -6,43 +8,39 @@ module.exports = {
   ],
   theme: {
     extend: {
-      colors: {
-        primary: {
-          light: '#4dabf5',
-          DEFAULT: '#1976d2',
-          dark: '#1565c0',
-        },
-        secondary: {
-          light: '#ff4081',
-          DEFAULT: '#f50057',
-          dark: '#c51162',
-        },
-        gray: {
-          lightest: '#f5f5f5',
-          light: '#e0e0e0',
-          DEFAULT: '#9e9e9e',
-          dark: '#616161',
-          darkest: '#212121',
-        }
+      colors,
+      fontFamily: typography.fontFamily,
+      fontSize: typography.fontSize,
+      fontWeight: typography.fontWeight,
+      lineHeight: typography.lineHeight,
+      spacing: {
+        ...spacing,
+        'safe-area-inset-top': mobile.safeAreaInsets.top,
+        'safe-area-inset-bottom': mobile.safeAreaInsets.bottom,
+        'safe-area-inset-left': mobile.safeAreaInsets.left,
+        'safe-area-inset-right': mobile.safeAreaInsets.right,
       },
-      fontFamily: {
-        sans: ['Inter', 'system-ui', 'sans-serif'],
-      },
+      borderRadius,
       screens: {
-        'xs': '475px',
+        ...breakpoints,
+        'xs': breakpoints.xs,
         'touch': { 'raw': '(hover: none)' },
       },
-      spacing: {
-        'safe-area-inset-top': 'env(safe-area-inset-top)',
-        'safe-area-inset-bottom': 'env(safe-area-inset-bottom)',
-        'safe-area-inset-left': 'env(safe-area-inset-left)',
-        'safe-area-inset-right': 'env(safe-area-inset-right)',
-      },
+      zIndex,
       minHeight: {
-        'touch-target': '44px',
+        'touch-target': mobile.minTouchTarget,
       },
       minWidth: {
-        'touch-target': '44px',
+        'touch-target': mobile.minTouchTarget,
+      },
+      backdropBlur: {
+        xs: '2px',
+        sm: '4px',
+        md: '8px',
+        lg: '12px',
+        xl: '16px',
+        '2xl': '24px',
+        '3xl': '32px',
       },
     },
   },
