@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { useChat } from '../context/ChatContext';
 import { useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
