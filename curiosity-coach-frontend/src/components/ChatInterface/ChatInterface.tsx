@@ -124,7 +124,10 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ mode }) => {
       `}>
         <ConversationSidebar
           onConversationSelect={() => setIsSidebarOpen(false)}
-          onOpenFeedbackModal={() => setShowFeedbackModal(true)}
+          onOpenFeedbackModal={() => {
+            setShowFeedbackModal(true);
+            setIsSidebarOpen(false);
+          }}
         />
       </div>
       
