@@ -1,26 +1,93 @@
 import React, { useState } from 'react';
 import { submitFeedback } from '../services/api';
 
+// Emoji Rating Component
+const EmojiRating: React.FC<{
+  question: string;
+  value: number;
+  onChange: (value: number) => void;
+}> = ({ question, value, onChange }) => {
+  const emojis = ['😠', '😟', '😐', '😊', '🤩'];
+  return (
+    <div className="mb-6">
+      <label className="block text-gray-700 text-sm font-bold mb-2">{question}</label>
+      <div className="flex justify-between">
+        {emojis.map((emoji, index) => (
+          <button
+            key={index}
+            type="button"
+            onClick={() => onChange(index + 1)}
+            className={`text-3xl p-2 rounded-full transition-all duration-200 ${
+              value === index + 1 ? 'transform scale-125' : 'grayscale hover:grayscale-0'
+            }`}
+          >
+            {emoji}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+// Main Feedback Modal Component
 interface FeedbackModalProps {
   open: boolean;
   onClose: () => void;
 }
 
 const FeedbackModal: React.FC<FeedbackModalProps> = ({ open, onClose }) => {
-  const [thumbsUp, setThumbsUp] = useState<boolean | null>(null);
-  const [feedbackText, setFeedbackText] = useState('');
+  const [formState, setFormState] = useState({
+    'How curious do you feel now?': 0,
+    'How easy was the application to use?': 0,
+    'What surprised you most today?': '',
+    'Were you frustrated at any point? What would you change/include?': '',
+    'Would you recommend it to someone?': '',
+  });
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  const handleRatingChange = (question: string, value: number) => {
+    setFormState(prev => ({ ...prev, [question]: value }));
+  };
+
+  const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement | HTMLInputElement>) => {
+    const { name, value } = e.target;
+    setFormState(prev => ({ ...prev, [name]: value }));
+  };
+  
+  const handleRadioChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, value } = e.target;
+    setFormState(prev => ({...prev, [name]: value}));
+  };
+
+  const isFormComplete = () => {
+    return (
+      formState['How curious do you feel now?'] > 0 &&
+      formState['How easy was the application to use?'] > 0 &&
+      formState['Would you recommend it to someone?'] !== ''
+    );
+  };
+
+  const resetForm = () => {
+    setFormState({
+      'How curious do you feel now?': 0,
+      'How easy was the application to use?': 0,
+      'What surprised you most today?': '',
+      'Were you frustrated at any point? What would you change/include?': '',
+      'Would you recommend it to someone?': '',
+    });
+    setError('');
+  };
+
   const handleSubmit = async () => {
-    if (thumbsUp === null) {
-      setError('Please select thumbs up or thumbs down.');
+    if (!isFormComplete()) {
+      setError('Please fill out all required fields (ratings and recommendation).');
       return;
     }
     setError('');
     setIsSubmitting(true);
     try {
-      await submitFeedback(thumbsUp, feedbackText);
+      await submitFeedback(formState);
       handleClose();
     } catch (err: any) {
       setError(err.message || 'Failed to submit feedback.');
@@ -30,66 +97,60 @@ const FeedbackModal: React.FC<FeedbackModalProps> = ({ open, onClose }) => {
   };
 
   const handleClose = () => {
-    setThumbsUp(null);
-    setFeedbackText('');
-    setError('');
+    resetForm();
     onClose();
   };
 
-  if (!open) {
-    return null;
-  }
+  if (!open) return null;
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex justify-center items-center">
-      <div className="bg-white p-6 rounded-lg shadow-xl w-full max-w-md">
+    <div className="fixed inset-0 bg-black bg-opacity-60 z-50 flex justify-center items-center p-4">
+      <div className="bg-white p-6 rounded-lg shadow-xl w-full max-w-lg max-h-full overflow-y-auto">
         <div className="flex justify-between items-center mb-4">
-          <h2 className="text-xl font-bold">Give Feedback</h2>
-          <button onClick={handleClose} className="text-gray-500 hover:text-gray-800">&times;</button>
+          <h2 className="text-2xl font-bold text-gray-800">Share Your Feedback</h2>
+          <button onClick={handleClose} className="text-gray-500 hover:text-gray-800 text-3xl">&times;</button>
         </div>
-        
-        <p className="mb-4">Liked it? Let us know!</p>
-        
-        <div className="flex justify-center items-center space-x-8 mb-6">
-          <button
-            onClick={() => setThumbsUp(true)}
-            className={`text-4xl p-3 border rounded-full transition-all duration-200 flex items-center justify-center
-              ${
-                thumbsUp === true
-                  ? 'scale-110 border-blue-500 bg-blue-100' // Selected state
-                  : 'grayscale hover:grayscale-0 hover:scale-110 border-gray-300' // Unselected state
-              }`}
-          >
-            👍
-          </button>
-          <button
-            onClick={() => setThumbsUp(false)}
-            className={`text-4xl p-3 border rounded-full transition-all duration-200 flex items-center justify-center
-              ${
-                thumbsUp === false
-                  ? 'scale-110 border-red-500 bg-red-100' // Selected state
-                  : 'grayscale hover:grayscale-0 hover:scale-110 border-gray-300' // Unselected state
-              }`}
-          >
-            👎
-          </button>
-        </div>
-        
-        <textarea
-          className="w-full p-2 border rounded-md"
-          rows={4}
-          placeholder="Tell us more... (optional)"
-          value={feedbackText}
-          onChange={(e) => setFeedbackText(e.target.value)}
-        />
-        
-        {error && <p className="text-red-500 text-sm mt-2">{error}</p>}
+
+        <form>
+            <EmojiRating
+                question="How curious do you feel now?"
+                value={formState['How curious do you feel now?']}
+                onChange={value => handleRatingChange('How curious do you feel now?', value)}
+            />
+            <EmojiRating
+                question="How easy was the application to use?"
+                value={formState['How easy was the application to use?']}
+                onChange={value => handleRatingChange('How easy was the application to use?', value)}
+            />
+            
+            <div className="mb-6">
+                <label htmlFor="surprised" className="block text-gray-700 text-sm font-bold mb-2">What surprised you most today?</label>
+                <textarea id="surprised" name="What surprised you most today?" value={formState['What surprised you most today?']} onChange={handleTextChange} className="form-textarea" rows={3}></textarea>
+            </div>
+            
+            <div className="mb-6">
+                <label htmlFor="frustrated" className="block text-gray-700 text-sm font-bold mb-2">Were you frustrated at any point? What would you change/include?</label>
+                <textarea id="frustrated" name="Were you frustrated at any point? What would you change/include?" value={formState['Were you frustrated at any point? What would you change/include?']} onChange={handleTextChange} className="form-textarea" rows={3}></textarea>
+            </div>
+            
+            <div className="mb-6">
+                <label className="block text-gray-700 text-sm font-bold mb-2">Would you recommend it to someone?</label>
+                <div className="flex items-center space-x-4">
+                    <label className="flex items-center"><input type="radio" name="Would you recommend it to someone?" value="Yes" checked={formState['Would you recommend it to someone?'] === 'Yes'} onChange={handleRadioChange} className="form-radio" /> <span className="ml-2">Yes</span></label>
+                    <label className="flex items-center"><input type="radio" name="Would you recommend it to someone?" value="No" checked={formState['Would you recommend it to someone?'] === 'No'} onChange={handleRadioChange} className="form-radio" /> <span className="ml-2">No</span></label>
+                    <label className="flex items-center"><input type="radio" name="Would you recommend it to someone?" value="Maybe" checked={formState['Would you recommend it to someone?'] === 'Maybe'} onChange={handleRadioChange} className="form-radio" /> <span className="ml-2">Maybe</span></label>
+                </div>
+            </div>
+
+        </form>
+
+        {error && <p className="text-red-500 text-sm my-2">{error}</p>}
         
         <div className="mt-6 flex justify-end">
           <button
             onClick={handleSubmit}
-            className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded transition-colors duration-200 disabled:bg-blue-300 disabled:cursor-not-allowed"
-            disabled={isSubmitting || thumbsUp === null}
+            className="new-chat-btn w-full sm:w-auto disabled:opacity-50 disabled:cursor-not-allowed disabled:scale-100"
+            disabled={isSubmitting || !isFormComplete()}
           >
             {isSubmitting ? 'Submitting...' : 'Submit Feedback'}
           </button>

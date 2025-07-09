@@ -24,8 +24,7 @@ class UserFeedback(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
-    thumbs_up = Column(Boolean, nullable=False)
-    feedback_text = Column(Text, nullable=True)
+    feedback_data = Column(JSON, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     user = relationship("User", back_populates="feedbacks")

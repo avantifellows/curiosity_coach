@@ -1,11 +1,10 @@
 from pydantic import BaseModel
 from datetime import datetime
-from typing import Optional
+from typing import Dict, Any
 
 
 class FeedbackBase(BaseModel):
-    thumbs_up: bool
-    feedback_text: Optional[str] = None
+    feedback_data: Dict[str, Any]
 
 
 class FeedbackCreate(FeedbackBase):

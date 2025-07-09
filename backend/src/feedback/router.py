@@ -22,7 +22,7 @@ def create_feedback(
     Create a new feedback entry for the current user.
     """
     db_feedback = models.UserFeedback(
-        **feedback.model_dump(),
+        feedback_data=feedback.feedback_data,
         user_id=current_user.id,
     )
     db.add(db_feedback)

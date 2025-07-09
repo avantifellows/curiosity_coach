@@ -196,11 +196,10 @@ export const setActivePromptVersion = async (promptId: number | string, versionI
   }
 };
 
-export const submitFeedback = async (thumbsUp: boolean, feedbackText?: string): Promise<any> => {
+export const submitFeedback = async (feedbackData: { [key: string]: any }): Promise<any> => {
   try {
     const response = await API.post('/feedback/', {
-      thumbs_up: thumbsUp,
-      feedback_text: feedbackText,
+      feedback_data: feedbackData,
     });
     return response.data;
   } catch (error: any) {

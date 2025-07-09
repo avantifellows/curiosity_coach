@@ -2,7 +2,7 @@ import React from 'react';
 import { useChat } from '../context/ChatContext';
 import { useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { LogoutOutlined, Settings, Add } from '@mui/icons-material';
+import { Settings, Add } from '@mui/icons-material';
 
 interface ConversationSidebarProps {
   onConversationSelect?: () => void;
@@ -199,24 +199,24 @@ const ConversationSidebar: React.FC<ConversationSidebarProps> = ({ onConversatio
       {user && (
         <div className="user-info-section">
           <div className="flex flex-col space-y-3">
-            <div className="mb-2">
+            <button 
+                onClick={onOpenFeedbackModal}
+                className="new-chat-btn"
+            >
+                Give Feedback
+            </button>
+            <div className="text-center">
+                <span className="user-info-text text-sm">
+                Logged in as: <span className="font-medium text-white">{user.phone_number}</span>
+                </span>
+                <span className="mx-2 text-gray-400">|</span>
                 <button 
-                    onClick={onOpenFeedbackModal}
-                    className="text-sm text-gray-300 hover:text-white transition-colors duration-200"
+                onClick={handleLogout}
+                className="text-sm text-gray-300 hover:text-white hover:underline transition-colors duration-200"
                 >
-                    Liked it? Give feedback
+                Logout
                 </button>
             </div>
-            <div className="user-info-text">
-              Logged in as: <span className="font-medium text-white">{user.phone_number}</span>
-            </div>
-            <button 
-              onClick={handleLogout}
-              className="logout-btn"
-            >
-              <LogoutOutlined fontSize="small" className="mr-2" />
-              Logout
-            </button>
           </div>
         </div>
       )}
