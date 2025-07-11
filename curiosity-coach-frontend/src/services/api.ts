@@ -196,6 +196,18 @@ export const setActivePromptVersion = async (promptId: number | string, versionI
   }
 };
 
+export const submitFeedback = async (feedbackData: { [key: string]: any }): Promise<any> => {
+  try {
+    const response = await API.post('/feedback/', {
+      feedback_data: feedbackData,
+    });
+    return response.data;
+  } catch (error: any) {
+    console.error("Error submitting feedback:", error.response?.data || error.message);
+    throw new Error(error.response?.data?.detail || 'Failed to submit feedback');
+  }
+};
+
 export const getConversationMemory = async (conversationId: number | string): Promise<any> => {
   try {
     const response = await API.get(`/conversations/${conversationId}/memory`);

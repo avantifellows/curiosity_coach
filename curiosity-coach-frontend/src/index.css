@@ -179,7 +179,7 @@
   }
   
   .sidebar-container {
-    @apply fixed lg:static inset-y-0 left-0 z-50 lg:z-auto w-72 transition-transform duration-300 ease-in-out lg:transition-none;
+    @apply fixed lg:static inset-y-0 left-0 z-[60] lg:z-auto w-72 transition-transform duration-300 ease-in-out lg:transition-none;
   }
   
   /* ===================
@@ -209,7 +209,7 @@
   }
   
   .new-chat-btn {
-    @apply w-full bg-white text-indigo-700 hover:bg-indigo-100 font-bold py-3 px-4 rounded-xl transition-all duration-200 ease-in-out transform hover:scale-105 hover:shadow-lg flex items-center justify-center;
+    @apply w-full bg-white text-indigo-700 hover:bg-indigo-100 font-bold py-3 px-4 rounded-xl transition-all duration-200 ease-in-out transform hover:scale-105 hover:shadow-lg flex items-center justify-center border border-slate-300;
   }
   
   .conversation-list {
@@ -289,7 +289,7 @@
   }
   
   .user-info-section {
-    @apply p-4 border-t border-indigo-500/30 bg-indigo-900/30;
+    @apply p-4 border-t border-indigo-500/30 bg-indigo-900;
   }
   
   .user-info-text {

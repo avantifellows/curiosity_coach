@@ -3,7 +3,7 @@ from pydantic_settings import BaseSettings
 from dotenv import load_dotenv
 
 # Load the appropriate environment file
-env_file = '.env.local' # if local or prod or staging
+env_file = '.env.staging' # if local or prod or staging
 load_dotenv(env_file)
 
 class Settings(BaseSettings):
