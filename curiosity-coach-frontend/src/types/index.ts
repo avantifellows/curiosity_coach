@@ -1,6 +1,7 @@
 export interface User {
   id: number;
-  phone_number: string;
+  phone_number?: string;
+  username?: string;
 }
 
 export interface Message {
@@ -20,6 +21,7 @@ export interface LoginResponse {
   success: boolean;
   message: string;
   user?: User;
+  generated_username?: string;
 }
 
 // Add type for the sendMessage API response

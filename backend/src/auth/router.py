@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.orm import Session
-from src.auth.schemas import PhoneNumberRequest, LoginResponse, UserResponse
+from src.auth.schemas import PhoneNumberRequest, LoginRequest, LoginResponse, UserResponse
 from src.auth.service import auth_service
 from src.database import get_db # Import the dependency
 from src.models import User # Import User model for potential type hinting if needed
@@ -12,11 +12,37 @@ router = APIRouter(
 )
 
 @router.post("/login", response_model=LoginResponse)
-async def login(request: PhoneNumberRequest, db: Session = Depends(get_db)):
+async def login_with_identifier(request: LoginRequest, db: Session = Depends(get_db)):
     """
-    Authenticate a user with a phone number.
+    Authenticate a user with a phone number or name.
+    Creates a new user if the identifier doesn't exist.
+    For names, generates a unique username with random digits.
+    """
+    identifier = request.identifier
+    
+    try:
+        # Get or create user with new identifier-based method
+        user: User
+        generated_username: str
+        user, generated_username = await auth_service.login_with_identifier(db=db, identifier=identifier)
+        
+        return {
+            'success': True,
+            'message': 'Login successful',
+            'user': user,
+            'generated_username': generated_username
+        }
+    except Exception as e:
+        print(f"Login error: {e}")
+        # Consider more specific error handling
+        raise HTTPException(status_code=500, detail=f"Error during login: {str(e)}")
+
+# Keep old endpoint for backward compatibility
+@router.post("/login/phone", response_model=LoginResponse)
+async def login_with_phone(request: PhoneNumberRequest, db: Session = Depends(get_db)):
+    """
+    Authenticate a user with a phone number (backward compatibility).
     Creates a new user if the phone number doesn't exist.
-    Injects SQLAlchemy Session using Depends(get_db).
     """
     phone_number = request.phone_number
     
