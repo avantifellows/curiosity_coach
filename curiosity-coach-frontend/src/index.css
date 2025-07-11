@@ -442,3 +442,30 @@
 .animation-delay-4000 {
   animation-delay: 4s;
 }
+
+/* Custom Scrollbar Styles */
+.custom-scrollbar {
+  scrollbar-width: thin;  /* For Firefox */
+  scrollbar-color: #2c1a87 transparent;  /* For Firefox - much darker violet */
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: 10px;  /* Wider scrollbar */
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+  margin: 5px 0;  /* Add some margin to make scrollbar shorter than container */
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background-color: #2c1a87;  /* Much darker violet */
+  border-radius: 20px;
+  border: 2px solid transparent;  /* Creates padding effect */
+  background-clip: padding-box;  /* Ensures the background respects the border */
+  min-height: 50px;  /* Minimum height for the thumb */
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background-color: #3c2899;  /* Dark violet on hover, slightly lighter than base */
+}
