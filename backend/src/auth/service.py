@@ -15,7 +15,7 @@ class AuthService:
             identifier (str): The user's phone number or name
             
         Returns:
-            Tuple[User, Optional[str]]: User object and generated username (if any)
+            Tuple[User, Optional[str]]: User object and generated name (if any)
         """
         return get_or_create_user_by_identifier(db, identifier)
     
