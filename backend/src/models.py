@@ -186,7 +186,7 @@ def determine_identifier_type(identifier: str) -> str:
 def get_or_create_user_by_identifier(db: Session, identifier: str) -> tuple[User, Optional[str]]:
     """
     Get or create user by identifier (phone or name).
-    Returns tuple of (user, generated_username) where generated_username is None for phone logins.
+    Returns tuple of (user, generated_name) where generated_name is None for phone logins.
     """
     identifier_type = determine_identifier_type(identifier)
     
