@@ -23,14 +23,14 @@ async def login_with_identifier(request: LoginRequest, db: Session = Depends(get
     try:
         # Get or create user with new identifier-based method
         user: User
-        generated_username: str
-        user, generated_username = await auth_service.login_with_identifier(db=db, identifier=identifier)
+        generated_name: str
+        user, generated_name = await auth_service.login_with_identifier(db=db, identifier=identifier)
         
         return {
             'success': True,
             'message': 'Login successful',
             'user': user,
-            'generated_username': generated_username
+            'generated_name': generated_name
         }
     except Exception as e:
         print(f"Login error: {e}")

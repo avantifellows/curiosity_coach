@@ -14,7 +14,7 @@ class User(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     phone_number = Column(String(20), unique=True, index=True, nullable=True)
-    username = Column(String(50), unique=True, index=True, nullable=True)
+    name = Column(String(50), unique=True, index=True, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     conversations = relationship("Conversation", back_populates="user", cascade="all, delete-orphan")
@@ -22,7 +22,7 @@ class User(Base):
 
     __table_args__ = (
         CheckConstraint(
-            'phone_number IS NOT NULL OR username IS NOT NULL', 
+            'phone_number IS NOT NULL OR name IS NOT NULL', 
             name='check_user_has_identifier'
         ),
     )
@@ -141,16 +141,16 @@ class PromptVersion(Base):
 
 # --- CRUD Helper Functions ---
 
-def generate_unique_username(db: Session, base_name: str) -> str:
-    """Generate a unique username by appending 3 random digits to the base name."""
+def generate_unique_name(db: Session, base_name: str) -> str:
+    """Generate a unique name by appending 3 random digits to the base name."""
     base_name = base_name.strip().title()  # "surya" -> "Surya"
     
-    # Try 5 times to find a unique username
+    # Try 5 times to find a unique name
     for _ in range(5):
         suffix = random.randint(100, 999)  # 3 digits: 100-999
-        username = f"{base_name}{suffix}"
-        if not db.query(User).filter(User.username == username).first():
-            return username
+        candidate_name = f"{base_name}{suffix}"
+        if not db.query(User).filter(User.name == candidate_name).first():
+            return candidate_name
     
     # Fallback to timestamp if all attempts fail
     timestamp = int(time.time()) % 1000
@@ -166,11 +166,11 @@ def get_or_create_user_by_phone(db: Session, phone_number: str) -> User:
         db.refresh(user)
     return user
 
-def get_or_create_user_by_username(db: Session, username: str) -> User:
-    """Get a user by username or create if not exists."""
-    user = db.query(User).filter(User.username == username).first()
+def get_or_create_user_by_name(db: Session, name: str) -> User:
+    """Get a user by name or create if not exists."""
+    user = db.query(User).filter(User.name == name).first()
     if not user:
-        user = User(username=username)
+        user = User(name=name)
         db.add(user)
         db.commit()
         db.refresh(user)
@@ -194,10 +194,10 @@ def get_or_create_user_by_identifier(db: Session, identifier: str) -> tuple[User
         user = get_or_create_user_by_phone(db, identifier)
         return user, None
     else:
-        # Generate unique username for name-based login
-        unique_username = generate_unique_username(db, identifier)
-        user = get_or_create_user_by_username(db, unique_username)
-        return user, unique_username
+        # Generate unique name for name-based login
+        unique_name = generate_unique_name(db, identifier)
+        user = get_or_create_user_by_name(db, unique_name)
+        return user, unique_name
 
 # Keep old function for backward compatibility
 def get_or_create_user(db: Session, phone_number: str) -> User:

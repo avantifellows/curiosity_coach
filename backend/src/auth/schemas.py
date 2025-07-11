@@ -33,7 +33,7 @@ class PhoneNumberRequest(BaseModel):
 class UserResponse(BaseModel):
     id: int
     phone_number: Optional[str] = None
-    username: Optional[str] = None
+    name: Optional[str] = None
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
@@ -42,4 +42,4 @@ class LoginResponse(BaseModel):
     success: bool
     message: str
     user: Optional[UserResponse] = None
-    generated_username: Optional[str] = None  # For name-based logins to show the generated ID 
+    generated_name: Optional[str] = None  # For name-based logins to show the generated ID 

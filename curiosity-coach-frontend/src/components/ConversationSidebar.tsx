@@ -199,7 +199,7 @@ const ConversationSidebar: React.FC<ConversationSidebarProps> = ({ onConversatio
         <div className="user-info-section">
           <div className="flex flex-col space-y-3">
             <div className="user-info-text">
-              Logged in as: <span className="font-medium text-white">{user.username || user.phone_number}</span>
+              Logged in as: <span className="font-medium text-white">{user.name || user.phone_number}</span>
             </div>
             <button 
               onClick={handleLogout}
