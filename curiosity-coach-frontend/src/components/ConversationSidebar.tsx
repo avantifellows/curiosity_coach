@@ -109,7 +109,7 @@ const ConversationSidebar: React.FC<ConversationSidebarProps> = ({ onConversatio
       </div>
 
       {/* Conversation List */}
-      <div className="conversation-list">
+      <div className="conversation-list custom-scrollbar">
         <h2 className="conversation-list-header">Your Chats</h2>
         
         {isLoadingConversations ? (
