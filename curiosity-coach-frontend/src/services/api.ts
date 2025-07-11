@@ -18,9 +18,9 @@ API.interceptors.request.use((config) => {
   return config;
 });
 
-export const loginUser = async (phoneNumber: string): Promise<LoginResponse> => {
+export const loginUser = async (identifier: string): Promise<LoginResponse> => {
   try {
-    const response = await API.post('/auth/login', { phone_number: phoneNumber });
+    const response = await API.post('/auth/login', { identifier: identifier });
     return response.data;
   } catch (error: any) {
     console.error("Login error:", error.response?.data || error.message);
