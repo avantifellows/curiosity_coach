@@ -10,6 +10,7 @@ import ChatHeader from './ChatHeader';
 import MessageList from './MessageList';
 import MessageInput from './MessageInput';
 import ChatModals from './ChatModals';
+import FeedbackModal from '../FeedbackModal';
 
 interface ChatInterfaceProps {
   mode: 'chat' | 'test-prompt';
@@ -33,6 +34,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ mode }) => {
 
   const [newMessage, setNewMessage] = useState('');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [showFeedbackModal, setShowFeedbackModal] = useState(false);
   
   // Pipeline modal state
   const [showPipelineModal, setShowPipelineModal] = useState(false);
@@ -120,7 +122,13 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ mode }) => {
         sidebar-container
         ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
       `}>
-        <ConversationSidebar onConversationSelect={() => setIsSidebarOpen(false)} />
+        <ConversationSidebar
+          onConversationSelect={() => setIsSidebarOpen(false)}
+          onOpenFeedbackModal={() => {
+            setShowFeedbackModal(true);
+            setIsSidebarOpen(false);
+          }}
+        />
       </div>
       
       <div className="flex-1 flex flex-col h-screen-mobile">
@@ -189,6 +197,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ mode }) => {
         memoryError={memoryError}
         memoryData={memoryData}
       />
+      <FeedbackModal open={showFeedbackModal} onClose={() => setShowFeedbackModal(false)} />
     </div>
   );
 };

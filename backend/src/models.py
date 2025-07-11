@@ -19,6 +19,17 @@ class User(Base):
 
     conversations = relationship("Conversation", back_populates="user", cascade="all, delete-orphan")
     persona = relationship("UserPersona", back_populates="user", uselist=False, cascade="all, delete-orphan")
+    feedbacks = relationship("UserFeedback", back_populates="user", cascade="all, delete-orphan")
+
+class UserFeedback(Base):
+    __tablename__ = "user_feedback"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    feedback_data = Column(JSON, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    user = relationship("User", back_populates="feedbacks")
 
     __table_args__ = (
         CheckConstraint(
