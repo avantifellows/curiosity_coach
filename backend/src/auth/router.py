@@ -16,7 +16,7 @@ async def login_with_identifier(request: LoginRequest, db: Session = Depends(get
     """
     Authenticate a user with a phone number or name.
     Creates a new user if the identifier doesn't exist.
-    For names, generates a unique username with random digits.
+    For names, generates a unique name with random digits.
     """
     identifier = request.identifier
     
