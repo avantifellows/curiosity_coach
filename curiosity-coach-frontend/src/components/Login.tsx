@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { loginUser } from '../services/api';
 
 const Login: React.FC = () => {
-  const [phoneNumber, setPhoneNumber] = useState('');
+  const [identifier, setIdentifier] = useState('');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();
@@ -16,10 +16,11 @@ const Login: React.FC = () => {
     setIsLoading(true);
 
     try {
-      // Call the API to login with phone number
-      const response = await loginUser(phoneNumber);
+      // Call the API to login with identifier (phone or name)
+      const response = await loginUser(identifier);
       if (response.success && response.user) {
         login(response.user);
+        
         navigate('/chat');
       } else {
         setError(response.message || 'Login failed');
@@ -45,20 +46,19 @@ const Login: React.FC = () => {
         
         <form className="mt-6 sm:mt-8 space-y-4 sm:space-y-6" onSubmit={handleSubmit}>
           <div>
-            <label htmlFor="phone-number" className="sr-only">Phone Number</label>
+            <label htmlFor="identifier" className="sr-only">Name or Phone Number</label>
             <input
-              id="phone-number"
-              name="phoneNumber"
-              type="tel"
-              autoComplete="tel"
+              id="identifier"
+              name="identifier"
+              type="text"
+              autoComplete="off"
               required
               className="appearance-none relative block w-full px-3 py-3 sm:py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-md focus:outline-hidden focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 text-base sm:text-sm"
-              placeholder="Phone Number (10-15 digits)"
-              pattern="[0-9]{10,15}"
-              value={phoneNumber}
-              onChange={(e) => setPhoneNumber(e.target.value)}
+              placeholder="Your name or phone number"
+              value={identifier}
+              onChange={(e) => setIdentifier(e.target.value)}
             />
-            <p className="mt-1 text-xs text-gray-500">Enter a 10-15 digit phone number</p>
+            <p className="mt-1 text-xs text-gray-500">Enter your name (e.g., Surya) or phone number</p>
           </div>
 
           {error && (
