@@ -18,9 +18,9 @@ API.interceptors.request.use((config) => {
   return config;
 });
 
-export const loginUser = async (phoneNumber: string): Promise<LoginResponse> => {
+export const loginUser = async (identifier: string): Promise<LoginResponse> => {
   try {
-    const response = await API.post('/auth/login', { phone_number: phoneNumber });
+    const response = await API.post('/auth/login', { identifier: identifier });
     return response.data;
   } catch (error: any) {
     console.error("Login error:", error.response?.data || error.message);
@@ -193,6 +193,18 @@ export const setActivePromptVersion = async (promptId: number | string, versionI
   } catch (error) {
     console.error(`Error setting active version ${versionId} for prompt ${promptId}:`, error);
     throw new Error(`Failed to set active version for prompt ${promptId}`);
+  }
+};
+
+export const submitFeedback = async (feedbackData: { [key: string]: any }): Promise<any> => {
+  try {
+    const response = await API.post('/feedback/', {
+      feedback_data: feedbackData,
+    });
+    return response.data;
+  } catch (error: any) {
+    console.error("Error submitting feedback:", error.response?.data || error.message);
+    throw new Error(error.response?.data?.detail || 'Failed to submit feedback');
   }
 };
 

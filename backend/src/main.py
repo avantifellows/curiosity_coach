@@ -2,13 +2,16 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import os
 import logging
-from src.auth.router import router as auth_router
-from src.messages.router import router as messages_router
-from src.conversations.router import router as conversations_router
-from src.health.router import router as health_router
-from src.memories.router import router as memories_router
-from src.prompts.router import router as prompts_router
-from src.tasks.router import router as tasks_router
+from src.auth import router as auth_router
+from src.messages import router as messages_router
+from src.conversations import router as conversations_router
+from src.health import router as health_router
+from src.memories import router as memories_router
+from src.prompts import router as prompts_router
+from src.tasks import router as tasks_router
+from src.user_personas import router as user_personas_router
+from src.internal import router as internal_router
+from src.feedback import router as feedback_router
 from src.config.settings import settings
 from src.database import init_db
 from mangum import Mangum
@@ -94,13 +97,16 @@ def create_app() -> FastAPI:
     )
     
     # Include routers
-    app.include_router(auth_router)
-    app.include_router(conversations_router)
-    app.include_router(health_router)
-    app.include_router(memories_router)
-    app.include_router(messages_router)
-    app.include_router(prompts_router)
-    app.include_router(tasks_router)
+    app.include_router(auth_router.router)
+    app.include_router(conversations_router.router)
+    app.include_router(health_router.router)
+    app.include_router(memories_router.router)
+    app.include_router(messages_router.router)
+    app.include_router(prompts_router.router)
+    app.include_router(tasks_router.router)
+    app.include_router(user_personas_router.router)
+    app.include_router(internal_router.router)
+    app.include_router(feedback_router.router)
     
     logger.info("FastAPI app created successfully")
     return app

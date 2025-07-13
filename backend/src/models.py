@@ -1,10 +1,11 @@
-from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime, ForeignKey, Text, JSON, ForeignKeyConstraint, UniqueConstraint, and_
-from sqlalchemy.orm import relationship, sessionmaker, Session, declarative_base
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, Text, JSON, ForeignKeyConstraint, UniqueConstraint, CheckConstraint, and_
+from sqlalchemy.orm import relationship, Session
 from sqlalchemy.sql import func
-from src.database import Base, get_db # Assuming Base and get_db will be defined in database.py
-from fastapi import Depends
+from src.database import Base
 from typing import Optional, List
 from datetime import datetime, timedelta
+import random
+import time
 from src.config.settings import settings
 
 # SQLAlchemy Models
@@ -12,10 +13,41 @@ class User(Base):
     __tablename__ = "users"
 
     id = Column(Integer, primary_key=True, index=True)
-    phone_number = Column(String(20), unique=True, index=True, nullable=False)
+    phone_number = Column(String(20), unique=True, index=True, nullable=True)
+    name = Column(String(50), unique=True, index=True, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     conversations = relationship("Conversation", back_populates="user", cascade="all, delete-orphan")
+    persona = relationship("UserPersona", back_populates="user", uselist=False, cascade="all, delete-orphan")
+    feedbacks = relationship("UserFeedback", back_populates="user", cascade="all, delete-orphan")
+
+class UserFeedback(Base):
+    __tablename__ = "user_feedback"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    feedback_data = Column(JSON, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    user = relationship("User", back_populates="feedbacks")
+
+    __table_args__ = (
+        CheckConstraint(
+            'phone_number IS NOT NULL OR name IS NOT NULL', 
+            name='check_user_has_identifier'
+        ),
+    )
+
+class UserPersona(Base):
+    __tablename__ = "user_personas"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), unique=True, nullable=False, index=True)
+    persona_data = Column(JSON, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    user = relationship("User", back_populates="persona")
 
 class Conversation(Base):
     __tablename__ = "conversations"
@@ -120,7 +152,22 @@ class PromptVersion(Base):
 
 # --- CRUD Helper Functions ---
 
-def get_or_create_user(db: Session, phone_number: str) -> User:
+def generate_unique_name(db: Session, base_name: str) -> str:
+    """Generate a unique name by appending 3 random digits to the base name."""
+    base_name = base_name.strip().title()  # "surya" -> "Surya"
+    
+    # Try 5 times to find a unique name
+    for _ in range(5):
+        suffix = random.randint(100, 999)  # 3 digits: 100-999
+        candidate_name = f"{base_name}{suffix}"
+        if not db.query(User).filter(User.name == candidate_name).first():
+            return candidate_name
+    
+    # Fallback to timestamp if all attempts fail
+    timestamp = int(time.time()) % 1000
+    return f"{base_name}{timestamp}"
+
+def get_or_create_user_by_phone(db: Session, phone_number: str) -> User:
     """Get a user by phone number or create if not exists."""
     user = db.query(User).filter(User.phone_number == phone_number).first()
     if not user:
@@ -129,6 +176,44 @@ def get_or_create_user(db: Session, phone_number: str) -> User:
         db.commit()
         db.refresh(user)
     return user
+
+def get_or_create_user_by_name(db: Session, name: str) -> User:
+    """Get a user by name or create if not exists."""
+    user = db.query(User).filter(User.name == name).first()
+    if not user:
+        user = User(name=name)
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+    return user
+
+def determine_identifier_type(identifier: str) -> str:
+    """Determine if identifier is a phone number or name."""
+    # If it's all digits and 10-15 characters, treat as phone
+    if identifier.isdigit() and 10 <= len(identifier) <= 15:
+        return "phone"
+    return "name"
+
+def get_or_create_user_by_identifier(db: Session, identifier: str) -> tuple[User, Optional[str]]:
+    """
+    Get or create user by identifier (phone or name).
+    Returns tuple of (user, generated_name) where generated_name is None for phone logins.
+    """
+    identifier_type = determine_identifier_type(identifier)
+    
+    if identifier_type == "phone":
+        user = get_or_create_user_by_phone(db, identifier)
+        return user, None
+    else:
+        # Generate unique name for name-based login
+        unique_name = generate_unique_name(db, identifier)
+        user = get_or_create_user_by_name(db, unique_name)
+        return user, unique_name
+
+# Keep old function for backward compatibility
+def get_or_create_user(db: Session, phone_number: str) -> User:
+    """Get a user by phone number or create if not exists. (Backward compatibility)"""
+    return get_or_create_user_by_phone(db, phone_number)
 
 def create_conversation(db: Session, user_id: int, title: Optional[str] = "New Chat", prompt_version_id: Optional[int] = None) -> Conversation:
     """Creates a new conversation for a user."""
@@ -240,13 +325,12 @@ def get_conversations_needing_memory(db: Session) -> List[int]:
     Get IDs of conversations that have been inactive for a certain period
     and either don't have a memory or their memory is older than their last update.
     """
-    # import ipdb; ipdb.set_trace()
     inactivity_threshold = datetime.utcnow() - timedelta(hours=settings.MEMORY_INACTIVITY_THRESHOLD_HOURS)
 
     # Find conversations that were updated before the threshold
     # and either have no memory or the memory is older than the last conversation update.
     conversations_to_process = (
-        db.query(Conversation.id)
+        db.query(Conversation)
         .outerjoin(ConversationMemory, Conversation.id == ConversationMemory.conversation_id)
         .filter(
             Conversation.updated_at < inactivity_threshold,
@@ -257,6 +341,38 @@ def get_conversations_needing_memory(db: Session) -> List[int]:
     )
     
     return [c.id for c in conversations_to_process]
+
+def get_users_needing_persona_generation(db: Session) -> List[int]:
+    """
+    Returns a list of user IDs who need their persona generated or updated.
+    """
+    # 1. Users with an existing persona but newer memories
+    users_to_update = (
+        db.query(User.id)
+        .join(UserPersona)
+        .join(Conversation, User.id == Conversation.user_id)
+        .join(ConversationMemory, Conversation.id == ConversationMemory.conversation_id)
+        .group_by(User.id, UserPersona.updated_at)
+        .having(func.max(ConversationMemory.created_at) > UserPersona.updated_at)
+        .all()
+    )
+
+    # 2. Users with memories but no persona
+    users_to_create = (
+        db.query(User.id)
+        .join(Conversation, User.id == Conversation.user_id)
+        .join(ConversationMemory, Conversation.id == ConversationMemory.conversation_id)
+        .outerjoin(UserPersona, User.id == UserPersona.user_id)
+        .filter(UserPersona.id == None)
+        .group_by(User.id)
+        .all()
+    )
+
+    # Combine and get unique user IDs
+    user_ids_to_update = {u[0] for u in users_to_update}
+    user_ids_to_create = {u[0] for u in users_to_create}
+    
+    return list(user_ids_to_update.union(user_ids_to_create))
 
 def save_message_pipeline_data(db: Session, message_id: int, pipeline_data_dict: dict) -> MessagePipelineData:
     """Saves pipeline data for a specific message."""

@@ -24,6 +24,7 @@ from src.config_models import FlowConfig
 from src.services.llm_service import LLMService
 from src.services.api_service import api_service
 from src.schemas import ConversationMemoryData
+from src.core.user_persona_generator import generate_persona_for_user
 from pydantic import ValidationError
 
 # Load environment variables from .env file
@@ -190,7 +191,8 @@ class MessagePayload(BaseModel):
 
 class BatchTaskRequest(BaseModel):
     task_type: str
-    conversation_ids: List[int]
+    conversation_ids: Optional[List[int]] = None
+    user_id: Optional[int] = None
 
 # Updated dequeue function containing the core logic
 async def dequeue(message: MessagePayload, background_tasks: Optional[BackgroundTasks] = None):
@@ -222,6 +224,21 @@ async def dequeue(message: MessagePayload, background_tasks: Optional[Background
                 # If s3_config_dict is None (e.g., S3 not configured or file not found and init failed),
                 # process_query will use its internal default FlowConfig.
                 logger.info("No S3 config dictionary loaded, process_query will use default FlowConfig.")
+
+            # Fetch user persona
+            user_persona: Optional[Dict[str, Any]] = None
+            if message.user_id:
+                try:
+                    # user_id from payload is a string, but service expects int
+                    user_id_int = int(message.user_id)
+                    logger.info(f"Fetching persona for user_id: {user_id_int}")
+                    user_persona = await api_service.get_user_persona(user_id_int)
+                    if user_persona:
+                        logger.info(f"Successfully fetched persona for user {user_id_int}")
+                except ValueError:
+                    logger.error(f"Could not convert user_id '{message.user_id}' to integer.")
+                except Exception as e:
+                    logger.error(f"An error occurred while fetching user persona: {e}", exc_info=True)
 
             # Initialize conversation_history_str
             conversation_history_str: Optional[str] = None
@@ -275,25 +292,30 @@ async def dequeue(message: MessagePayload, background_tasks: Optional[Background
 
             # Determine if this is a new query or a follow-up response
             response_data = None
-            if message.is_follow_up_response and message.original_query and message.follow_up_questions:
-                # This is a follow-up response, process it differently
-                logger.info(f"Processing follow-up response for original query: {message.original_query}")
+            if message.is_follow_up_response:
+                # This is a response to a follow-up question
+                logger.info("Processing as a follow-up response")
+                if not message.original_query or not message.follow_up_questions:
+                    raise HTTPException(status_code=400, detail="Follow-up response requires original_query and follow_up_questions")
+                
                 response_data = await process_follow_up(
-                    original_query=message.original_query, 
+                    original_query=message.original_query,
                     follow_up_questions=message.follow_up_questions,
                     student_response=user_input,
                     config=flow_config_instance,
                     conversation_history=conversation_history_str,
-                    purpose=message.purpose
+                    purpose=message.purpose,
+                    user_persona=user_persona
                 )
             else:
-                # Process as a regular query
-                logger.info(f"Processing query with S3-loaded config (if available): {s3_config_dict}")
+                # This is a new query
+                logger.info("Processing as a new query")
                 response_data = await process_query(
-                    user_input, 
-                    config=flow_config_instance,
+                    query=user_input, 
+                    config=flow_config_instance, 
                     conversation_history=conversation_history_str,
-                    purpose=message.purpose
+                    purpose=message.purpose,
+                    user_persona=user_persona
                 )
 
             # Create a client for fetching the prompt version ID
@@ -639,7 +661,8 @@ async def process_memory_generation_batch(conversation_ids: List[int]):
             response_dict = await asyncio.to_thread(
                 llm_service.generate_response,
                 prompt,
-                call_type="response_generation" 
+                call_type="response_generation",
+                json_mode=True
             )
             summary_json_str = response_dict.get("raw_response")
 
@@ -687,7 +710,7 @@ async def process_memory_generation_batch(conversation_ids: List[int]):
 async def handle_batch_tasks(task_request: BatchTaskRequest, background_tasks: BackgroundTasks):
     """
     Generic endpoint to receive and delegate batch tasks.
-    Currently handles memory generation.
+    Currently handles memory generation and user persona generation.
     """
     logger.info(f"Received task request: {task_request.model_dump()}")
 
@@ -699,6 +722,16 @@ async def handle_batch_tasks(task_request: BatchTaskRequest, background_tasks: B
         background_tasks.add_task(process_memory_generation_batch, task_request.conversation_ids)
         logger.info(f"Queued background task for memory generation for {len(task_request.conversation_ids)} conversations.")
         return {"message": f"Accepted task to generate memories for {len(task_request.conversation_ids)} conversations."}
+    
+    elif task_request.task_type == "USER_PERSONA_GENERATION":
+        if not task_request.user_id:
+            logger.info("Received user persona generation task with no user ID.")
+            raise HTTPException(status_code=400, detail="user_id is required for USER_PERSONA_GENERATION")
+
+        background_tasks.add_task(generate_persona_for_user, task_request.user_id)
+        logger.info(f"Queued background task for user persona generation for user_id: {task_request.user_id}.")
+        return {"message": f"Accepted task to generate user persona for user_id: {task_request.user_id}."}
+
     else:
         logger.warning(f"Received unknown task type: {task_request.task_type}")
         raise HTTPException(status_code=400, detail=f"Unknown task type: {task_request.task_type}")
