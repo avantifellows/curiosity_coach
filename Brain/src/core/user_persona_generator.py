@@ -3,6 +3,7 @@ import os
 from src.services.api_service import api_service
 from src.services.llm_service import LLMService
 from src.utils.logger import logger
+from src.schemas import UserPersonaData
 
 # Define paths relative to this file's location
 _PROMPT_DIR = os.path.join(os.path.dirname(__file__), "..", "prompts")
@@ -61,15 +62,17 @@ async def generate_persona_for_user(user_id: int):
         logger.error(f"An error occurred during LLM call for user {user_id}: {e}")
         return
 
-    # 4. Validate the response and save to DB
-    if "persona" not in persona_data:
-        logger.warning(f"LLM response for user {user_id} is missing the 'persona' key.")
+    # 4. Validate the response against schema and save to DB
+    try:
+        validated_persona = UserPersonaData(**persona_data)
+    except Exception as e:
+        logger.warning(f"UserPersonaData validation failed for user {user_id}: {e}")
         logger.debug(f"Received data: {persona_data}")
         return
 
     logger.info(f"Successfully generated persona for user {user_id}.")
     
-    success = await api_service.post_user_persona(user_id=user_id, persona_data=persona_data)
+    success = await api_service.post_user_persona(user_id=user_id, persona_data=validated_persona.model_dump())
 
     if success:
         logger.info(f"Successfully saved persona for user {user_id}.")

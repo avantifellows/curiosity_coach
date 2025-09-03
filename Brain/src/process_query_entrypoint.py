@@ -171,7 +171,7 @@ def _get_default_prompt_name(step_name: str) -> str:
         logger.warning(f"Unknown step name: {step_name}, returning the step name as prompt name")
         return step_name
 
-async def generate_simplified_response(query: str, conversation_history: Optional[str] = None, user_persona: Optional[Dict[str, Any]] = None, purpose: str = "chat") -> Tuple[str, str, Dict[str, Any]]:
+async def generate_simplified_response(query: str, conversation_history: Optional[str] = None, user_persona: Optional[Dict[str, Any]] = None, purpose: str = "chat", conversation_memory: Optional[Dict[str, Any]] = None) -> Tuple[str, str, Dict[str, Any]]:
     """
     Generate a simplified response using a single prompt approach.
     
@@ -201,12 +201,15 @@ async def generate_simplified_response(query: str, conversation_history: Optiona
         else:
             formatted_prompt = formatted_prompt.replace("{{CONVERSATION_HISTORY}}", "No previous conversation.")
         
-        if "{{USER_PERSONA}}" in formatted_prompt:
-            if user_persona:
-                persona_str = json.dumps(user_persona, indent=2)
-                formatted_prompt = formatted_prompt.replace("{{USER_PERSONA}}", persona_str)
-            else:
-                formatted_prompt = formatted_prompt.replace("{{USER_PERSONA}}", "User persona not available.")
+        # Inject persona placeholders (supports {{USER_PERSONA}} and key-specific variants)
+        if "{{USER_PERSONA" in formatted_prompt:
+            from src.utils.prompt_injection import inject_persona_placeholders
+            formatted_prompt = inject_persona_placeholders(formatted_prompt, user_persona)
+
+        # Inject conversation memory placeholders if present
+        if "{{CONVERSATION_MEMORY" in formatted_prompt:
+            from src.utils.prompt_injection import inject_memory_placeholders
+            formatted_prompt = inject_memory_placeholders(formatted_prompt, conversation_memory)
 
         # Call LLM service
         from src.services.llm_service import LLMService
@@ -338,7 +341,7 @@ async def _get_prompt_from_backend(prompt_name: str, purpose: str = "chat") -> O
         logger.warning(f"Error getting prompt version from backend: {e}")
         return None
 
-async def process_query(query: str, config: Optional[FlowConfig] = None, conversation_history: Optional[str] = None, user_persona: Optional[Dict[str, Any]] = None, purpose: str = "chat") -> ProcessQueryResponse:
+async def process_query(query: str, config: Optional[FlowConfig] = None, conversation_history: Optional[str] = None, user_persona: Optional[Dict[str, Any]] = None, purpose: str = "chat", conversation_memory: Optional[Dict[str, Any]] = None) -> ProcessQueryResponse:
     """
     Process a user query through the intent identification and response generation pipeline.
     
@@ -382,7 +385,7 @@ async def process_query(query: str, config: Optional[FlowConfig] = None, convers
             logger.info("Using simplified conversation mode")
             
             # Generate simplified response
-            response, prompt, response_data = await generate_simplified_response(query, conversation_history, user_persona, purpose)
+            response, prompt, response_data = await generate_simplified_response(query, conversation_history, user_persona, purpose, conversation_memory)
             
             # Check if we need clarification
             needs_clarification = response_data.get("needs_clarification", False)
@@ -521,7 +524,9 @@ async def process_query(query: str, config: Optional[FlowConfig] = None, convers
                 query_for_initial_resp, 
                 intent_result, # Pass the full intent result instead of just intent_json
                 context_info, # Can be None
-                prompt_name=prompt_name
+                prompt_name=prompt_name,
+                conversation_memory=conversation_memory,
+                user_persona=user_persona
             )
             logger.debug(f"Generated initial response: {initial_response[:100] if initial_response else 'None'}...")
             pipeline_data['final_response'] = initial_response # Tentative final response
