@@ -1,8 +1,8 @@
-# Technical Explanation
+# Project Overview (Both technical and non-technical)
 
 This document provides a technical overview of the Curiosity Coach project.
 
-## Project Overview
+## Project Overview (Both technical and non-technical)
 
 The Curiosity Coach project is a conversational AI application designed to help students learn by fostering curiosity. It consists of a frontend, a backend, and a "Brain" service.
 
@@ -20,15 +20,16 @@ The services are deployed on AWS using Terraform.
 
 ```mermaid
 graph TD
-    User((User)) --> Frontend_S3{"Frontend Application (S3)"}
-    Frontend_S3 -- "API Call (HTTPS)" --> Backend_Lambda["Backend Lambda (Function URL)"]
+    User((User)) --> Frontend_S3{"Frontend (S3) via CloudFront"}
+    Frontend_S3 -- "API Call (HTTPS)" --> APIGW_Backend["API Gateway (Backend HTTP API)"]
+    APIGW_Backend --> Backend_Lambda["Backend Lambda (FastAPI + Mangum)"]
     Backend_Lambda -- "Read/Write" --> RDS_DB[("RDS PostgreSQL")]
-    Backend_Lambda -- "Sends Task" --> SQS_Queue["SQS Queue"]
-    SQS_Queue -- "Triggers" --> Brain_Lambda["Brain Lambda"]
+    Backend_Lambda -- "Enqueue" --> SQS_Queue["SQS Queue"]
+    SQS_Queue -- "Triggers" --> Brain_Lambda["Brain Lambda (FastAPI + Mangum)"]
     Brain_Lambda -- "Reads Config" --> S3_FlowConfig["S3 (flow_config.json)"]
-    Brain_Lambda -- "Interacts" --> LLM_Services["LLM APIs (e.g., OpenAI, Groq)"]
-    Brain_Lambda -- "Sends Result (HTTP Callback)" --> Backend_Lambda
-    Backend_Lambda -- "API Response (HTTPS)" --> Frontend_S3
+    Brain_Lambda -- "Interacts" --> LLM_Services["LLM APIs (OpenAI, Groq)"]
+    Brain_Lambda -- "HTTP Callback" --> Backend_Lambda
+    APIGW_Backend -- "HTTPS" --> Frontend_S3
     Frontend_S3 -- "Displays to" --> User
 ```
 
@@ -38,7 +39,7 @@ graph TD
 
 *   **Technology:** React, TypeScript, Tailwind CSS, Material UI.
 *   **Functionality:**
-    *   User login (phone number based).
+    *   User login (identifier-based: phone number or name).
     *   Real-time chat interface for conversations with the AI.
     *   Message history persistence.
     *   Interface for testing different prompts.
@@ -51,7 +52,7 @@ graph TD
 
 ### 2. Backend (`backend/`)
 
-*   **Technology:** Python 3.9+, FastAPI, PostgreSQL, SQLAlchemy, Alembic for migrations, `uv` for package management. Uses Mangum to run on AWS Lambda.
+*   **Technology:** Python 3.9+, FastAPI, SQLAlchemy, Alembic, PostgreSQL. Deployed on AWS Lambda using Mangum behind API Gateway (HTTP API).
 *   **Key Libraries:** `fastapi`, `uvicorn`, `sqlalchemy`, `psycopg2-binary`, `alembic`, `pydantic`, `boto3`, `mangum`, `python-dotenv`, `passlib`, `python-jose`.
 *   **Functionality:**
     *   User authentication (phone number based).
@@ -61,43 +62,42 @@ graph TD
     *   An endpoint (`/api/tasks/trigger-user-persona-generation`) to initiate persona generation for users.
     *   Forwards user messages to the Brain service via an SQS queue and enqueues batch tasks for memory and persona generation.
     *   Receives responses from the Brain service via an HTTP callback.
+    *   Internal read for a conversation's memory at `/api/internal/conversations/{conversation_id}/memory` (used by Brain).
+    *   Internal read for a user's persona at `/api/internal/users/{user_id}/persona` (used by Brain).
     *   Locally, the backend can talk directly to the Brain service, bypassing SQS.
 *   **Infrastructure:**
-    *   Runs as a Docker container on AWS Lambda.
-    *   Exposed via a Lambda Function URL.
+    *   Runs as a Dockerized FastAPI app on AWS Lambda (Mangum).
+    *   Exposed via API Gateway (HTTP API).
     *   Uses an RDS for PostgreSQL database.
     *   Uses an SQS queue to communicate with the Brain service.
 
 ### 3. Brain (`Brain/`)
 
-*   **Technology:** Python 3.11, FastAPI (for local development). Uses Mangum to run on AWS Lambda.
+*   **Technology:** Python 3.11, FastAPI (local), Mangum on AWS Lambda (HTTP API via API Gateway).
 *   **Key Libraries:** `fastapi`, `uvicorn`, `jinja2`, `requests`, `httpx`, `python-dotenv`, `groq`, `openai`, `mangum`, `boto3`, `pydantic`.
 *   **Functionality:**
-    *   Processes user messages to generate intelligent responses.
-    *   Handles asynchronous batch jobs from SQS, such as generating structured memories from conversation histories and creating user personas from those memories.
-    *   Uses a configurable pipeline of steps to process messages, defined in a `flow_config.json` file stored in S3.
-        *   **Intent Gathering:** Determines the user's intent.
-        *   **Knowledge Retrieval:** Retrieves relevant information.
-        *   **Response Generation:** Generates a response.
-        *   **Learning Enhancement:** Adds elements to foster curiosity.
-    *   The memory generation process uses an LLM to summarize conversations.
-    *   Communicates with the backend to get conversation history and user personas, and sends back responses via HTTP callback.
+    *   Processes user messages and returns structured pipeline data. Supports simplified single-step mode by default.
+    *   Handles SQS-driven batch tasks: conversation memory generation and user persona generation.
+    *   Loads prompts from files; initializes prompts/versions in the backend on startup when missing.
+    *   Configurable pipeline (FlowConfig) stored in S3 with `/get-config` and `/set-config` endpoints.
+    *   Interacts with the backend via internal endpoints for history/persona/memory; sends HTTP callbacks to persist AI responses and pipeline data.
+    *   Supports prompt-time injection of conversation memory via placeholders `{{CONVERSATION_MEMORY}}` and `{{CONVERSATION_MEMORY__key1__key2}}` (keys derived from `ConversationMemoryData`).
+    *   Supports prompt-time injection of user persona via placeholders `{{USER_PERSONA}}` and `{{USER_PERSONA__key1__key2}}` (keys derived from `UserPersonaData`; currently only `persona`).
 *   **Infrastructure:**
-    *   Runs as a Docker container on AWS Lambda.
-    *   Triggered by messages from the SQS queue from the backend.
-    *   Can also be invoked via a Lambda Function URL for testing and configuration.
+    *   Dockerized FastAPI app on AWS Lambda (Mangum) behind API Gateway.
+    *   Triggered by messages from the SQS queue from the backend; also exposes HTTP endpoints.
     *   Stores its `flow_config.json` in an S3 bucket.
 
 ## Database Schema
 
 The backend uses a PostgreSQL database with the following tables:
 
-*   `users`: Stores user information (phone number).
+*   `users`: Stores user information (either `phone_number` or `name`).
 *   `conversations`: Stores conversation metadata (user, title, etc.).
 *   `conversation_memories`: Stores structured summaries of conversations, generated by the Brain.
-*   `user_persona`: Stores a structured JSON object summarizing a user's interests and learning style, generated by the Brain from their memories.
+*   `user_personas`: Stores a structured JSON persona per user (1:1), generated by the Brain from conversation memories.
 *   `messages`: Stores the messages in each conversation.
-*   `user_feedback`: Stores user-submitted feedback, including a thumbs up/down rating and optional text.
+*   `user_feedback`: Stores user-submitted feedback JSON under `feedback_data`.
 *   `message_pipeline_data`: Stores additional data about the message processing pipeline from the Brain service.
 *   `prompts`: Stores different types of prompts used by the Brain service.
 *   `prompt_versions`: Stores different versions of each prompt.
@@ -107,19 +107,19 @@ The backend uses a PostgreSQL database with the following tables:
 erDiagram
     users {
         int id
-        string phone_number "unique"
+        string phone_number "unique, nullable"
+        string name "unique, nullable"
         datetime created_at
     }
 
     user_feedback {
         int id
         int user_id
-        bool thumbs_up
-        text feedback_text
+        json feedback_data
         datetime created_at
     }
 
-    user_persona {
+    user_personas {
         int id
         int user_id "unique"
         json persona_data
@@ -131,7 +131,7 @@ erDiagram
         int id
         int user_id
         string title
-        int prompt_version_id
+        int prompt_version_id "nullable"
         datetime created_at
         datetime updated_at
     }
@@ -147,10 +147,10 @@ erDiagram
     messages {
         int id
         int conversation_id
-        string content
+        text content
         bool is_user
         datetime timestamp
-        int responds_to_message_id
+        int responds_to_message_id "nullable"
     }
 
     message_pipeline_data {
@@ -163,7 +163,7 @@ erDiagram
     prompts {
         int id
         string name "unique"
-        string description
+        text description "nullable"
         datetime created_at
         datetime updated_at
     }
@@ -171,16 +171,16 @@ erDiagram
     prompt_versions {
         int id
         int prompt_id
-        int user_id
+        int user_id "nullable"
         int version_number
-        string prompt_text
+        text prompt_text
         bool is_active
         bool is_production
         datetime created_at
     }
 
     users ||--o{ conversations : "has"
-    users ||--|{ user_persona : "has one"
+    users ||--|{ user_personas : "has one"
     users ||--o{ prompt_versions : "authors"
     users ||--o{ user_feedback : "provides"
     conversations ||--o{ messages : "contains"
@@ -250,15 +250,23 @@ The project includes an E2E test suite that runs against the locally-hosted serv
     -   Ensure the `Backend` and `Brain` services are running locally.
     -   Run `pytest -v` from the `tests/` directory.
     -   The test suite automatically handles database setup and synchronization.
+    
+### Example E2E flow tested
+
+```100:131:/Users/deepanshmathur/Documents/AF/curiosity_coach/tests/test_e2e_messages.py
+create_response = client.post(f"/api/conversations/{conversation_id}/messages", json=message_payload)
+...
+callback_response = client.post("/api/internal/brain_response", json=brain_payload)
+```
 
 ## Infrastructure (Terraform)
 
 The entire cloud infrastructure is managed using Terraform in the `terraform/` directory.
 
 -   **Key Files:**
-    -   `frontend.tf`: S3 bucket and CloudFront distribution for the frontend.
-    -   `backend.tf`: Lambda, RDS, ECR, and SQS for the backend.
-    -   `brain.tf`: Lambda, ECR, and S3 for the Brain.
+    -   `frontend.tf`: S3 + CloudFront for frontend, optional Cloudflare DNS.
+    -   `backend.tf`: Backend ECR build/push, Lambda (container), API Gateway (HTTP API), RDS, SQS, VPC endpoints.
+    -   `brain.tf`: Brain ECR build/push, Lambda (container), API Gateway (HTTP API), SQS (shared), S3 for FlowConfig, and event source mapping.
     -   `variables.tf`: Common variables.
 -   **Deployment:**
     -   Navigate to the `terraform/` directory.
@@ -267,6 +275,108 @@ The entire cloud infrastructure is managed using Terraform in the `terraform/` d
     -   The `README-cloudflare.md` file provides instructions for setting up a custom domain for the CloudFront distribution using Cloudflare. This involves creating a `terraform.tfvars` file with your Cloudflare API key, email, and zone ID.
 
 ---
+
+## Backend API Endpoints (summary)
+
+- Authentication
+  - POST `/api/auth/login` – identifier-based login (phone or name)
+  - POST `/api/auth/login/phone` – legacy phone login
+  - GET `/api/auth/me` – returns current user (Authorization: `Bearer <user_id>`)
+
+- Conversations
+  - GET `/api/conversations`
+  - POST `/api/conversations` (optional body `{ title }`)
+  - GET `/api/conversations/{id}`
+  - DELETE `/api/conversations/{id}`
+  - PUT `/api/conversations/{id}/title` (body `{ title }`)
+
+- Messages
+  - POST `/api/conversations/{conversation_id}/messages` (body `{ content, purpose? }`)
+  - GET `/api/conversations/{conversation_id}/messages`
+  - GET `/api/messages/{user_message_id}/response` (poll for AI reply)
+  - GET `/api/messages/{ai_message_id}/pipeline_steps`
+
+- Memories / Personas
+  - POST `/api/memories` (upsert by `conversation_id`)
+  - POST `/api/user-personas` (create/update by `user_id`)
+
+- Prompts + Versions
+  - GET `/api/prompts`, POST `/api/prompts`, GET `/api/prompts/{id_or_name}`, PUT/DELETE `/api/prompts/{id}`
+  - POST `/api/prompts/{id_or_name}/versions?set_active=true`
+  - GET `/api/prompts/{id_or_name}/versions`
+  - POST `/api/prompts/{id_or_name}/versions/set-active`
+  - GET `/api/prompts/{id_or_name}/versions/active`
+  - GET `/api/prompts/{id_or_name}/versions/production`
+  - POST `/api/prompts/{id_or_name}/versions/{version_number}/set-production`
+  - DELETE `/api/prompts/{id_or_name}/versions/{version_number}/unset-production`
+  - GET `/api/prompts/{id_or_name}/versions/earliest`
+
+- Tasks
+  - POST `/api/tasks/trigger-memory-generation`
+  - POST `/api/tasks/trigger-memory-generation-sync`
+  - POST `/api/tasks/trigger-user-persona-generation`
+  - POST `/api/tasks/trigger-user-persona-generation-sync`
+  - POST `/api/tasks/generate-memory-for-conversation/{conversation_id}` (query: `sync=true|false`)
+  - POST `/api/tasks/generate-memories-for-user/{user_id}` (query: `only_needing`, `include_empty`, `clamp`, `sync`)
+  - POST `/api/tasks/generate-persona-for-user/{user_id}` (query: `generate_conversation_memories_if_not_found`, `only_needing`, `include_empty`, `clamp`, `sync`)
+
+- Feedback
+  - POST `/api/feedback/` (body `{ feedback_data: {} }`)
+
+- Health
+  - GET `/api/health`, GET `/api/promptHealth`
+
+- Internal (Brain only)
+  - POST `/api/internal/brain_response` – save AI response and pipeline data
+  - GET `/api/internal/conversations/{conversation_id}/messages_for_brain`
+  - GET `/api/internal/users/{user_id}/memories`
+  - GET `/api/internal/conversations/{conversation_id}/memory` – single conversation memory
+  - GET `/api/internal/users/{user_id}/persona` – single user persona
+
+
+## Brain HTTP/API contracts (summary)
+
+- POST `/query` – processes chat/test-prompt payload
+- POST `/tasks` – `GENERATE_MEMORY_BATCH` and `USER_PERSONA_GENERATION`
+- GET `/get-config` – FlowConfig schema and current values (S3)
+- POST `/set-config` – validate and save FlowConfig to S3
+
+Brain sends HTTP callbacks to backend at `BACKEND_CALLBACK_BASE_URL + BACKEND_CALLBACK_ROUTE` (defaults to `/api/internal/brain_response`).
+
+- Prompt placeholders supported in templates:
+  - `{{CONVERSATION_MEMORY}}` injects all validated top-level keys from the conversation's memory (keys derived from `ConversationMemoryData`).
+  - `{{CONVERSATION_MEMORY__main_topics__action}}` injects only the specified validated keys.
+  - `{{USER_PERSONA}}` injects all validated top-level keys from the user persona (keys derived from `UserPersonaData`, currently only `persona`).
+  - `{{USER_PERSONA__persona}}` injects the specified validated keys.
+  - Missing data renders as `[Not available]`.
+
+## Message flow (updated)
+
+```mermaid
+graph TD
+    A[User sends message] --> B[POST /api/conversations/{id}/messages]
+    B --> C[DB save user message]
+    C --> D{Queue mode?}
+    D -- yes --> E[SQS send]
+    D -- dev local --> F[Brain HTTP /query]
+    E --> G[Brain Lambda]
+    F --> H[Brain processes]
+    G --> H
+    H --> I[Brain HTTP callback -> /api/internal/brain_response]
+    I --> J[DB save AI message + pipeline]
+    J --> K[Client polls /api/messages/{user_message_id}/response]
+```
+
+## Environment variables (selected)
+
+- Backend: `APP_ENV`, `PORT`, `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `AWS_REGION`, `SQS_QUEUE_URL`, `LOCAL_BRAIN_ENDPOINT_URL`, `FRONTEND_URL`, `S3_WEBSITE_URL`, `ALLOW_ALL_ORIGINS`.
+- Brain: `BACKEND_CALLBACK_BASE_URL`, `BACKEND_CALLBACK_ROUTE`, `FLOW_CONFIG_S3_BUCKET_NAME`, `FLOW_CONFIG_S3_KEY`.
+
+## Known gaps and notes
+
+- TODO (pending): Implement persona read endpoint `GET /api/internal/users/{user_id}/persona` in the backend `internal` router. It should return `{ "persona_data": <json> }` (404 if none). Brain currently tolerates 404.
+- Frontend uses `Authorization: Bearer <user_id>`; consider JWT in production.
+- Lock down RDS Security Group ingress in production; Terraform notes TODO.
 
 # Non-Technical Product Overview
 
@@ -346,7 +456,7 @@ graph TD
     subgraph "AWS Cloud"
         CloudFront
         S3_Frontend["S3 for Frontend"]
-        Lambda_Backend["Backend Lambda (FastAPI)"]
+        Lambda_Backend["Backend Lambda (FastAPI + API Gateway)"]
         RDS["RDS (PostgreSQL)"]
         SQS["SQS Queue"]
         Lambda_Brain["Brain Lambda (Python)"]

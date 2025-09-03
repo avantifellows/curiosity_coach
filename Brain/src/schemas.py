@@ -118,3 +118,8 @@ class ConversationMemoryData(BaseModel):
     main_topics: List[str] = Field(..., description="List of topics that are discussed in the discussion")
     action: List[str] = Field(..., description="List of actions suggested by the AI to explore to kid")
     typical_observation: str = Field(..., description="Typical and in-depth observation about the kid")
+
+
+# --- User Persona Schema ---
+class UserPersonaData(BaseModel):
+    persona: str = Field(..., description="Compact persona string summarizing the user")
