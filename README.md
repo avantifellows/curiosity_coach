@@ -80,23 +80,77 @@ graph TD
 
 ## Getting Started
 
-To get started with development or deployment:
+### Local Development
+
+To run the application locally for development:
+
+#### Prerequisites
+*   Node.js and npm (for the frontend)
+*   Python (for backend and brain services)
+*   PostgreSQL (for local database)
+*   `uv` (for backend Python environment)
+
+#### Environment Files Setup
+Before running the services, you'll need to obtain the environment files from another developer and place them in the following locations:
+
+```
+backend/.env.local
+backend/.env.prod
+backend/.env.staging
+Brain/src/.env
+Brain/src/.env.prod
+curiosity-coach-frontend/.env.local
+curiosity-coach-frontend/.env.prod
+```
+
+#### Running the Services
+
+1.  **Clone the Repository:**
+    ```bash
+    # git clone <repository-url>
+    cd curiosity-coach
+    ```
+
+2.  **Backend Service:**
+    ```bash
+    cd backend
+    ./run.sh
+    ```
+
+3.  **Brain Service:**
+    ```bash
+    cd Brain
+    ./run.sh
+    ```
+
+4.  **Frontend Service:**
+    ```bash
+    cd curiosity-coach-frontend
+    npm install
+    npm run start
+    ```
+
+#### Database Setup
+
+To sync the production database to your local environment:
+
+```bash
+cd backend
+python scripts/sync_prod_to_local.py
+```
+
+**Note:** This will completely wipe your local database and replace it with production data. Make sure you have the required environment files (`.env.local` and `.env.prod`) configured before running this script.
+
+### Production Deployment
+
+For production deployment:
 
 1.  **Prerequisites:**
     *   AWS Account and configured AWS CLI.
     *   Terraform CLI.
     *   Docker.
-    *   Node.js and npm/yarn (for the frontend).
-    *   Python (for backend and brain, version specified in their respective READMEs/Dockerfiles).
-    *   `uv` (for backend Python environment, as mentioned in `backend/README.md`).
-2.  **Clone the Repository:**
-    ```bash
-    # git clone <repository-url>
-    cd curiosity-coach
-    ```
-3.  **Service-Specific Setup:** Follow the instructions in the `README.md` files located within each service directory (`curiosity-coach-frontend/`, `backend/`, `Brain/`) for detailed setup, environment configuration, and local running instructions.
-4.  **Infrastructure Deployment:** Use Terraform commands (`terraform init`, `terraform plan`, `terraform apply`) in the `terraform/` directory to deploy the AWS infrastructure. Ensure any prerequisite image pushes to ECR are done as per service READMEs if not fully automated by Terraform `null_resource` provisioners.
-5.  **Run All Services Locally:** You can start all services (Frontend, Backend, and Brain) concurrently using the "Start All Servers" task defined in `.vscode/tasks.json`. This is often executable via your IDE's task runner (e.g., VS Code: Command Palette -> Tasks: Run Task -> Start All Servers).
+2.  **Service-Specific Setup:** Follow the instructions in the `README.md` files located within each service directory (`curiosity-coach-frontend/`, `backend/`, `Brain/`) for detailed setup, environment configuration, and build instructions.
+3.  **Infrastructure Deployment:** Use Terraform commands (`terraform init`, `terraform plan`, `terraform apply`) in the `terraform/` directory to deploy the AWS infrastructure. Ensure any prerequisite image pushes to ECR are done as per service READMEs if not fully automated by Terraform `null_resource` provisioners.
 
 ## Contributing
 
