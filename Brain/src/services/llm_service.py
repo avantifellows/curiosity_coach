@@ -126,6 +126,11 @@ class LLMService:
                 "temperature": call_config["temperature"],
                 "max_tokens": call_config["max_tokens"]
             }
+            # if call_type == "simplified_conversation":
+            #     request_params["max_completion_tokens"] = call_config.get("max_completion_tokens")
+            # else:
+            #     request_params["max_tokens"] = call_config.get("max_tokens")
+            #     request_params["temperature"] = call_config.get("temperature")
 
             if json_mode:
                 request_params["response_format"] = {"type": "json_object"}

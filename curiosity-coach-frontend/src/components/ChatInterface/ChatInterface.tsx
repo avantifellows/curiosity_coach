@@ -163,6 +163,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ mode }) => {
               isLoadingSteps={isLoadingSteps}
               showPipelineModal={showPipelineModal}
               onViewPipelineSteps={handleViewPipelineSteps}
+              mode={mode}
             />
           </div>
         </main>

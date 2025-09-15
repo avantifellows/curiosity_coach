@@ -4,7 +4,7 @@ Only give the JSON that is expected from you.
 
 The output expected is :
 {{
-  "main_topics" : "list of topics that are discussed in the discussion",
+  "main_topics" : "list of topics that are brought up in the discussion",
   "action" : "list of actions suggested by the AI to explore to kid",
   "typical_observation" : "typical and in depth observation about the kid"
 }}
