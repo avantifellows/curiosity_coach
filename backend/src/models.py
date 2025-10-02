@@ -342,6 +342,41 @@ def get_conversations_needing_memory(db: Session) -> List[int]:
     
     return [c.id for c in conversations_to_process]
 
+def get_conversations_needing_memory_for_user(
+    db: Session,
+    user_id: int,
+    only_needing: bool = True,
+    include_empty: bool = False,
+) -> List[int]:
+    """
+    Returns conversation IDs for a user based on filters.
+    - only_needing: if True, include only conversations that either don't have a memory
+      or whose memory is older than the conversation update, and that are inactive beyond threshold
+      (mirrors get_conversations_needing_memory logic).
+    - include_empty: if False, exclude conversations with zero messages (heuristic: updated_at > created_at).
+    """
+    inactivity_threshold = datetime.utcnow() - timedelta(hours=settings.MEMORY_INACTIVITY_THRESHOLD_HOURS)
+
+    query = (
+        db.query(Conversation)
+        .outerjoin(ConversationMemory, Conversation.id == ConversationMemory.conversation_id)
+        .filter(Conversation.user_id == user_id)
+    )
+
+    if only_needing:
+        query = query.filter(
+            Conversation.updated_at < inactivity_threshold,
+            (ConversationMemory.id == None) | (ConversationMemory.updated_at < Conversation.updated_at),
+        )
+        if not include_empty:
+            query = query.filter(Conversation.updated_at > Conversation.created_at)
+    else:
+        if not include_empty:
+            query = query.filter(Conversation.updated_at > Conversation.created_at)
+
+    conversations = query.all()
+    return [c.id for c in conversations]
+
 def get_users_needing_persona_generation(db: Session) -> List[int]:
     """
     Returns a list of user IDs who need their persona generated or updated.

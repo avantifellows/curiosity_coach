@@ -1,6 +1,6 @@
 import React, { useRef, useEffect } from 'react';
 import { CircularProgress } from '@mui/material';
-// import { Visibility } from '@mui/icons-material';
+import { Visibility } from '@mui/icons-material';
 import ChatMessage from '../ChatMessage';
 import BrainConfigView from '../BrainConfigView';
 
@@ -18,6 +18,7 @@ interface MessageListProps {
   isLoadingSteps: boolean;
   showPipelineModal: boolean;
   onViewPipelineSteps: (messageId: number | string) => void;
+  mode: 'chat' | 'test-prompt';
 }
 
 const MessageList: React.FC<MessageListProps> = ({
@@ -32,6 +33,7 @@ const MessageList: React.FC<MessageListProps> = ({
   isLoadingSteps,
   showPipelineModal,
   onViewPipelineSteps,
+  mode,
 }) => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -74,7 +76,7 @@ const MessageList: React.FC<MessageListProps> = ({
             {messages.map((msg, index) => (
               <div key={msg.id || `msg-${index}`} className="mb-6">
                 <ChatMessage message={msg} />
-                {/* {!msg.is_user && msg.id && !isConfigViewActive && (
+                {!msg.is_user && msg.id && !isConfigViewActive && mode === 'test-prompt' && (
                   <div className="flex justify-start pl-2 mt-1">
                     <button
                       onClick={() => onViewPipelineSteps(msg.id as number | string)}
@@ -85,7 +87,7 @@ const MessageList: React.FC<MessageListProps> = ({
                       {isLoadingSteps && showPipelineModal ? 'Loading steps...' : 'View thinking steps'}
                     </button>
                   </div>
-                )} */}
+                )}
               </div>
             ))}
           </div>
