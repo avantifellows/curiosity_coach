@@ -69,6 +69,28 @@ class APIService:
             logger.error(f"Error response {e.response.status_code} while fetching memories for user {user_id}: {e.response.text}")
             return None
 
+    async def get_conversation_memory(self, conversation_id: int) -> Optional[Dict[str, Any]]:
+        """
+        Fetch a single conversation's memory_data via internal endpoint.
+        Returns the memory_data dict or None if not found (404).
+        """
+        url = f"{self.backend_url}/api/internal/conversations/{conversation_id}/memory"
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(url)
+                if response.status_code == 404:
+                    logger.info(f"No memory found for conversation {conversation_id}.")
+                    return None
+                response.raise_for_status()
+                data = response.json()
+                return data.get("memory_data")
+        except httpx.RequestError as e:
+            logger.error(f"Error fetching memory for conversation {conversation_id}: {e}")
+            return None
+        except httpx.HTTPStatusError as e:
+            logger.error(f"Error response {e.response.status_code} while fetching memory for conversation {conversation_id}: {e.response.text}")
+            return None
+
     async def get_user_persona(self, user_id: int) -> Optional[Dict[str, Any]]:
         """
         Fetches the user persona for a specific user from the backend.

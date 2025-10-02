@@ -310,12 +310,23 @@ async def dequeue(message: MessagePayload, background_tasks: Optional[Background
             else:
                 # This is a new query
                 logger.info("Processing as a new query")
+                # Fetch conversation memory if any placeholder might be used
+                conversation_memory: Optional[Dict[str, Any]] = None
+                try:
+                    # Fetch memory only once per request to avoid extra latency
+                    if message.conversation_id:
+                        from src.services.api_service import api_service as brain_api_service
+                        conversation_memory = await brain_api_service.get_conversation_memory(int(message.conversation_id))
+                except Exception as e:
+                    logger.warning(f"Error fetching conversation memory for conv {message.conversation_id}: {e}")
+
                 response_data = await process_query(
                     query=user_input, 
                     config=flow_config_instance, 
                     conversation_history=conversation_history_str,
                     purpose=message.purpose,
-                    user_persona=user_persona
+                    user_persona=user_persona,
+                    conversation_memory=conversation_memory
                 )
 
             # Create a client for fetching the prompt version ID
