@@ -50,7 +50,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
   const animationTiming = is_user ? 'transition-all duration-300 ease-out' : 'transition-all duration-300 ease-out delay-100';
 
   return (
-    <div className={`flex ${alignment} ${opacity} px-1 sm:px-0 ${animationTiming} ${appearAnimation}`}>
+    <div className={`flex ${alignment} ${opacity} px-4 sm:px-6 lg:px-8 ${animationTiming} ${appearAnimation}`}>
       {/* AI Avatar for non-user messages */}
       {!is_user && (
         <div className="flex-shrink-0 h-8 w-8 rounded-full bg-indigo-100 flex items-center justify-center mr-2">
@@ -58,7 +58,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
         </div>
       )}
       
-      <div className={`rounded-xl px-3 sm:px-4 py-2 max-w-[85%] sm:max-w-xs lg:max-w-md shadow ${bgGradient} ${textColor} ${errorStyle} ${hoverEffect} whitespace-pre-wrap break-words ${margin} min-w-[120px]`}>
+      <div className={`rounded-xl px-3 sm:px-4 py-2 max-w-[75%] sm:max-w-md lg:max-w-lg shadow ${bgGradient} ${textColor} ${errorStyle} ${hoverEffect} whitespace-pre-wrap break-words min-w-[120px]`}>
         {content}
         {status === 'sending' && (
           <span className="text-xs italic ml-2 block opacity-80">

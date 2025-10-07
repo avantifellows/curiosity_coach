@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { LoginResponse, Message, ChatHistory, SendMessageResponse, ConversationSummary, Conversation, User } from '../types';
+import { LoginResponse, Message, ChatHistory, SendMessageResponse, ConversationSummary, Conversation, ConversationCreateResponse, User } from '../types';
 
 const API = axios.create({
   baseURL: process.env.REACT_APP_BACKEND_BASE_URL + '/api' || '/api',
@@ -75,14 +75,17 @@ export const listConversations = async (): Promise<ConversationSummary[]> => {
   }
 };
 
-export const createConversation = async (title?: string): Promise<Conversation> => {
+export const createConversation = async (title?: string): Promise<ConversationCreateResponse> => {
   try {
     const payload = title ? { title } : {};
-    const response = await API.post<Conversation>('/conversations', payload);
+    const response = await API.post<ConversationCreateResponse>('/conversations', payload);
     return response.data;
   } catch (error: any) {
     console.error("Error creating conversation:", error.response?.data || error.message);
-    throw new Error(error.response?.data?.detail || 'Failed to create conversation');
+    // Preserve status code for 503 errors (preparation timeout)
+    const err: any = new Error(error.response?.data?.detail || 'Failed to create conversation');
+    err.status = error.response?.status;
+    throw err;
   }
 };
 
@@ -134,6 +137,37 @@ export const getPrompts = async () => {
   } catch (error) {
     console.error("Error fetching prompts:", error);
     throw new Error("Failed to fetch prompts");
+  }
+};
+
+// Create a new prompt
+export const createPrompt = async (name: string, description?: string, promptPurpose?: string | null) => {
+  try {
+    const response = await API.post('/prompts', {
+      name,
+      description: description || null,
+      prompt_purpose: promptPurpose || null
+    });
+    return response.data;
+  } catch (error) {
+    console.error("Error creating prompt:", error);
+    throw new Error("Failed to create prompt");
+  }
+};
+
+// Update an existing prompt
+export const updatePrompt = async (promptId: number, name?: string, description?: string, promptPurpose?: string | null) => {
+  try {
+    const payload: any = {};
+    if (name !== undefined) payload.name = name;
+    if (description !== undefined) payload.description = description;
+    if (promptPurpose !== undefined) payload.prompt_purpose = promptPurpose;
+    
+    const response = await API.put(`/prompts/${promptId}`, payload);
+    return response.data;
+  } catch (error) {
+    console.error(`Error updating prompt ${promptId}:`, error);
+    throw new Error(`Failed to update prompt ${promptId}`);
   }
 };
 
@@ -193,6 +227,28 @@ export const setActivePromptVersion = async (promptId: number | string, versionI
   } catch (error) {
     console.error(`Error setting active version ${versionId} for prompt ${promptId}:`, error);
     throw new Error(`Failed to set active version for prompt ${promptId}`);
+  }
+};
+
+// Set a specific version as production
+export const setProductionPromptVersion = async (promptId: number | string, versionNumber: number) => {
+  try {
+    const response = await API.post(`/prompts/${promptId}/versions/${versionNumber}/set-production`);
+    return response.data;
+  } catch (error) {
+    console.error(`Error setting production version ${versionNumber} for prompt ${promptId}:`, error);
+    throw new Error(`Failed to set production version for prompt ${promptId}`);
+  }
+};
+
+// Unset production flag from a version
+export const unsetProductionPromptVersion = async (promptId: number | string, versionNumber: number) => {
+  try {
+    const response = await API.delete(`/prompts/${promptId}/versions/${versionNumber}/unset-production`);
+    return response.data;
+  } catch (error) {
+    console.error(`Error unsetting production version ${versionNumber} for prompt ${promptId}:`, error);
+    throw new Error(`Failed to unset production version for prompt ${promptId}`);
   }
 };
 

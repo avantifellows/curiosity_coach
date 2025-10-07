@@ -30,6 +30,7 @@ async def list_conversations_for_user(
 ):
     """
     Retrieve conversations for the authenticated user, ordered by most recently updated.
+    Now includes visit_number for each conversation.
     """
     start_time = time.time()
     
@@ -39,12 +40,12 @@ async def list_conversations_for_user(
     )
     
     try:
-        logger.debug(f"Fetching conversations from database - user_id: {current_user.id}")
-        conversations = models.list_user_conversations(
+        logger.debug(f"Fetching conversations with visit numbers from database - user_id: {current_user.id}")
+        conversations_with_visits = models.get_user_conversations_with_visits(
             db=db, user_id=current_user.id, limit=limit, offset=offset
         )
         
-        conversation_count = len(conversations)
+        conversation_count = len(conversations_with_visits)
         processing_time = time.time() - start_time
         
         logger.info(
@@ -58,10 +59,10 @@ async def list_conversations_for_user(
         else:
             logger.debug(
                 f"Retrieved {conversation_count} conversations for user_id: {current_user.id}. "
-                f"First conversation: {conversations[0].id if conversations else 'N/A'}"
+                f"First conversation: {conversations_with_visits[0]['id'] if conversations_with_visits else 'N/A'}"
             )
         
-        return conversations # Pydantic will automatically convert based on ConversationSummary schema
+        return conversations_with_visits # Returns list of dicts with visit_number
         
     except Exception as e:
         processing_time = time.time() - start_time
@@ -72,46 +73,264 @@ async def list_conversations_for_user(
         )
         raise HTTPException(status_code=500, detail=f"Error retrieving conversations: {str(e)}")
 
-@router.post("", response_model=schemas.Conversation, status_code=status.HTTP_201_CREATED)
+@router.post("", status_code=status.HTTP_201_CREATED)
 async def create_new_conversation(
-    conversation_data: Optional[schemas.ConversationCreate] = None, # Allow empty body to use default title
+    conversation_data: Optional[schemas.ConversationCreate] = None,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user), # Use the new dependency here too
+    current_user: User = Depends(get_current_user),
 ):
     """
-    Create a new conversation for the authenticated user.
-    A title can optionally be provided in the request body.
+    Create a new conversation with visit tracking and onboarding preparation.
+    
+    Flow:
+    1. Calculate visit number (conversation count + 1)
+    2. Select appropriate prompt by purpose
+    3. Create conversation and record visit
+    4. Visit 2-3: Generate memories for all previous conversations
+    5. Visit 4+: Ensure 3+ conversations with messages, generate persona if missing
+    6. Generate AI opening message
+    7. Return conversation with visit info and opening message
+    
+    On failure: Conversation is deleted and HTTP 503 is returned.
     """
-    start_time = time.time()
-    
-    title = conversation_data.title if conversation_data else "New Chat" # Use default if body is empty or title not provided
-    
-    logger.info(
-        f"create_new_conversation endpoint called - "
-        f"user_id: {current_user.id}, title: '{title}'"
+    from sqlalchemy.exc import IntegrityError
+    from src.onboarding.service import (
+        generate_ai_first_message,
+        ensure_memories_for_conversations,
+        generate_persona_sync_with_retry
     )
+    from src.onboarding.schemas import ConversationCreateResponse, ConversationWithVisit
+    
+    start_time = time.time()
+    title = conversation_data.title if conversation_data else "New Chat"
+    preparation_status = "ready"
+    ai_opening_message = None
+    conversation = None
     
     try:
-        logger.debug(f"Creating new conversation in database - user_id: {current_user.id}, title: '{title}'")
-        conversation = models.create_conversation(
-            db=db, user_id=current_user.id, title=title
+        # 1. Calculate visit number
+        conversation_count = models.count_user_conversations(db, current_user.id)
+        visit_number = conversation_count + 1
+        
+        logger.info(
+            f"Visit {visit_number} started",
+            extra={
+                "user_id": current_user.id,
+                "visit_number": visit_number,
+                "memory_generation_required": visit_number >= 2,
+                "persona_generation_required": visit_number >= 4,
+                "timestamp": time.time()
+            }
         )
         
+        # 2. Select appropriate prompt by purpose
+        prompt_purpose = models.select_prompt_purpose_for_visit(visit_number)
+        logger.info(f"🎯 BACKEND: Visit {visit_number} → prompt_purpose={prompt_purpose}")
+        
+        prompt_version = models.get_production_prompt_by_purpose(db, prompt_purpose)
+        
+        if prompt_version:
+            prompt = db.query(models.Prompt).get(prompt_version.prompt_id)
+            logger.info(f"✅ BACKEND: Found prompt_version - id={prompt_version.id}, version_number={prompt_version.version_number}, prompt_name={prompt.name if prompt else 'Unknown'}, prompt_purpose={prompt.prompt_purpose if prompt else 'Unknown'}")
+        else:
+            logger.warning(f"⚠️ BACKEND: NO prompt_version found for purpose={prompt_purpose}!")
+        
+        # 3. Create conversation and record visit (with race condition protection)
+        conversation = models.create_conversation(
+            db=db,
+            user_id=current_user.id,
+            title=title,
+            prompt_version_id=prompt_version.id if prompt_version else None
+        )
+        
+        logger.info(f"📝 BACKEND: Created conversation id={conversation.id} with prompt_version_id={conversation.prompt_version_id}")
+        
+        # Record visit number with unique constraint protection
+        try:
+            models.record_conversation_visit(db, conversation.id, current_user.id, visit_number)
+            db.commit()
+        except IntegrityError:
+            # Race condition detected: another request assigned same visit number
+            db.rollback()
+            logger.warning(f"Race condition detected for user {current_user.id}, retrying with updated visit number")
+            
+            # Recalculate and retry
+            conversation_count = models.count_user_conversations(db, current_user.id)
+            visit_number = conversation_count + 1
+            
+            # Try again with updated visit number
+            models.record_conversation_visit(db, conversation.id, current_user.id, visit_number)
+            db.commit()
+            
+            logger.info(f"Race condition resolved, assigned visit_number: {visit_number}")
+        
+        # 4. Handle visit-specific requirements (OUTSIDE transaction for long operations)
+        if visit_number >= 2 and visit_number <= 3:
+            preparation_status = "generating_memory"
+            logger.info(f"Ensuring memories for all previous conversations (visit {visit_number})")
+            
+            # Ensure ALL previous conversations have memories
+            await ensure_memories_for_conversations(
+                db=db,
+                user_id=current_user.id,
+                exclude_conversation_id=conversation.id
+            )
+            
+            logger.info("Memory generation completed for all previous conversations")
+        
+        elif visit_number >= 4:
+            preparation_status = "generating_persona"
+            logger.info(f"Visit {visit_number}: Checking persona requirements")
+            
+            # FIRST: Ensure memories exist for at least 3 conversations with messages
+            all_conversations = models.get_user_conversations_list(db, current_user.id)
+            previous_conversations = [c for c in all_conversations if c.id != conversation.id]
+            
+            conversations_with_messages = [
+                c for c in previous_conversations
+                if models.has_messages(db, c.id)
+            ]
+            
+            if len(conversations_with_messages) < 3:
+                logger.error(
+                    f"User {current_user.id} has only {len(conversations_with_messages)} conversations with messages. "
+                    f"Persona requires at least 3."
+                )
+                raise HTTPException(
+                    status_code=503,
+                    detail="Unable to prepare your personalized experience. Please ensure you have completed at least 3 conversations with messages."
+                )
+            
+            # Ensure memories exist for previous conversations (at least the first 3 with messages)
+            await ensure_memories_for_conversations(
+                db=db,
+                user_id=current_user.id,
+                exclude_conversation_id=conversation.id
+            )
+            
+            # THEN: Generate persona if not exists
+            persona = db.query(models.UserPersona).filter(
+                models.UserPersona.user_id == current_user.id
+            ).first()
+            
+            if not persona:
+                logger.info(f"Generating persona for user {current_user.id}")
+                await generate_persona_sync_with_retry(
+                    user_id=current_user.id,
+                    db=db,
+                    max_retries=2
+                )
+                logger.info("Persona generation completed successfully")
+            else:
+                logger.info(f"Persona already exists for user {current_user.id}")
+        
+        # 6. Generate AI's opening message
+        preparation_status = "ready"
+        logger.info(f"Generating opening message for conversation {conversation.id}")
+        
+        ai_opening_message = await generate_ai_first_message(
+            conversation_id=conversation.id,
+            user_id=current_user.id,
+            visit_number=visit_number,
+            db=db
+        )
+        
+        logger.info(f"Opening message generated successfully")
+        
+        # 7. Return conversation with visit info
         processing_time = time.time() - start_time
         logger.info(
-            f"create_new_conversation completed successfully - "
-            f"user_id: {current_user.id}, conversation_id: {conversation.id}, "
-            f"processing_time: {processing_time:.3f}s"
+            f"Conversation creation completed successfully",
+            extra={
+                "conversation_id": conversation.id,
+                "user_id": current_user.id,
+                "visit_number": visit_number,
+                "total_duration_ms": processing_time * 1000,
+                "success": True
+            }
         )
         
-        return conversation
+        # Build response with visit number
+        conversation_with_visit = ConversationWithVisit(
+            id=conversation.id,
+            user_id=conversation.user_id,
+            title=conversation.title,
+            visit_number=visit_number,
+            prompt_version_id=conversation.prompt_version_id,
+            created_at=conversation.created_at,
+            updated_at=conversation.updated_at
+        )
+        
+        response = ConversationCreateResponse(
+            conversation=conversation_with_visit,
+            visit_number=visit_number,
+            ai_opening_message=ai_opening_message,
+            preparation_status="ready",
+            requires_opening_message=True
+        )
+        
+        return response
+        
+    except (TimeoutError, HTTPException) as e:
+        # Clean up: delete the conversation if preparation fails
+        processing_time = time.time() - start_time
+        
+        if conversation:
+            try:
+                logger.warning(f"Cleaning up conversation {conversation.id} due to preparation failure")
+                db.delete(conversation)
+                db.commit()
+            except Exception as cleanup_error:
+                logger.error(f"Error cleaning up conversation: {cleanup_error}")
+                db.rollback()
+        
+        if isinstance(e, HTTPException):
+            logger.error(
+                f"Conversation preparation failed with HTTP error",
+                extra={
+                    "user_id": current_user.id,
+                    "status_code": e.status_code,
+                    "detail": e.detail,
+                    "processing_time_ms": processing_time * 1000
+                }
+            )
+            raise e
+        
+        # TimeoutError
+        logger.error(
+            f"Conversation preparation timed out",
+            extra={
+                "user_id": current_user.id,
+                "error": str(e),
+                "processing_time_ms": processing_time * 1000
+            }
+        )
+        raise HTTPException(
+            status_code=503,
+            detail="Unable to prepare your conversation at this time. Please try again in a moment."
+        )
         
     except Exception as e:
+        # Unexpected error - also clean up
         processing_time = time.time() - start_time
+        
+        if conversation:
+            try:
+                logger.warning(f"Cleaning up conversation {conversation.id} due to unexpected error")
+                db.delete(conversation)
+                db.commit()
+            except Exception as cleanup_error:
+                logger.error(f"Error cleaning up conversation: {cleanup_error}")
+                db.rollback()
+        
         logger.error(
-            f"create_new_conversation unexpected error - "
-            f"user_id: {current_user.id}, title: '{title}', error: {str(e)}, "
-            f"processing_time: {processing_time:.3f}s"
+            f"create_new_conversation unexpected error",
+            extra={
+                "user_id": current_user.id,
+                "title": title,
+                "error": str(e),
+                "processing_time_ms": processing_time * 1000
+            }
         )
         raise HTTPException(status_code=500, detail=f"Error creating conversation: {str(e)}")
 
@@ -123,30 +342,31 @@ async def get_conversation_by_id(
 ):
     """
     Retrieve a specific conversation by its ID for the authenticated user.
+    Now includes visit_number.
     """
     logger.info(
         f"get_conversation_by_id endpoint called - "
         f"user_id: {current_user.id}, conversation_id: {conversation_id}"
     )
     
-    conversation = models.get_conversation(db=db, conversation_id=conversation_id)
+    conversation_with_visit = models.get_conversation_with_visit(db=db, conversation_id=conversation_id)
 
-    if conversation is None:
+    if conversation_with_visit is None:
         logger.warning(f"Conversation not found - conversation_id: {conversation_id}")
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found")
 
-    if conversation.user_id != current_user.id:
+    if conversation_with_visit["user_id"] != current_user.id:
         logger.error(
             f"User {current_user.id} not authorized to view conversation {conversation_id} "
-            f"owned by user {conversation.user_id}"
+            f"owned by user {conversation_with_visit['user_id']}"
         )
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to access this conversation")
     
     logger.info(
         f"get_conversation_by_id completed successfully - "
-        f"user_id: {current_user.id}, conversation_id: {conversation.id}"
+        f"user_id: {current_user.id}, conversation_id: {conversation_with_visit['id']}"
     )
-    return conversation
+    return conversation_with_visit
 
 @router.delete("/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_conversation_by_id(

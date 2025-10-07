@@ -19,6 +19,9 @@ interface MessageListProps {
   showPipelineModal: boolean;
   onViewPipelineSteps: (messageId: number | string) => void;
   mode: 'chat' | 'test-prompt';
+  preparationStatus?: string | null;
+  isPreparingConversation?: boolean;
+  isDebugMode?: boolean;
 }
 
 const MessageList: React.FC<MessageListProps> = ({
@@ -34,6 +37,9 @@ const MessageList: React.FC<MessageListProps> = ({
   showPipelineModal,
   onViewPipelineSteps,
   mode,
+  preparationStatus,
+  isPreparingConversation,
+  isDebugMode = false,
 }) => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -63,6 +69,20 @@ const MessageList: React.FC<MessageListProps> = ({
           <div className="flex justify-center items-center h-full py-20">
             <CircularProgress />
           </div>
+        ) : isPreparingConversation && preparationStatus ? (
+          <div className="flex justify-center items-center flex-1 py-20">
+            <div className="card-gradient">
+              <div className="flex flex-col items-center">
+                <CircularProgress size={40} className="mb-4" />
+                <h2 className="text-xl md:text-2xl font-bold text-indigo-600 text-center">
+                  {preparationStatus === 'generating_memory' && 'Reviewing your previous conversations...'}
+                  {preparationStatus === 'generating_persona' && 'Understanding your learning style...'}
+                  {preparationStatus === 'ready' && 'Your coach is preparing to meet you...'}
+                </h2>
+                <p className="text-sm text-gray-500 mt-2">This may take up to 2 minutes</p>
+              </div>
+            </div>
+          </div>
         ) : messages.length === 0 ? (
           <div className="flex justify-center items-center flex-1 py-20">
             <div className="card-gradient">
@@ -76,7 +96,7 @@ const MessageList: React.FC<MessageListProps> = ({
             {messages.map((msg, index) => (
               <div key={msg.id || `msg-${index}`} className="mb-6">
                 <ChatMessage message={msg} />
-                {!msg.is_user && msg.id && !isConfigViewActive && mode === 'test-prompt' && (
+                {!msg.is_user && msg.id && !isConfigViewActive && (mode === 'test-prompt' || isDebugMode) && (
                   <div className="flex justify-start pl-2 mt-1">
                     <button
                       onClick={() => onViewPipelineSteps(msg.id as number | string)}

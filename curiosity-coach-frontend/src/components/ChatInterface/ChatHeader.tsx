@@ -3,7 +3,7 @@ import { Close, Menu, Psychology } from '@mui/icons-material';
 
 interface ChatHeaderProps {
   isSidebarOpen: boolean;
-  onToggleSidebar: () => void;
+  onToggleSidebar?: () => void;
   isDebugMode: boolean;
   currentConversationId: number | null;
   isConfigViewActive: boolean;
@@ -22,13 +22,16 @@ const ChatHeader: React.FC<ChatHeaderProps> = ({
 }) => {
   return (
     <div className="lg:hidden mobile-header">
-      <button
-        onClick={onToggleSidebar}
-        className="btn-glass"
-        aria-label="Toggle sidebar"
-      >
-        {isSidebarOpen ? <Close fontSize="medium" /> : <Menu fontSize="medium" />}
-      </button>
+      {onToggleSidebar && (
+        <button
+          onClick={onToggleSidebar}
+          className="btn-glass"
+          aria-label="Toggle sidebar"
+        >
+          {isSidebarOpen ? <Close fontSize="medium" /> : <Menu fontSize="medium" />}
+        </button>
+      )}
+      {!onToggleSidebar && <div className="w-10"></div>}
       
       <div className="flex items-center space-x-2">
         <span className="text-white font-medium text-lg">Curiosity Coach</span>

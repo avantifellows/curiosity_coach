@@ -34,6 +34,7 @@ class PromptVersionInDB(PromptVersionBase):
 class PromptBase(BaseModel):
     name: str = Field(..., description="Unique name for the prompt type, e.g., 'intent_identifier'.")
     description: Optional[str] = Field(None, description="Optional description of the prompt.")
+    prompt_purpose: Optional[str] = Field(None, description="Purpose of the prompt: 'visit_1', 'visit_2', 'visit_3', 'steady_state', 'general' or None.")
 
 class PromptCreate(PromptBase):
     initial_version_text: Optional[str] = Field(None, description="Text for the first version of this prompt. If provided, version 1 will be created and set active.")
@@ -41,6 +42,7 @@ class PromptCreate(PromptBase):
 class PromptUpdate(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
+    prompt_purpose: Optional[str] = None
 
 class PromptInDBBase(PromptBase):
     id: int
@@ -56,6 +58,7 @@ class PromptInDB(PromptInDBBase):
 
 class PromptSimple(PromptInDBBase):
     # A simpler representation without all versions
+    prompt_purpose: Optional[str] = None
     active_version_number: Optional[int] = None
     active_version_text: Optional[str] = None
 

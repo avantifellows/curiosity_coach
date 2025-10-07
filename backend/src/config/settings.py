@@ -39,6 +39,20 @@ class Settings(BaseSettings):
     # Memory Generation
     MEMORY_INACTIVITY_THRESHOLD_HOURS: int = int(os.getenv('MEMORY_INACTIVITY_THRESHOLD_HOURS', 24))
     
+    # Onboarding System - Sync Operation Timeouts (seconds)
+    MEMORY_GENERATION_TIMEOUT: int = int(os.getenv('MEMORY_GENERATION_TIMEOUT', 120))  # 2 minutes
+    PERSONA_GENERATION_TIMEOUT: int = int(os.getenv('PERSONA_GENERATION_TIMEOUT', 120))  # 2 minutes
+    OPENING_MESSAGE_TIMEOUT: int = int(os.getenv('OPENING_MESSAGE_TIMEOUT', 120))  # 2 minutes
+    
+    # Brain endpoints
+    BRAIN_ENDPOINT_URL: str = os.getenv('BRAIN_ENDPOINT_URL', 'http://127.0.0.1:8001')  # Production Brain
+    BACKEND_CALLBACK_BASE_URL: str = os.getenv('BACKEND_CALLBACK_BASE_URL', 'http://localhost:5000')
+    
+    # Feature flags
+    ENABLE_AI_FIRST_MESSAGE: bool = os.getenv('ENABLE_AI_FIRST_MESSAGE', 'true').lower() == 'true'
+    ENABLE_VISIT_BASED_PROMPTS: bool = os.getenv('ENABLE_VISIT_BASED_PROMPTS', 'true').lower() == 'true'
+    ENABLE_CONDITIONAL_SIDEBAR: bool = os.getenv('ENABLE_CONDITIONAL_SIDEBAR', 'true').lower() == 'true'
+    
     class Config:
         env_file = env_file
 
