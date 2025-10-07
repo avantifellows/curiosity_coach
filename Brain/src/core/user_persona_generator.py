@@ -12,10 +12,25 @@ _USER_PERSONA_GENERATION_PROMPT_PATH = os.path.join(_PROMPT_DIR, "user_persona_g
 async def generate_persona_for_user(user_id: int):
     """
     Generates a user persona based on their conversation memories and saves it.
+    Requires minimum 3 conversations for meaningful persona generation.
     """
     logger.info(f"Starting persona generation for user_id: {user_id}")
 
-    # 1. Fetch conversation memories
+    # 1. Check minimum conversation count (requires at least 3 conversations)
+    user_conversations = await api_service.get_user_conversations(user_id)
+    if not user_conversations:
+        logger.error(f"Failed to fetch conversations for user {user_id}. Skipping persona generation.")
+        return
+    
+    conversation_count = user_conversations.get("conversation_count", 0)
+    if conversation_count < 3:
+        logger.info(f"User {user_id} has only {conversation_count} conversations. "
+                   f"Persona generation requires minimum 3 conversations. Skipping.")
+        return
+    
+    logger.info(f"User {user_id} has {conversation_count} conversations. Proceeding with persona generation.")
+
+    # 2. Fetch conversation memories
     memories = await api_service.get_conversation_memories_for_user(user_id)
     if not memories:
         logger.warning(f"No conversation memories found for user {user_id}. Skipping persona generation.")

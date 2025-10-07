@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { loginUser } from '../services/api';
 
@@ -8,6 +8,7 @@ const Login: React.FC = () => {
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();
+  const location = useLocation();
   const { login } = useAuth();
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -21,7 +22,10 @@ const Login: React.FC = () => {
       if (response.success && response.user) {
         login(response.user);
         
-        navigate('/chat');
+        // Preserve query parameters during navigation
+        const queryParams = new URLSearchParams(location.search);
+        const targetPath = queryParams.toString() ? `/chat?${queryParams.toString()}` : '/chat';
+        navigate(targetPath);
       } else {
         setError(response.message || 'Login failed');
       }

@@ -11,6 +11,7 @@ import MessageList from './MessageList';
 import MessageInput from './MessageInput';
 import ChatModals from './ChatModals';
 import FeedbackModal from '../FeedbackModal';
+import DebugInfo from '../DebugInfo';
 
 interface ChatInterfaceProps {
   mode: 'chat' | 'test-prompt';
@@ -20,6 +21,8 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ mode }) => {
   const {
     messages,
     currentConversationId,
+    currentVisitNumber,
+    currentPromptVersionId,
     isLoadingMessages,
     isSendingMessage,
     error: chatError,
@@ -30,6 +33,9 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ mode }) => {
     isLoadingBrainConfig,
     brainConfigError,
     fetchBrainConfigSchema,
+    preparationStatus,
+    isPreparingConversation,
+    isInitializingForNewUser,
   } = useChat();
 
   const [newMessage, setNewMessage] = useState('');
@@ -107,35 +113,81 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ mode }) => {
     }
   };
 
+  // Determine if sidebar should be shown (only for visit 4+)
+  const shouldShowSidebar = currentVisitNumber === null || currentVisitNumber >= 4;
+
+  // Show onboarding loading screen during conversation preparation (all visits)
+  if (isInitializingForNewUser || isPreparingConversation) {
+    // Determine loading message based on preparation status
+    let loadingMessage = "Your personal learning companion is preparing to meet you...";
+    if (preparationStatus === "generating_memory") {
+      loadingMessage = "Reviewing your previous conversations...";
+    } else if (preparationStatus === "generating_persona") {
+      loadingMessage = "Understanding your learning style...";
+    }
+    
+    return (
+      <div className="flex h-screen-mobile main-gradient-bg items-center justify-center">
+        <div className="text-center p-8 max-w-md">
+          {/* Animated icon */}
+          <div className="mb-6 relative inline-block">
+            <div className="w-20 h-20 bg-gradient-to-br from-purple-400 to-blue-500 rounded-full animate-pulse flex items-center justify-center">
+              <span className="text-4xl">🌟</span>
+            </div>
+            <div className="absolute inset-0 w-20 h-20 bg-gradient-to-br from-purple-400 to-blue-500 rounded-full animate-ping opacity-20"></div>
+          </div>
+          
+          {/* Loading message */}
+          <h2 className="text-2xl font-bold text-gray-800 mb-3">
+            Welcome to Curiosity Coach!
+          </h2>
+          <p className="text-lg text-gray-600 mb-2">
+            {loadingMessage}
+          </p>
+          
+          {/* Loading dots animation */}
+          <div className="flex justify-center items-center space-x-2 mt-6">
+            <div className="w-3 h-3 bg-purple-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
+            <div className="w-3 h-3 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
+            <div className="w-3 h-3 bg-pink-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex h-screen-mobile main-gradient-bg">
       {/* Mobile overlay */}
-      {isSidebarOpen && (
+      {shouldShowSidebar && isSidebarOpen && (
         <div 
           className="sidebar-overlay"
           onClick={() => setIsSidebarOpen(false)}
         />
       )}
 
-      {/* Sidebar */}
-      <div className={`
-        sidebar-container
-        ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
-      `}>
-        <ConversationSidebar
-          onConversationSelect={() => setIsSidebarOpen(false)}
-          onOpenFeedbackModal={() => {
-            setShowFeedbackModal(true);
-            setIsSidebarOpen(false);
-          }}
-        />
-      </div>
+      {/* Sidebar - only show for visit 4+ */}
+      {shouldShowSidebar && (
+        <div className={`
+          sidebar-container
+          ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
+        `}>
+          <ConversationSidebar
+            onConversationSelect={() => setIsSidebarOpen(false)}
+            onOpenFeedbackModal={() => {
+              setShowFeedbackModal(true);
+              setIsSidebarOpen(false);
+            }}
+          />
+        </div>
+      )}
       
-      <div className="flex-1 flex flex-col h-screen-mobile">
+      {/* Main content - full width when sidebar hidden, flex-1 when sidebar shown */}
+      <div className={`flex flex-col h-screen-mobile ${shouldShowSidebar ? 'flex-1' : 'w-full'}`}>
         {/* Mobile header */}
         <ChatHeader
           isSidebarOpen={isSidebarOpen}
-          onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
+          onToggleSidebar={shouldShowSidebar ? () => setIsSidebarOpen(!isSidebarOpen) : undefined}
           isDebugMode={isDebugMode}
           currentConversationId={currentConversationId}
           isConfigViewActive={isConfigViewActive}
@@ -164,6 +216,9 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ mode }) => {
               showPipelineModal={showPipelineModal}
               onViewPipelineSteps={handleViewPipelineSteps}
               mode={mode}
+              preparationStatus={preparationStatus}
+              isPreparingConversation={isPreparingConversation}
+              isDebugMode={isDebugMode}
             />
           </div>
         </main>
@@ -176,6 +231,8 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ mode }) => {
           isSendingMessage={isSendingMessage}
           isConfigViewActive={isConfigViewActive}
           isLoadingMessages={isLoadingMessages}
+          isDisabled={isPreparingConversation || (currentConversationId !== null && messages.length === 0 && isLoadingMessages)}
+          shouldShowSidebar={shouldShowSidebar}
         />
       </div>
 
@@ -199,6 +256,14 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ mode }) => {
         memoryData={memoryData}
       />
       <FeedbackModal open={showFeedbackModal} onClose={() => setShowFeedbackModal(false)} />
+      
+      {/* Debug Info - only shown when ?debug=true */}
+      {isDebugMode && (
+        <DebugInfo 
+          visitNumber={currentVisitNumber} 
+          promptVersionId={currentPromptVersionId}
+        />
+      )}
     </div>
   );
 };

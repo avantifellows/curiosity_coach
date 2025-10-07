@@ -14,6 +14,10 @@ class PromptService:
 
     def get_prompts(self, db: Session, skip: int = 0, limit: int = 100) -> List[Prompt]:
         return db.query(Prompt).options(selectinload(Prompt.active_prompt_version)).offset(skip).limit(limit).all()
+    
+    def get_prompts_by_purpose(self, db: Session, purpose: str) -> List[Prompt]:
+        """Get all prompts with a specific purpose."""
+        return db.query(Prompt).options(selectinload(Prompt.active_prompt_version)).filter(Prompt.prompt_purpose == purpose).all()
 
     def create_prompt(self, db: Session, prompt_create: schemas.PromptCreate) -> Prompt:
         existing_prompt = self.get_prompt_by_name(db, name=prompt_create.name)
@@ -22,7 +26,8 @@ class PromptService:
 
         db_prompt = Prompt(
             name=prompt_create.name,
-            description=prompt_create.description
+            description=prompt_create.description,
+            prompt_purpose=prompt_create.prompt_purpose
         )
         db.add(db_prompt)
         db.commit()
@@ -52,6 +57,9 @@ class PromptService:
         
         if prompt_update.description is not None:
             db_prompt.description = prompt_update.description
+        
+        if prompt_update.prompt_purpose is not None:
+            db_prompt.prompt_purpose = prompt_update.prompt_purpose
         
         db.commit()
         db.refresh(db_prompt)

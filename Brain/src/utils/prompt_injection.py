@@ -1,4 +1,5 @@
 import re
+import json
 from typing import List, Tuple, Dict, Any, Optional
 from src.schemas import ConversationMemoryData, UserPersonaData
 
@@ -9,15 +10,15 @@ def _get_allowed_memory_keys() -> List[str]:
         return list(ConversationMemoryData.model_fields.keys())
     except Exception:
         # Safe fallback to current schema if import changes
-        return ["main_topics", "action", "typical_observation"]
+        return ["curiosity_boosters", "invitation_to_come_back", "knowledge_journey", "kid_learning_profile"]
 
 # Conversation memory placeholder regex
 # Examples (all valid):
 #   {{CONVERSATION_MEMORY}}
-#   {{CONVERSATION_MEMORY__main_topics}}
-#   {{CONVERSATION_MEMORY__main_topics__action}}
+#   {{CONVERSATION_MEMORY__curiosity_boosters}}
+#   {{CONVERSATION_MEMORY__knowledge_journey__initial_knowledge}}
 #   Prefix/suffix in templates:
-#     "Context: {{CONVERSATION_MEMORY}}" or "Context: {{CONVERSATION_MEMORY__main_topics__action}}"
+#     "Context: {{CONVERSATION_MEMORY}}" or "Context: {{CONVERSATION_MEMORY__curiosity_boosters}}"
 PLACEHOLDER_REGEX = re.compile(r"\{\{CONVERSATION_MEMORY(?:__([A-Za-z0-9_]+(?:__[A-Za-z0-9_]+)*))?\}\}")
 
 # Persona placeholder regex
@@ -30,8 +31,14 @@ def _get_allowed_persona_keys() -> List[str]:
     try:
         return list(UserPersonaData.model_fields.keys())
     except Exception:
-        return ["persona"]
+        return ["curiosity_boosters", "invitation_to_come_back", "knowledge_journey", "kid_learning_profile"]
 PERSONA_PLACEHOLDER_REGEX = re.compile(r"\{\{USER_PERSONA(?:__([A-Za-z0-9_]+(?:__[A-Za-z0-9_]+)*))?\}\}")
+
+# Previous conversations memory placeholder regex
+# Example: {{PREVIOUS_CONVERSATIONS_MEMORY}}
+PREVIOUS_MEMORY_PLACEHOLDER_REGEX = re.compile(
+    r"\{\{PREVIOUS_CONVERSATIONS_MEMORY\}\}"
+)
 
 
 def extract_memory_placeholders(template: str) -> List[Tuple[str, List[str]]]:
@@ -54,7 +61,19 @@ def extract_memory_placeholders(template: str) -> List[Tuple[str, List[str]]]:
 def _format_value_for_prompt(value: Any) -> str:
     if value is None:
         return "[Not available]"
+    if isinstance(value, dict):
+        # Convert nested dict to formatted JSON string
+        try:
+            return json.dumps(value, indent=2).replace('"', '\\"')
+        except (TypeError, ValueError):
+            return str(value).replace('"', '\\"')
     if isinstance(value, list):
+        # Check if list contains dicts
+        if value and isinstance(value[0], dict):
+            try:
+                return json.dumps(value, indent=2).replace('"', '\\"')
+            except (TypeError, ValueError):
+                pass
         joined = ", ".join([str(item) for item in value]) if value else "[Not available]"
         return joined.replace('"', '\\"')
     # Fallback to string
@@ -160,23 +179,86 @@ def render_persona_snippet(persona: Dict[str, Any], requested_keys: Optional[Lis
 
 def inject_persona_placeholders(template: str, persona: Optional[Dict[str, Any]]) -> str:
     """
-    Replaces persona placeholders with a rendered snippet. If persona is None and placeholders
-    exist, replaces them with a safe fallback message.
+    Replaces {{USER_PERSONA}} placeholder with the complete persona JSON data.
+    
+    This provides the LLM with full access to the aggregated persona profile:
+    - curiosity_boosters: What teaching techniques work best
+    - invitation_to_come_back: Preferred conversation endings and return triggers
+    - knowledge_journey: Primary interests and learning progression
+    - kid_learning_profile: Overall learning style and engagement preferences
+    
+    Args:
+        template: The prompt template with placeholders
+        persona: Dictionary containing aggregated persona data
+    
+    Returns:
+        Template with placeholder replaced with complete persona JSON
     """
     placeholders = extract_persona_placeholders(template)
     if not placeholders:
         return template
 
     if persona is None:
-        fallback = "User persona not available."
+        fallback = "User persona not available yet (needs at least 3 completed conversations)."
         for token, _ in placeholders:
             template = template.replace(token, fallback)
         return template
 
-    for token, requested_keys in placeholders:
-        snippet = render_persona_snippet(persona, requested_keys if requested_keys else None)
-        template = template.replace(token, snippet)
+    # Format: Simple header + complete JSON dump
+    formatted = "=== USER PERSONA ===\n"
+    formatted += "Aggregated learning profile based on all previous conversations with this student.\n"
+    formatted += "Use this to personalize your teaching approach and build on what works.\n\n"
+    formatted += json.dumps(persona, indent=2)
+    
+    for token, _ in placeholders:
+        template = template.replace(token, formatted)
 
     return template
+
+
+def inject_previous_memories_placeholder(
+    template: str, 
+    memories: Optional[List[Dict[str, Any]]]
+) -> str:
+    """
+    Replace {{PREVIOUS_CONVERSATIONS_MEMORY}} with the complete raw memory JSON data.
+    
+    This provides the LLM with full access to all memory fields:
+    - curiosity_boosters: What techniques worked/didn't work
+    - invitation_to_come_back: How the conversation ended
+    - knowledge_journey: What topics were explored
+    - kid_learning_profile: How the kid learns best
+    
+    Args:
+        template: The prompt template with placeholders
+        memories: List of memory data dictionaries from previous conversations
+    
+    Returns:
+        Template with placeholder replaced with complete memory JSON
+    """
+    if not PREVIOUS_MEMORY_PLACEHOLDER_REGEX.search(template):
+        return template
+    
+    if not memories or len(memories) == 0:
+        fallback = "No previous conversation memories available."
+        return template.replace(
+            "{{PREVIOUS_CONVERSATIONS_MEMORY}}", 
+            fallback
+        )
+    
+    # Format: Simple note + complete JSON dump of all memories
+    formatted = "=== PREVIOUS CONVERSATION MEMORIES ===\n"
+    formatted += "Below are complete memory analyses from previous conversations with this student.\n"
+    formatted += "Use this data to build continuity, reference past topics, and adapt to their learning style.\n\n"
+    
+    for idx, memory in enumerate(memories, 1):
+        formatted += f"--- Conversation {idx} ---\n"
+        formatted += json.dumps(memory, indent=2)
+        formatted += "\n\n"
+    
+    return template.replace(
+        "{{PREVIOUS_CONVERSATIONS_MEMORY}}", 
+        formatted.strip()
+    )
 
 

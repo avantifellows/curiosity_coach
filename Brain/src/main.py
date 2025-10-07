@@ -23,7 +23,7 @@ from src.utils.logger import logger
 from src.config_models import FlowConfig
 from src.services.llm_service import LLMService
 from src.services.api_service import api_service
-from src.schemas import ConversationMemoryData
+from src.schemas import ConversationMemoryData, OpeningMessageRequest
 from src.core.user_persona_generator import generate_persona_for_user
 from pydantic import ValidationError
 
@@ -251,6 +251,14 @@ async def dequeue(message: MessagePayload, background_tasks: Optional[Background
                         should_fetch_history = True
                         break
             
+            # Always fetch history in simplified mode to maintain conversation context
+            from src.process_query_entrypoint import FORCE_SIMPLIFIED_MODE
+            if flow_config_instance:
+                is_simplified_mode = FORCE_SIMPLIFIED_MODE or flow_config_instance.use_simplified_mode
+                if is_simplified_mode:
+                    should_fetch_history = True
+                    logger.info("Forcing conversation history fetch for simplified mode")
+            
             if should_fetch_history and message.conversation_id:
                 logger.info(f"Fetching conversation history for conversation_id: {message.conversation_id} via internal endpoint")
                 try:
@@ -305,7 +313,10 @@ async def dequeue(message: MessagePayload, background_tasks: Optional[Background
                     config=flow_config_instance,
                     conversation_history=conversation_history_str,
                     purpose=message.purpose,
-                    user_persona=user_persona
+                    user_persona=user_persona,
+                    conversation_memory=None,  # Can fetch if needed
+                    conversation_id=int(message.conversation_id) if message.conversation_id else None,
+                    user_id=int(message.user_id) if message.user_id else None
                 )
             else:
                 # This is a new query
@@ -326,7 +337,9 @@ async def dequeue(message: MessagePayload, background_tasks: Optional[Background
                     conversation_history=conversation_history_str,
                     purpose=message.purpose,
                     user_persona=user_persona,
-                    conversation_memory=conversation_memory
+                    conversation_memory=conversation_memory,
+                    conversation_id=int(message.conversation_id) if message.conversation_id else None,
+                    user_id=int(message.user_id) if message.user_id else None
                 )
 
             # Create a client for fetching the prompt version ID
@@ -344,7 +357,7 @@ async def dequeue(message: MessagePayload, background_tasks: Optional[Background
                         "needs_clarification": True,
                         "follow_up_questions": response_data.follow_up_questions,
                         "original_query": message.original_query if message.is_follow_up_response else user_input,
-                        "prompt_version_id": await get_prompt_version_id(client, backend_url, "simplified_conversation", message.purpose)
+                        # DON'T send prompt_version_id - conversation already has correct prompt assigned
                     }
                 else:
                     # Prepare and schedule the callback with the final response
@@ -355,7 +368,7 @@ async def dequeue(message: MessagePayload, background_tasks: Optional[Background
                         "llm_response": response_data.final_response,
                         "pipeline_data": response_data.model_dump(),
                         "needs_clarification": False,
-                        "prompt_version_id": await get_prompt_version_id(client, backend_url, "simplified_conversation", message.purpose)
+                        # DON'T send prompt_version_id - conversation already has correct prompt assigned
                     }
 
             # Schedule callback
@@ -427,6 +440,11 @@ async def get_prompt_version_id(client, backend_url, prompt_name, purpose="chat"
 
 class QueryRequest(BaseModel):
     query: str
+
+@app.get("/health")
+async def health_check():
+    """Simple health check endpoint"""
+    return {"status": "healthy", "service": "brain"}
 
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
@@ -589,6 +607,151 @@ async def set_config_values(config: FlowConfig):
         logger.error(f"Failed to save config to s3://{bucket_name}/{object_key}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"An unexpected error occurred while saving configuration: {e}")
 
+@app.post("/generate-opening-message")
+async def generate_opening_message(payload: OpeningMessageRequest):
+    """
+    Generate AI's first message for a new conversation.
+    Uses the conversation's assigned visit-based prompt (visit_1, visit_2, visit_3, or steady_state).
+    Idempotent: Returns existing message if already generated.
+    
+    Payload: {
+        "conversation_id": int,
+        "user_id": int,
+        "visit_number": int,
+        "callback_url": str
+    }
+    """
+    from src.utils.prompt_injection import inject_previous_memories_placeholder, inject_persona_placeholders
+    
+    logger.info(f"Opening message generation requested for conversation {payload.conversation_id}, visit {payload.visit_number}")
+    
+    # 0. Check if opening message already exists (idempotency)
+    existing_messages = await api_service.get_conversation_messages(payload.conversation_id)
+    if existing_messages and len(existing_messages) > 0:
+        logger.info(f"Opening message already exists for conversation {payload.conversation_id}")
+        return {
+            "status": "already_exists",
+            "message": existing_messages[0].get("content", "")
+        }
+    
+    try:
+        # 1. Fetch conversation's assigned prompt (visit-based prompt with opening message instructions)
+        prompt_response = await api_service.get_conversation_prompt(payload.conversation_id)
+        if not prompt_response:
+            raise HTTPException(status_code=404, detail="Conversation prompt not found")
+        
+        prompt_template = prompt_response["prompt_text"]  # Save original template
+        logger.info(f"Fetched prompt for conversation {payload.conversation_id}, version {prompt_response.get('version_number')}")
+        
+        # 2. Fetch previous memories if visit > 1
+        previous_memories = None
+        if payload.visit_number > 1:
+            previous_memories = await api_service.get_previous_memories(
+                payload.user_id, 
+                payload.conversation_id
+            )
+            logger.info(f"Fetched {len(previous_memories)} previous memories for user {payload.user_id}")
+        
+        # 3. Fetch persona if visit >= 4
+        persona = None
+        if payload.visit_number >= 4:
+            persona = await api_service.get_user_persona(payload.user_id)
+            if persona:
+                logger.info(f"Fetched persona for user {payload.user_id}")
+        
+        # 4. Inject placeholders into prompt (create formatted version)
+        formatted_prompt = inject_previous_memories_placeholder(prompt_template, previous_memories)
+        formatted_prompt = inject_persona_placeholders(formatted_prompt, persona)
+        
+        # Replace CONVERSATION_HISTORY and QUERY placeholders (for opening message, both are empty/not applicable)
+        formatted_prompt = formatted_prompt.replace("{{CONVERSATION_HISTORY}}", "No previous conversation.")
+        formatted_prompt = formatted_prompt.replace("{{QUERY}}", "")
+        
+        # 5. Generate opening message with LLM
+        # The visit-based prompt is designed to produce a welcoming opening message
+        # that uses persona/memory context if available
+        llm_service = LLMService()
+        
+        # Use the formatted prompt (with all placeholders injected)
+        llm_response = llm_service.generate_response(
+            final_prompt=formatted_prompt,
+            call_type="opening_message",  # Use opening_message configuration
+            json_mode=False
+        )
+        opening_message = llm_response.get("raw_response", "")
+        
+        if not opening_message:
+            raise HTTPException(status_code=500, detail="LLM failed to generate opening message")
+        
+        logger.info(f"Generated opening message for conversation {payload.conversation_id} (length: {len(opening_message)})")
+        
+        # 6. Send callback to backend with AI message and pipeline data
+        # Format pipeline data with steps array to match frontend expectations
+        callback_payload = {
+            "conversation_id": payload.conversation_id,
+            "ai_message": opening_message,
+            "is_opening_message": True,
+            "pipeline_data": {
+                "steps": [
+                    {
+                        "name": "Opening Message Generation",
+                        "enabled": True,
+                        "prompt_template": prompt_template,  # Original template with placeholders
+                        "formatted_prompt": formatted_prompt,  # Formatted prompt sent to LLM
+                        "prompt": formatted_prompt,  # Keep for backwards compatibility
+                        "raw_result": opening_message,  # The generated opening message
+                        "result": opening_message,
+                        "prompt_name": f"visit_{payload.visit_number}" if payload.visit_number <= 3 else "steady_state",
+                        "prompt_version": prompt_response.get("version_number"),
+                        "prompt_id": prompt_response.get("prompt_id"),
+                        "visit_number": payload.visit_number,
+                        "had_previous_memories": previous_memories is not None and len(previous_memories) > 0,
+                        "previous_memories_count": len(previous_memories) if previous_memories else 0,
+                        "had_persona": persona is not None,
+                        "llm_model": llm_response.get("model_used", "unknown"),
+                        "opening_message_generation": True
+                    }
+                ]
+            }
+        }
+        
+        try:
+            logger.info(f"Sending opening message callback to {payload.callback_url}", extra={
+                "conversation_id": payload.conversation_id,
+                "has_pipeline_data": "pipeline_data" in callback_payload,
+                "steps_count": len(callback_payload.get("pipeline_data", {}).get("steps", []))
+            })
+            
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    payload.callback_url,
+                    json=callback_payload,
+                    timeout=30.0
+                )
+                response.raise_for_status()
+                logger.info(f"Successfully sent opening message callback for conversation {payload.conversation_id}", extra={
+                    "response_status": response.status_code,
+                    "message_id": response.json().get("message_id")
+                })
+        except Exception as callback_error:
+            logger.error(f"Error sending callback for opening message: {callback_error}", extra={
+                "conversation_id": payload.conversation_id,
+                "callback_url": payload.callback_url
+            })
+            raise HTTPException(status_code=500, detail=f"Failed to send callback: {callback_error}")
+        
+        return {
+            "status": "success", 
+            "message": opening_message,
+            "pipeline_data": callback_payload["pipeline_data"]
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error generating opening message: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Internal error: {str(e)}")
+
 @app.post("/query")
 async def handle_query(message: MessagePayload, background_tasks: BackgroundTasks):
     # The /query endpoint now directly accepts the full message payload
@@ -750,4 +913,4 @@ async def handle_batch_tasks(task_request: BatchTaskRequest, background_tasks: B
 if __name__ == '__main__':
     # Use uvicorn to run the app
     # reload=True enables auto-reloading for development
-    uvicorn.run("src.main:app", host="127.0.0.1", port=int(os.getenv("PORT", "8001")), reload=True) 
+    uvicorn.run("src.main:app", host="127.0.0.1", port=int(os.getenv("PORT", "5001")), reload=True) 

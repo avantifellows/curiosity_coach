@@ -171,7 +171,7 @@ def _get_default_prompt_name(step_name: str) -> str:
         logger.warning(f"Unknown step name: {step_name}, returning the step name as prompt name")
         return step_name
 
-async def generate_simplified_response(query: str, conversation_history: Optional[str] = None, user_persona: Optional[Dict[str, Any]] = None, purpose: str = "chat", conversation_memory: Optional[Dict[str, Any]] = None) -> Tuple[str, str, Dict[str, Any]]:
+async def generate_simplified_response(query: str, conversation_history: Optional[str] = None, user_persona: Optional[Dict[str, Any]] = None, purpose: str = "chat", conversation_memory: Optional[Dict[str, Any]] = None, conversation_id: Optional[int] = None, user_id: Optional[int] = None) -> Tuple[str, str, str, Dict[str, Any], str, Optional[int]]:
     """
     Generate a simplified response using a single prompt approach.
     
@@ -180,26 +180,77 @@ async def generate_simplified_response(query: str, conversation_history: Optiona
         conversation_history (Optional[str]): Previous conversation history if available
         user_persona (Optional[Dict[str, Any]]): The user's persona data
         purpose (str): The purpose of the query
+        conversation_memory (Optional[Dict[str, Any]]): The conversation memory data
+        conversation_id (Optional[int]): The conversation ID to fetch assigned prompt
+        user_id (Optional[int]): The user ID for fetching previous memories
         
     Returns:
-        Tuple[str, str, Dict[str, Any]]: The response, the prompt used, and the full structured response data
+        Tuple[str, str, str, Dict[str, Any], str, Optional[int]]: The response, the prompt template (with placeholders), the formatted prompt (sent to LLM), the full structured response data, the prompt name used, and the prompt version number
     """
-    logger.info(f"Generating simplified response for query: {query} (purpose: {purpose})")
+    logger.info(f"Generating simplified response for query: {query} (purpose: {purpose}, conversation_id: {conversation_id})")
     
     # Define prompt file path
     prompt_file_path = os.path.join(os.path.dirname(__file__), "prompts", "simplified_conversation_prompt.txt")
     
+    # Track which prompt we're using
+    prompt_name_used = "simplified_conversation"
+    prompt_version_used = None
+    
     try:
-        # Get prompt template - try from backend first, then fallback to local file
-        prompt_template = await _get_prompt_template(prompt_file_path, "simplified_conversation", purpose)
+        # Try to fetch conversation's assigned prompt first (for visit-based prompts)
+        prompt_template = None
+        if conversation_id:
+            try:
+                from src.services.api_service import api_service as brain_api_service
+                logger.info(f"🔍 BRAIN: Fetching assigned prompt for conversation_id={conversation_id}")
+                prompt_response = await brain_api_service.get_conversation_prompt(conversation_id)
+                logger.info(f"📦 BRAIN: Received prompt_response: {prompt_response if prompt_response else 'None'}")
+                if prompt_response and "prompt_text" in prompt_response:
+                    prompt_template = prompt_response["prompt_text"]
+                    prompt_version_used = prompt_response.get("version_number")
+                    # Use prompt_purpose if available (visit_1, visit_2, visit_3, steady_state)
+                    prompt_purpose = prompt_response.get("prompt_purpose")
+                    if prompt_purpose:
+                        prompt_name_used = prompt_purpose
+                    else:
+                        # Fallback to generic name if purpose not available
+                        prompt_name_used = f"conversation_prompt_v{prompt_version_used}"
+                    logger.info(f"✅ BRAIN: Using conversation's assigned prompt - purpose={prompt_purpose}, version={prompt_version_used}, name={prompt_name_used}, template_length={len(prompt_template)}")
+                else:
+                    logger.warning(f"⚠️ BRAIN: prompt_response missing prompt_text field!")
+            except Exception as e:
+                logger.error(f"❌ BRAIN: Could not fetch conversation's assigned prompt: {e}. Will use default.", exc_info=True)
+        else:
+            logger.warning(f"⚠️ BRAIN: No conversation_id provided, cannot fetch visit-based prompt")
+        
+        # Fallback to default "simplified_conversation" prompt if needed
+        if not prompt_template:
+            logger.warning(f"🔄 BRAIN: FALLING BACK to default simplified_conversation prompt (this should NOT happen for visit-based conversations!)")
+            prompt_template = await _get_prompt_template(prompt_file_path, "simplified_conversation", purpose)
+            logger.info(f"📝 BRAIN: Loaded fallback template, length={len(prompt_template)}")
         
         # Format the prompt with query and conversation history
+        logger.info(f"📝 BRAIN: Formatting prompt with query (length={len(query)}) and history (length={len(conversation_history) if conversation_history else 0})")
         formatted_prompt = prompt_template.replace("{{QUERY}}", query)
         
         if conversation_history:
             formatted_prompt = formatted_prompt.replace("{{CONVERSATION_HISTORY}}", conversation_history)
+            logger.info(f"✅ BRAIN: Injected conversation history into prompt")
         else:
             formatted_prompt = formatted_prompt.replace("{{CONVERSATION_HISTORY}}", "No previous conversation.")
+            logger.info(f"ℹ️ BRAIN: No conversation history - using placeholder")
+        
+        # Inject previous memories placeholder (for visit-based prompts)
+        if "{{PREVIOUS_CONVERSATIONS_MEMORY}}" in formatted_prompt:
+            from src.utils.prompt_injection import inject_previous_memories_placeholder
+            previous_memories = None
+            if user_id and conversation_id:
+                try:
+                    previous_memories = await brain_api_service.get_previous_memories(user_id, conversation_id)
+                    logger.info(f"Fetched {len(previous_memories)} previous memories for user {user_id}")
+                except Exception as e:
+                    logger.warning(f"Could not fetch previous memories: {e}")
+            formatted_prompt = inject_previous_memories_placeholder(formatted_prompt, previous_memories)
         
         # Inject persona placeholders (supports {{USER_PERSONA}} and key-specific variants)
         if "{{USER_PERSONA" in formatted_prompt:
@@ -246,12 +297,12 @@ async def generate_simplified_response(query: str, conversation_history: Optiona
                 # Get the normal response
                 formatted_response = response_data.get("response", "")
                 
-            return formatted_response, formatted_prompt, response_data
+            return formatted_response, prompt_template, formatted_prompt, response_data, prompt_name_used, prompt_version_used
             
         except json.JSONDecodeError:
             # Fallback in case response isn't valid JSON
             logger.error(f"Failed to parse JSON response: {response_text}")
-            return response_text, formatted_prompt, {"response": response_text, "needs_clarification": False}
+            return response_text, prompt_template, formatted_prompt, {"response": response_text, "needs_clarification": False}, prompt_name_used, prompt_version_used
             
     except Exception as e:
         logger.error(f"Error in generate_simplified_response: {str(e)}", exc_info=True)
@@ -341,7 +392,7 @@ async def _get_prompt_from_backend(prompt_name: str, purpose: str = "chat") -> O
         logger.warning(f"Error getting prompt version from backend: {e}")
         return None
 
-async def process_query(query: str, config: Optional[FlowConfig] = None, conversation_history: Optional[str] = None, user_persona: Optional[Dict[str, Any]] = None, purpose: str = "chat", conversation_memory: Optional[Dict[str, Any]] = None) -> ProcessQueryResponse:
+async def process_query(query: str, config: Optional[FlowConfig] = None, conversation_history: Optional[str] = None, user_persona: Optional[Dict[str, Any]] = None, purpose: str = "chat", conversation_memory: Optional[Dict[str, Any]] = None, conversation_id: Optional[int] = None, user_id: Optional[int] = None) -> ProcessQueryResponse:
     """
     Process a user query through the intent identification and response generation pipeline.
     
@@ -352,6 +403,9 @@ async def process_query(query: str, config: Optional[FlowConfig] = None, convers
         conversation_history (Optional[str]): The conversation history between the user and the system.
         user_persona (Optional[Dict[str, Any]]): The user's persona data.
         purpose (str): The purpose of the query
+        conversation_memory (Optional[Dict[str, Any]]): The conversation memory data.
+        conversation_id (Optional[int]): The conversation ID to fetch assigned prompt
+        user_id (Optional[int]): The user ID for fetching previous memories
         
     Returns:
         ProcessQueryResponse: A response object containing the final response and intermediate prompts/responses
@@ -385,7 +439,7 @@ async def process_query(query: str, config: Optional[FlowConfig] = None, convers
             logger.info("Using simplified conversation mode")
             
             # Generate simplified response
-            response, prompt, response_data = await generate_simplified_response(query, conversation_history, user_persona, purpose, conversation_memory)
+            response, prompt_template, formatted_prompt, response_data, prompt_name_used, prompt_version_used = await generate_simplified_response(query, conversation_history, user_persona, purpose, conversation_memory, conversation_id, user_id)
             
             # Check if we need clarification
             needs_clarification = response_data.get("needs_clarification", False)
@@ -396,14 +450,19 @@ async def process_query(query: str, config: Optional[FlowConfig] = None, convers
                 pipeline_data['follow_up_questions'] = response_data.get("follow_up_questions", [])
                 # No need for partial_understanding in simplified mode
             
-            # Update pipeline data
+            # Update pipeline data - always use 'simplified_conversation' as step name for schema validation
+            # Track the actual prompt used separately for debugging/tracking
             simplified_step_data = {
-                'name': STEP_SIMPLIFIED_CONVERSATION,
+                'name': 'simplified_conversation',  # Must match schema expectations
                 'enabled': True,
-                'prompt': prompt,
+                'prompt_template': prompt_template,  # Original template with placeholders
+                'formatted_prompt': formatted_prompt,  # What actually went to the LLM
+                'prompt': formatted_prompt,  # Keep for backwards compatibility
                 'result': response,
                 'response_data': response_data,
-                'needs_clarification': needs_clarification
+                'needs_clarification': needs_clarification,
+                'prompt_name': prompt_name_used,  # Track actual prompt purpose (visit_1, visit_2, etc.)
+                'prompt_version': prompt_version_used  # Include version for debugging
             }
             pipeline_data['steps'].append(simplified_step_data)
             pipeline_data['final_response'] = response
@@ -595,7 +654,10 @@ async def process_follow_up(
     config: Optional[FlowConfig] = None,
     conversation_history: Optional[str] = None,
     user_persona: Optional[Dict[str, Any]] = None,
-    purpose: str = "chat"
+    purpose: str = "chat",
+    conversation_memory: Optional[Dict[str, Any]] = None,
+    conversation_id: Optional[int] = None,
+    user_id: Optional[int] = None
 ) -> ProcessQueryResponse:
     """
     Process a follow-up response from the student to determine intent and generate a final response.
@@ -608,6 +670,9 @@ async def process_follow_up(
         conversation_history (Optional[str]): Previous conversation history
         user_persona (Optional[Dict[str, Any]]): The user's persona data.
         purpose (str): The purpose of the query
+        conversation_memory (Optional[Dict[str, Any]]): The conversation memory data.
+        conversation_id (Optional[int]): The conversation ID to fetch assigned prompt
+        user_id (Optional[int]): The user ID for fetching previous memories
         
     Returns:
         ProcessQueryResponse: A response object containing the final response and pipeline data
@@ -646,7 +711,7 @@ async def process_follow_up(
                 enhanced_conversation_history = f"User: {original_query}\nAI: {', '.join(follow_up_questions)}\nUser: {student_response}"
             
             # Generate simplified response
-            response, prompt, response_data = await generate_simplified_response(student_response, enhanced_conversation_history, user_persona, purpose)
+            response, prompt_template, formatted_prompt, response_data, prompt_name_used, prompt_version_used = await generate_simplified_response(student_response, enhanced_conversation_history, user_persona, purpose, conversation_memory, conversation_id, user_id)
             
             # Check if we need clarification (again)
             needs_clarification = response_data.get("needs_clarification", False)
@@ -656,14 +721,19 @@ async def process_follow_up(
                 pipeline_data['needs_clarification'] = True
                 pipeline_data['follow_up_questions'] = response_data.get("follow_up_questions", [])
             
-            # Update pipeline data
+            # Update pipeline data - always use 'simplified_conversation' as step name for schema validation
+            # Track the actual prompt used separately for debugging/tracking
             simplified_step_data = {
-                'name': STEP_SIMPLIFIED_CONVERSATION,
+                'name': 'simplified_conversation',  # Must match schema expectations
                 'enabled': True,
-                'prompt': prompt,
+                'prompt_template': prompt_template,  # Original template with placeholders
+                'formatted_prompt': formatted_prompt,  # What actually went to the LLM
+                'prompt': formatted_prompt,  # Keep for backwards compatibility
                 'result': response,
                 'response_data': response_data,
-                'needs_clarification': needs_clarification
+                'needs_clarification': needs_clarification,
+                'prompt_name': prompt_name_used,  # Track actual prompt purpose (visit_1, visit_2, etc.)
+                'prompt_version': prompt_version_used  # Include version for debugging
             }
             pipeline_data['steps'].append(simplified_step_data)
             pipeline_data['final_response'] = response

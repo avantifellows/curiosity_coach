@@ -16,6 +16,7 @@ class ConversationCreate(ConversationBase):
 class Conversation(ConversationBase):
     id: int
     user_id: int
+    visit_number: Optional[int] = None
     created_at: datetime
     updated_at: datetime
 
@@ -26,6 +27,7 @@ class Conversation(ConversationBase):
 class ConversationSummary(BaseModel):
     id: int
     title: Optional[str]
+    visit_number: Optional[int] = None
     updated_at: datetime
 
     class Config:

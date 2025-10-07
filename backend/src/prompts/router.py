@@ -4,7 +4,7 @@ from typing import List, Optional
 
 from src.database import get_db
 from src.auth.dependencies import get_current_user
-from src.models import User
+from src.models import User, PromptVersion
 from . import schemas, service
 
 router = APIRouter(
@@ -45,6 +45,27 @@ def list_prompts(
         active_version_text = p.active_prompt_version.prompt_text if p.active_prompt_version else None
         results.append(schemas.PromptSimple(
             id=p.id, name=p.name, description=p.description, 
+            prompt_purpose=p.prompt_purpose,
+            created_at=p.created_at, updated_at=p.updated_at,
+            active_version_number=active_version_number,
+            active_version_text=active_version_text
+        ))
+    return results
+
+@router.get("/prompts/by-purpose/{purpose}", response_model=List[schemas.PromptSimple])
+def get_prompts_by_purpose(
+    purpose: str,
+    db: Session = Depends(get_db)
+):
+    """Get all prompts with a specific purpose (visit_1, visit_2, visit_3, steady_state, general)."""
+    prompts = service.prompt_service.get_prompts_by_purpose(db=db, purpose=purpose)
+    results = []
+    for p in prompts:
+        active_version_number = p.active_prompt_version.version_number if p.active_prompt_version else None
+        active_version_text = p.active_prompt_version.prompt_text if p.active_prompt_version else None
+        results.append(schemas.PromptSimple(
+            id=p.id, name=p.name, description=p.description,
+            prompt_purpose=p.prompt_purpose,
             created_at=p.created_at, updated_at=p.updated_at,
             active_version_number=active_version_number,
             active_version_text=active_version_text
@@ -253,6 +274,9 @@ def list_prompt_versions(
     if db_prompt is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Prompt '{prompt_id_or_name}' not found")
     
-    # Return user-specific versions (user's own + global versions)
-    versions = service.prompt_service.get_prompt_versions_for_user(db, db_prompt.id, current_user.id)
+    # Return ALL versions for the prompt (no user filtering)
+    # This allows all users to see and manage all prompt versions
+    versions = db.query(PromptVersion).filter(
+        PromptVersion.prompt_id == db_prompt.id
+    ).order_by(PromptVersion.version_number.desc()).all()
     return versions 

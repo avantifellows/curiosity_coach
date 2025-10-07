@@ -63,6 +63,25 @@ class Conversation(Base):
     messages = relationship("Message", back_populates="conversation", cascade="all, delete-orphan", order_by="Message.timestamp")
     prompt_version = relationship("PromptVersion")
     memory = relationship("ConversationMemory", back_populates="conversation", uselist=False, cascade="all, delete-orphan")
+    visit = relationship("ConversationVisit", back_populates="conversation", uselist=False, cascade="all, delete-orphan")
+
+class ConversationVisit(Base):
+    __tablename__ = "conversation_visits"
+
+    id = Column(Integer, primary_key=True, index=True)
+    conversation_id = Column(Integer, ForeignKey("conversations.id", ondelete="CASCADE"), unique=True, nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    visit_number = Column(Integer, nullable=False, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    conversation = relationship("Conversation", back_populates="visit")
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "visit_number", name="uq_user_visit"),
+    )
+
+    def __repr__(self):
+        return f"<ConversationVisit(id={self.id}, user_id={self.user_id}, visit_number={self.visit_number})>"
 
 class ConversationMemory(Base):
     __tablename__ = "conversation_memories"
@@ -107,6 +126,7 @@ class Prompt(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, unique=True, index=True, nullable=False)
     description = Column(Text, nullable=True)
+    prompt_purpose = Column(String(50), nullable=True, index=True)  # visit_1, visit_2, visit_3, steady_state, general
     
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
@@ -121,7 +141,7 @@ class Prompt(Base):
     )
 
     def __repr__(self):
-        return f"<Prompt(id={self.id}, name='{self.name}')>"
+        return f"<Prompt(id={self.id}, name='{self.name}', purpose='{self.prompt_purpose}')>"
 
 class PromptVersion(Base):
     __tablename__ = "prompt_versions"
@@ -152,20 +172,22 @@ class PromptVersion(Base):
 
 # --- CRUD Helper Functions ---
 
-def generate_unique_name(db: Session, base_name: str) -> str:
-    """Generate a unique name by appending 3 random digits to the base name."""
-    base_name = base_name.strip().title()  # "surya" -> "Surya"
-    
-    # Try 5 times to find a unique name
-    for _ in range(5):
-        suffix = random.randint(100, 999)  # 3 digits: 100-999
-        candidate_name = f"{base_name}{suffix}"
-        if not db.query(User).filter(User.name == candidate_name).first():
-            return candidate_name
-    
-    # Fallback to timestamp if all attempts fail
-    timestamp = int(time.time()) % 1000
-    return f"{base_name}{timestamp}"
+# DEPRECATED: No longer using unique name suffixes
+# Names are now treated like phone numbers - consistent identifiers
+# def generate_unique_name(db: Session, base_name: str) -> str:
+#     """Generate a unique name by appending 3 random digits to the base name."""
+#     base_name = base_name.strip().title()  # "surya" -> "Surya"
+#     
+#     # Try 5 times to find a unique name
+#     for _ in range(5):
+#         suffix = random.randint(100, 999)  # 3 digits: 100-999
+#         candidate_name = f"{base_name}{suffix}"
+#         if not db.query(User).filter(User.name == candidate_name).first():
+#             return candidate_name
+#     
+#     # Fallback to timestamp if all attempts fail
+#     timestamp = int(time.time()) % 1000
+#     return f"{base_name}{timestamp}"
 
 def get_or_create_user_by_phone(db: Session, phone_number: str) -> User:
     """Get a user by phone number or create if not exists."""
@@ -205,10 +227,10 @@ def get_or_create_user_by_identifier(db: Session, identifier: str) -> tuple[User
         user = get_or_create_user_by_phone(db, identifier)
         return user, None
     else:
-        # Generate unique name for name-based login
-        unique_name = generate_unique_name(db, identifier)
-        user = get_or_create_user_by_name(db, unique_name)
-        return user, unique_name
+        # Use name directly without suffix (consistent like phone numbers)
+        normalized_name = identifier.strip().title()  # "surya" -> "Surya"
+        user = get_or_create_user_by_name(db, normalized_name)
+        return user, None  # No generated name, use original identifier
 
 # Keep old function for backward compatibility
 def get_or_create_user(db: Session, phone_number: str) -> User:
@@ -416,3 +438,142 @@ def save_message_pipeline_data(db: Session, message_id: int, pipeline_data_dict:
     db.commit()
     db.refresh(db_pipeline_data)
     return db_pipeline_data
+
+# --- Onboarding System Helper Functions ---
+
+def count_user_conversations(db: Session, user_id: int) -> int:
+    """Count the number of conversations for a user."""
+    return db.query(Conversation).filter(Conversation.user_id == user_id).count()
+
+def select_prompt_purpose_for_visit(visit_number: int) -> str:
+    """
+    Returns the prompt PURPOSE to query by based on visit number.
+    Visit 1 = 'visit_1', Visit 2 = 'visit_2', Visit 3 = 'visit_3', Visit 4+ = 'steady_state'
+    """
+    if visit_number == 1:
+        return "visit_1"
+    elif visit_number == 2:
+        return "visit_2"
+    elif visit_number == 3:
+        return "visit_3"
+    else:
+        return "steady_state"
+
+def get_production_prompt_by_purpose(db: Session, prompt_purpose: str) -> Optional['PromptVersion']:
+    """
+    Get production prompt version by purpose.
+    Falls back to simplified_conversation if purpose-specific prompt not found.
+    """
+    from src.models import Prompt, PromptVersion
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    prompt = db.query(Prompt).filter(Prompt.prompt_purpose == prompt_purpose).first()
+    
+    if not prompt:
+        logger.warning(f"No prompt found for purpose {prompt_purpose}, falling back to simplified_conversation")
+        prompt = db.query(Prompt).filter(Prompt.name == "simplified_conversation").first()
+        if not prompt:
+            logger.error("No valid prompt found (including fallback)")
+            return None
+    
+    # Get production version
+    production_version = db.query(PromptVersion).filter(
+        PromptVersion.prompt_id == prompt.id,
+        PromptVersion.is_production == True
+    ).first()
+    
+    if not production_version:
+        # Fallback to latest version if no production version set
+        production_version = db.query(PromptVersion).filter(
+            PromptVersion.prompt_id == prompt.id
+        ).order_by(PromptVersion.version_number.desc()).first()
+    
+    return production_version
+
+def has_messages(db: Session, conversation_id: int) -> bool:
+    """
+    Check if a conversation has any messages.
+    """
+    message_count = db.query(Message).filter(
+        Message.conversation_id == conversation_id
+    ).count()
+    return message_count > 0
+
+def record_conversation_visit(db: Session, conversation_id: int, user_id: int, visit_number: int) -> ConversationVisit:
+    """
+    Record visit number for a conversation.
+    Raises IntegrityError if (user_id, visit_number) already exists (race condition).
+    Note: Don't commit here - let caller handle transaction.
+    """
+    visit_record = ConversationVisit(
+        conversation_id=conversation_id,
+        user_id=user_id,
+        visit_number=visit_number
+    )
+    db.add(visit_record)
+    # Note: Caller should handle commit and IntegrityError for race conditions
+    return visit_record
+
+def get_conversation_visit(db: Session, conversation_id: int) -> Optional[ConversationVisit]:
+    """Get visit information for a conversation."""
+    return db.query(ConversationVisit).filter(
+        ConversationVisit.conversation_id == conversation_id
+    ).first()
+
+def get_user_conversations_list(db: Session, user_id: int) -> List[Conversation]:
+    """
+    Get all conversations for a user, ordered chronologically.
+    Used for memory generation across multiple conversations.
+    """
+    return db.query(Conversation).filter(
+        Conversation.user_id == user_id
+    ).order_by(Conversation.created_at.asc()).all()
+
+def get_conversation_with_visit(db: Session, conversation_id: int) -> Optional[dict]:
+    """
+    Get conversation with visit number included.
+    Returns a dictionary with conversation data and visit_number.
+    """
+    conversation = get_conversation(db, conversation_id)
+    if not conversation:
+        return None
+    
+    visit_record = db.query(ConversationVisit).filter(
+        ConversationVisit.conversation_id == conversation_id
+    ).first()
+    
+    # Convert to dict and add visit_number
+    conv_dict = {
+        "id": conversation.id,
+        "user_id": conversation.user_id,
+        "title": conversation.title,
+        "visit_number": visit_record.visit_number if visit_record else None,
+        "created_at": conversation.created_at,
+        "updated_at": conversation.updated_at
+    }
+    
+    return conv_dict
+
+def get_user_conversations_with_visits(db: Session, user_id: int, limit: int = 50, offset: int = 0) -> List[dict]:
+    """
+    Get conversations with visit numbers for a user.
+    Returns list of dictionaries with conversation data and visit_number.
+    """
+    conversations = list_user_conversations(db, user_id, limit, offset)
+    
+    result = []
+    for conv in conversations:
+        visit_record = db.query(ConversationVisit).filter(
+            ConversationVisit.conversation_id == conv.id
+        ).first()
+        
+        conv_dict = {
+            "id": conv.id,
+            "title": conv.title,
+            "visit_number": visit_record.visit_number if visit_record else None,
+            "updated_at": conv.updated_at
+        }
+        result.append(conv_dict)
+    
+    return result

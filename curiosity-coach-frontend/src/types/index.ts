@@ -44,6 +44,7 @@ export interface ConversationSummary {
   id: number;
   title: string | null; // Title can be optional or default
   updated_at: string; // ISO date string
+  visit_number?: number; // Visit number at creation time (1, 2, 3, 4+)
 }
 
 /**
@@ -52,6 +53,19 @@ export interface ConversationSummary {
 export interface Conversation extends ConversationSummary {
   user_id: number;
   created_at: string; // ISO date string
+  visit_number?: number; // Visit number at creation time
+  prompt_version_id?: number; // ID of the prompt version used
+}
+
+/**
+ * Response from creating a new conversation (with onboarding data)
+ */
+export interface ConversationCreateResponse {
+  conversation: Conversation;
+  visit_number: number;
+  ai_opening_message?: string;
+  preparation_status: 'ready' | 'generating_memory' | 'generating_persona';
+  requires_opening_message: boolean;
 }
 
 // --- End Conversation Types ---
@@ -65,6 +79,7 @@ export interface PromptVersion {
   version_number: number;
   prompt_text: string;
   is_active: boolean;
+  is_production: boolean;
   created_at: string;
 }
 
@@ -84,6 +99,7 @@ export interface PromptSimple {
   id: number;
   name: string;
   description: string;
+  prompt_purpose: string | null;
   created_at: string;
   updated_at: string;
   active_version_number: number | null;

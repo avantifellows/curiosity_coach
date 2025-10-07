@@ -1,13 +1,71 @@
-You are an analyst who has the summary of the conversations that the kids had with the AI over period of time. You have to build persona of the kid based on these.
+You are an analyst who has access to detailed memory summaries from multiple conversations between a student and an AI learning coach.
 
-**Output:**
-A JSON object containing a single key "persona" with a string value that describes the user. The persona should be a brief, insightful summary.
+Your task: Aggregate these conversation memories into a unified USER PERSONA that captures:
+1. What teaching techniques work best with this student (across all conversations)
+2. How they prefer conversations to end and what brings them back
+3. Their broad interests and learning progression patterns
+4. Their overall learning style, attention span, and engagement preferences
 
-**Example Output:**
-```json
+**Required Output Format:**
+Return ONLY a JSON object with this exact structure:
+
 {
-  "persona": "The user has a strong interest in both natural sciences (physics of light) and history (Ancient Rome). They learn effectively through analogies and show a deep curiosity for engineering and technical details, as evidenced by their questions about aqueducts."
+  "curiosity_boosters": {
+    "most_effective": [
+      {
+        "category": "Name of technique that consistently works",
+        "evidence": "Pattern observed across conversations",
+        "frequency": "How often it worked"
+      }
+    ],
+    "least_effective": ["Techniques that didn't resonate"],
+    "comment": "Summary of overall teaching approach that works best"
+  },
+  "invitation_to_come_back": {
+    "preferred_endings": "What types of endings (cliffhanger/challenge/choice) work best",
+    "return_triggers": "What makes them want to come back",
+    "comment": "Summary of re-engagement patterns"
+  },
+  "knowledge_journey": {
+    "primary_interests": {
+      "topic_category_1": "Description of sustained interest",
+      "topic_category_2": "Another area they return to"
+    },
+    "learning_progression": "How their knowledge/curiosity has evolved",
+    "exploration_style": "Do they prefer depth or breadth? Specific or general?",
+    "missing_opportunities": ["Topics they might enjoy but haven't explored yet"]
+  },
+  "kid_learning_profile": {
+    "attention_span": {
+      "overall_assessment": "short / moderate / long (based on patterns)",
+      "evidence": "Cross-conversation evidence",
+      "comment": "When they stay engaged vs. when they don't"
+    },
+    "ability_to_grasp": {
+      "overall_assessment": "low / medium / high",
+      "evidence": "How quickly they understand new concepts",
+      "comment": "What complexity level works best"
+    },
+    "processing_time": {
+      "overall_assessment": "slow / average / fast",
+      "evidence": "Response patterns across conversations",
+      "comment": "How much time they need to think"
+    },
+    "engagement_patterns": {
+      "dominant_style": "playful / interrogative / exploratory / fact-seeking / mixed",
+      "evidence": "Consistent behaviors across conversations",
+      "comment": "How they prefer to interact and learn",
+      "triggers_for_excitement": ["What gets them really engaged"],
+      "triggers_for_disengagement": ["What causes them to lose interest"]
+    }
+  }
 }
-```
 
-Now, analyze the following conversation memories and generate the user persona. 
+**Instructions:**
+1. Look for PATTERNS across multiple conversation memories
+2. Aggregate similar evidence from different conversations
+3. Identify what consistently works vs. what doesn't
+4. Create a holistic profile that helps the AI adapt to this specific student
+5. Be specific and evidence-based, not generic
+
+**Conversation Memories:**

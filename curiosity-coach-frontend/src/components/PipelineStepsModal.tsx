@@ -7,6 +7,8 @@ export interface PipelineStep {
   name: string;
   enabled: boolean;
   prompt?: string | null;
+  prompt_template?: string | null;  // Original template with placeholders
+  formatted_prompt?: string | null;  // What actually went to the LLM
   raw_result?: any; // Can be complex, so 'any' for now
   result?: string | null;
   main_topic?: string | null;
@@ -104,12 +106,11 @@ const PipelineStepsModal: React.FC<PipelineStepsModalProps> = ({
                     >
                       <div className="min-w-0 flex-1 pr-2">
                         <p className="text-base sm:text-lg font-bold text-gray-900 break-words">
-                          Step {idx + 1}: {step.name}
+                          Step {idx + 1}: {step.prompt_name || step.name}
                         </p>
-                        {step.prompt_name && (
+                        {step.prompt_name && step.prompt_version && (
                           <p className="text-sm text-gray-600 break-words">
-                            Prompt: {step.prompt_name} 
-                            {step.prompt_version ? ` (Version ${step.prompt_version})` : ''}
+                            Version {step.prompt_version}
                           </p>
                         )}
                       </div>
@@ -135,7 +136,23 @@ const PipelineStepsModal: React.FC<PipelineStepsModalProps> = ({
                             <strong className="text-gray-700">Related Topics:</strong> {step.related_topics.join(', ')}
                           </p>
                         )}
-                        {step.prompt && (
+                        {step.prompt_template && (
+                          <div>
+                            <p className="font-medium mt-1 text-sm sm:text-base">
+                              <strong className="text-gray-700">Prompt Template (with placeholders):</strong>
+                            </p>
+                            <pre className="bg-gray-200 p-2 sm:p-3 rounded text-xs sm:text-sm overflow-x-auto whitespace-pre-wrap border border-gray-300 max-w-full">{step.prompt_template}</pre>
+                          </div>
+                        )}
+                        {step.formatted_prompt && (
+                          <div>
+                            <p className="font-medium mt-1 text-sm sm:text-base">
+                              <strong className="text-green-700">Formatted Prompt (sent to AI model):</strong>
+                            </p>
+                            <pre className="bg-green-50 p-2 sm:p-3 rounded text-xs sm:text-sm overflow-x-auto whitespace-pre-wrap border border-green-300 max-w-full">{step.formatted_prompt}</pre>
+                          </div>
+                        )}
+                        {step.prompt && !step.formatted_prompt && (
                           <div>
                             <p className="font-medium mt-1 text-sm sm:text-base">
                               <strong className="text-gray-700">Prompt:</strong>

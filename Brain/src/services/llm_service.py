@@ -112,9 +112,9 @@ class LLMService:
                 print("call_config", call_config)
                 provider = call_config["provider"]
             else:
-                logger.debug("Using default provider and call type")
-                provider = self.default_provider
+                logger.debug("Using default call type: response_generation")
                 call_config = self.config["calls"]["response_generation"]
+                provider = call_config["provider"]  # ✅ Use provider from call_config, not default
                 print("call_config", call_config)
             
             logger.info(f"Making LLM call to {provider} with model {call_config['model']}")
