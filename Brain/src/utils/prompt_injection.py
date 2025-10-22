@@ -4,23 +4,6 @@ from typing import List, Tuple, Dict, Any, Optional
 from src.schemas import ConversationMemoryData, UserPersonaData
 
 
-def _get_allowed_memory_keys() -> List[str]:
-    try:
-        # Use Pydantic model fields to derive keys dynamically
-        return list(ConversationMemoryData.model_fields.keys())
-    except Exception:
-        # Safe fallback to current schema if import changes
-        return ["curiosity_boosters", "invitation_to_come_back", "knowledge_journey", "kid_learning_profile"]
-
-# Conversation memory placeholder regex
-# Examples (all valid):
-#   {{CONVERSATION_MEMORY}}
-#   {{CONVERSATION_MEMORY__curiosity_boosters}}
-#   {{CONVERSATION_MEMORY__knowledge_journey__initial_knowledge}}
-#   Prefix/suffix in templates:
-#     "Context: {{CONVERSATION_MEMORY}}" or "Context: {{CONVERSATION_MEMORY__curiosity_boosters}}"
-PLACEHOLDER_REGEX = re.compile(r"\{\{CONVERSATION_MEMORY(?:__([A-Za-z0-9_]+(?:__[A-Za-z0-9_]+)*))?\}\}")
-
 # Persona placeholder regex
 # Examples (all valid):
 #   {{USER_PERSONA}}
@@ -45,21 +28,6 @@ PREVIOUS_MEMORY_PLACEHOLDER_REGEX = re.compile(
 )
 
 
-def extract_memory_placeholders(template: str) -> List[Tuple[str, List[str]]]:
-    """
-    Returns list of (full_token, requested_keys[]) pairs. requested_keys is empty for full injection.
-    """
-    results: List[Tuple[str, List[str]]] = []
-    for match in PLACEHOLDER_REGEX.finditer(template):
-        full_token = match.group(0)
-        keys_blob = match.group(1)
-        if keys_blob:
-            # Split by '__' and validate simple tokens
-            requested_keys = [part for part in keys_blob.split("__") if part]
-        else:
-            requested_keys = []
-        results.append((full_token, requested_keys))
-    return results
 
 
 def _get_nested_value(data: Dict[str, Any], key_path: List[str]) -> Any:
@@ -119,72 +87,6 @@ def _format_value_for_prompt(value: Any) -> str:
     return str(value).replace('"', '\\"') if value != "" else "[Not available]"
 
 
-def render_memory_snippet(memory: Dict[str, Any], requested_keys: Optional[List[str]]) -> str:
-    """
-    Validates requested_keys against allowlist and renders a concise natural language snippet.
-    If requested_keys is None or empty, include all allowed keys in a stable order.
-    Invalid keys are omitted from rendering.
-    Missing valid keys are rendered as [Not available].
-
-    Supports nested key paths using double underscores:
-    - Single key: ['curiosity_boosters'] -> memory['curiosity_boosters']
-    - Nested key: ['curiosity_boosters__comment'] -> memory['curiosity_boosters']['comment']
-    """
-    keys_to_render: List[str]
-    if not requested_keys:
-        keys_to_render = _get_allowed_memory_keys()
-    else:
-        # For nested keys, validate only the first part (top-level key)
-        allowed = set(_get_allowed_memory_keys())
-        keys_to_render = []
-        for key in requested_keys:
-            # Split nested path and check if top-level key is allowed
-            key_parts = key.split('__') if '__' in key else [key]
-            if key_parts[0] in allowed:
-                keys_to_render.append(key)
-
-    parts: List[str] = []
-    for key in keys_to_render:
-        # Handle nested key paths
-        if '__' in key:
-            key_path = key.split('__')
-            value = _get_nested_value(memory, key_path)
-        else:
-            value = memory.get(key)
-
-        value_str = _format_value_for_prompt(value)
-        parts.append(f"`{key}` is \"{value_str}\"")
-
-    if not parts:
-        return "Conversation memory not available."
-
-    return (
-        "These are some details of the conversation till now. "
-        + ", ".join(parts)
-    )
-
-
-def inject_memory_placeholders(template: str, memory: Optional[Dict[str, Any]]) -> str:
-    """
-    Replaces memory placeholders with a rendered snippet. If memory is None and placeholders
-    exist, replaces them with a safe fallback message.
-    """
-    placeholders = extract_memory_placeholders(template)
-    if not placeholders:
-        return template
-
-    if memory is None:
-        fallback = "Conversation memory not available."
-        for token, _ in placeholders:
-            template = template.replace(token, fallback)
-        return template
-
-    # Replace each placeholder with appropriate rendering
-    for token, requested_keys in placeholders:
-        snippet = render_memory_snippet(memory, requested_keys if requested_keys else None)
-        template = template.replace(token, snippet)
-
-    return template
 
 
 def extract_persona_placeholders(template: str) -> List[Tuple[str, List[str]]]:
@@ -210,35 +112,33 @@ def render_persona_snippet(persona: Dict[str, Any], requested_keys: Optional[Lis
     If requested_keys is None or empty, include all allowed keys in stable order.
     Missing valid keys are rendered as [Not available].
 
-    Supports nested key paths using double underscores:
+    Supports nested key paths:
     - Single key: ['curiosity_boosters'] -> persona['curiosity_boosters']
-    - Nested key: ['kid_learning_profile__attention_span__overall_assessment']
+    - Nested key: ['kid_learning_profile', 'attention_span', 'overall_assessment']
                   -> persona['kid_learning_profile']['attention_span']['overall_assessment']
     """
-    keys_to_render: List[str]
     if not requested_keys:
+        # Full injection mode - render all allowed top-level keys
         keys_to_render = _get_allowed_persona_keys()
-    else:
-        # For nested keys, validate only the first part (top-level key)
-        allowed = set(_get_allowed_persona_keys())
-        keys_to_render = []
-        for key in requested_keys:
-            # Split nested path and check if top-level key is allowed
-            key_parts = key.split('__') if '__' in key else [key]
-            if key_parts[0] in allowed:
-                keys_to_render.append(key)
-
-    parts: List[str] = []
-    for key in keys_to_render:
-        # Handle nested key paths
-        if '__' in key:
-            key_path = key.split('__')
-            value = _get_nested_value(persona, key_path)
-        else:
+        parts: List[str] = []
+        for key in keys_to_render:
             value = persona.get(key)
+            value_str = _format_value_for_prompt(value)
+            parts.append(f"`{key}` is \"{value_str}\"")
+    else:
+        # Nested path mode - requested_keys is a single path like ['kid_learning_profile', 'attention_span']
+        # Validate that the first key is allowed
+        allowed = set(_get_allowed_persona_keys())
+        if requested_keys[0] not in allowed:
+            return "User persona not available."
 
+        # Get the nested value
+        value = _get_nested_value(persona, requested_keys)
         value_str = _format_value_for_prompt(value)
-        parts.append(f"`{key}` is \"{value_str}\"")
+
+        # Create a readable path for the label
+        path_label = '__'.join(requested_keys)
+        parts = [f"`{path_label}` is \"{value_str}\""]
 
     if not parts:
         return "User persona not available."
