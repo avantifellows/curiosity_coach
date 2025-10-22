@@ -241,7 +241,8 @@ async def generate_simplified_response(query: str, conversation_history: Optiona
             logger.info(f"ℹ️ BRAIN: No conversation history - using placeholder")
         
         # Inject previous memories placeholder (for visit-based prompts)
-        if "{{PREVIOUS_CONVERSATIONS_MEMORY}}" in formatted_prompt:
+        # Check for any variant of PREVIOUS_CONVERSATIONS_MEMORY placeholder (including nested keys)
+        if "{{PREVIOUS_CONVERSATIONS_MEMORY" in formatted_prompt:
             from src.utils.prompt_injection import inject_previous_memories_placeholder
             previous_memories = None
             if user_id and conversation_id:
