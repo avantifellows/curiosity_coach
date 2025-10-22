@@ -30,6 +30,7 @@ Output JSON format:
     "evidence": "Exact quote from chat if found, else empty",
     "comment": "Short explanation"
   }},
+  "full_chat": "the whole chat",
   "knowledge_journey": {{
     "initial_knowledge": {{
       "topic_1": "Kid's starting knowledge"
