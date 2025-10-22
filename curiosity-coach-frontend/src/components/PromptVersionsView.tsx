@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { CircularProgress, Chip, Dialog, DialogTitle, DialogContent, DialogActions, Button, TextField, MenuItem, Select, FormControl, InputLabel, FormHelperText } from '@mui/material';
 import {
   getPrompts,
@@ -11,6 +11,7 @@ import {
   updatePrompt
 } from '../services/api';
 import { PromptSimple, PromptVersion } from '../types';
+import { PlaceholderSelector } from './PlaceholderSelector';
 
 interface PromptFormData {
   name: string;
@@ -31,6 +32,7 @@ const PromptVersionsView: React.FC = () => {
   const [saving, setSaving] = useState<boolean>(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   
   // Create/Edit prompt dialog state
   const [showPromptDialog, setShowPromptDialog] = useState<boolean>(false);
@@ -317,6 +319,30 @@ const PromptVersionsView: React.FC = () => {
     }
   };
 
+  // Handle inserting placeholder at cursor position
+  const handlePlaceholderInsert = (placeholder: string) => {
+    const textarea = textareaRef.current;
+    if (!textarea) {
+      // Fallback: append to end
+      setEditedPromptText(prev => prev + ' ' + placeholder);
+      return;
+    }
+
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const text = editedPromptText;
+
+    // Insert placeholder at cursor position
+    const newText = text.substring(0, start) + placeholder + text.substring(end);
+    setEditedPromptText(newText);
+
+    // Set cursor position after inserted placeholder
+    setTimeout(() => {
+      textarea.focus();
+      textarea.selectionStart = textarea.selectionEnd = start + placeholder.length;
+    }, 0);
+  };
+
   return (
     <div className="p-2 sm:p-4 max-w-full">
       <div className="flex justify-between items-center mb-4">
@@ -462,12 +488,25 @@ const PromptVersionsView: React.FC = () => {
                 <div className="mb-4">
                   <label className="block text-gray-700 mb-2 font-medium text-sm sm:text-base">Prompt Text:</label>
                   <textarea
+                    ref={textareaRef}
                     className="border rounded py-2 px-3 w-full h-64 sm:h-80 resize-none font-mono text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                     value={editedPromptText}
                     onChange={(e) => setEditedPromptText(e.target.value)}
                     placeholder="Enter prompt text here..."
                     disabled={saving}
                   />
+                </div>
+
+                {/* Placeholder Selector */}
+                <div className="mb-4 border rounded p-4 bg-gray-50">
+                  <h4 className="text-sm font-semibold mb-3 text-gray-700">Insert Placeholder:</h4>
+                  <PlaceholderSelector
+                    onPlaceholderSelect={handlePlaceholderInsert}
+                    className="text-sm"
+                  />
+                  <p className="text-xs text-gray-500 mt-3">
+                    <strong>Tip:</strong> Position your cursor in the text area above where you want to insert the placeholder, then click "Use This Placeholder".
+                  </p>
                 </div>
                 
                 {/* Save error message */}
