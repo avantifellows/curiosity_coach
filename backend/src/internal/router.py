@@ -9,7 +9,7 @@ from src.user_personas.schemas import UserPersona as UserPersonaSchema
 from src.models import (
     UserPersona, Conversation, ConversationMemory, 
     Prompt, PromptVersion, get_conversation, save_message,
-    save_message_pipeline_data
+    save_message_pipeline_data, update_conversation_core_chat_theme
 )
 from src.onboarding.schemas import OpeningMessageCallbackPayload
 import logging
@@ -202,3 +202,43 @@ async def receive_opening_message(
     })
     
     return {"status": "success", "message_id": message.id}
+
+
+@router.put("/conversations/{conversation_id}/core-chat-theme")
+async def update_conversation_core_theme_internal(
+    conversation_id: int,
+    payload: dict,
+    db: Session = Depends(get_db)
+):
+    """
+    Internal endpoint to update conversation core theme.
+    Used by Brain service - no authentication required.
+    """
+    try:
+        core_theme = payload.get("core_chat_theme")
+        if not core_theme:
+            raise HTTPException(status_code=400, detail="core_chat_theme is required")
+        
+        # Get the conversation to find the user_id
+        conversation = get_conversation(db, conversation_id)
+        if not conversation:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+        
+        # Update conversation with extracted theme
+        updated_conversation = update_conversation_core_chat_theme(
+            db=db,
+            conversation_id=conversation_id,
+            new_core_chat_theme=core_theme,
+            user_id=conversation.user_id  # Use the conversation's user_id
+        )
+        
+        if updated_conversation:
+            logger.info(f"Successfully updated conversation {conversation_id} with core theme: '{core_theme}'")
+            return {"success": True, "message": "Core theme updated successfully"}
+        else:
+            logger.error(f"Failed to update conversation {conversation_id} with core theme")
+            raise HTTPException(status_code=404, detail="Conversation not found")
+            
+    except Exception as e:
+        logger.error(f"Error updating core theme for conversation {conversation_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Error updating core theme: {str(e)}")

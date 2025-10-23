@@ -14,6 +14,8 @@ from botocore.exceptions import NoCredentialsError, PartialCredentialsError, Cli
 from mangum import Mangum
 from pathlib import Path
 import asyncio
+from src.core.core_theme_extractor import extract_core_theme_from_conversation, update_conversation_theme
+from src.core.core_theme_config import CORE_THEME_EXTRACTION_ENABLED, CORE_THEME_TRIGGER_MESSAGE_COUNT, CORE_THEME_MAX_RETRIES, CORE_THEME_PROMPT_NAME
 
 from src.process_query_entrypoint import process_query, process_follow_up, ProcessQueryResponse
 from src.utils.logger import logger
@@ -342,6 +344,33 @@ async def dequeue(message: MessagePayload, background_tasks: Optional[Background
                     user_id=int(message.user_id) if message.user_id else None
                 )
 
+            # Extract core theme from conversation
+                if message.conversation_id and message.purpose in ["chat", "test-prompt"] and CORE_THEME_EXTRACTION_ENABLED:
+                    try:
+                        # Get conversation history to count user messages
+                        conversation_history = await api_service.get_conversation_history(int(message.conversation_id))
+                        if conversation_history:
+                            user_message_count = len([msg for msg in conversation_history if msg.get('is_user', False)])
+                            
+                            if user_message_count == CORE_THEME_TRIGGER_MESSAGE_COUNT:
+                                logger.info(f"{CORE_THEME_TRIGGER_MESSAGE_COUNT}th user message detected for conversation {message.conversation_id}. Triggering core theme extraction.")
+                                
+                                # Extract core theme
+                                core_theme = await extract_core_theme_from_conversation(int(message.conversation_id))
+                                
+                                if core_theme:
+                                    # Update conversation with extracted theme
+                                    success = await update_conversation_theme(int(message.conversation_id), core_theme)
+                                    if success:
+                                        logger.info(f"Successfully updated conversation {message.conversation_id} with core theme: '{core_theme}'")
+                                    else:
+                                        logger.error(f"Failed to update conversation {message.conversation_id} with core theme")
+                                else:
+                                    logger.warning(f"Core theme extraction failed for conversation {message.conversation_id}")
+                    except Exception as e:
+                        logger.error(f"Error in core theme extraction for conversation {message.conversation_id}: {e}", exc_info=True)
+                        # Don't fail the main message processing if theme extraction fails
+            
             # Create a client for fetching the prompt version ID
             backend_url = os.getenv("BACKEND_CALLBACK_BASE_URL", "http://localhost:5000")
             async with httpx.AsyncClient() as client:
