@@ -103,6 +103,8 @@ async def create_new_conversation(
     
     start_time = time.time()
     title = conversation_data.title if conversation_data else "New Chat"
+    core_chat_theme = conversation_data.core_chat_theme if conversation_data else None
+    print("core_chat_theme", core_chat_theme)
     preparation_status = "ready"
     ai_opening_message = None
     conversation = None
@@ -140,6 +142,7 @@ async def create_new_conversation(
             db=db,
             user_id=current_user.id,
             title=title,
+            core_chat_theme=core_chat_theme,
             prompt_version_id=prompt_version.id if prompt_version else None
         )
         
@@ -515,3 +518,64 @@ async def get_conversation_memory_endpoint(
         f"conversation_id: {conversation_id}"
     )
     return memory.memory_data 
+
+
+@router.put("/{conversation_id}/core-chat-theme", response_model=schemas.Conversation)
+async def update_conversation_core_chat_theme(
+    conversation_id: int,
+    payload: schemas.ConversationCoreChatThemeUpdate,  # You'd need to create this schema
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Update the core chat theme of a specific conversation for the authenticated user.
+    """
+    start_time = time.time()
+    
+    logger.info(
+        f"update_conversation_core_chat_theme called - "
+        f"user_id: {current_user.id}, conversation_id: {conversation_id}, "
+        f"new_core_chat_theme: '{payload.core_chat_theme}'"
+    )
+    
+    try:
+        logger.debug(f"Updating conversation core chat theme in database - conversation_id: {conversation_id}")
+        updated_conversation = models.update_conversation_core_chat_theme(
+            db=db,
+            conversation_id=conversation_id,
+            new_core_chat_theme=payload.core_chat_theme,
+            user_id=current_user.id
+        )
+        
+        if updated_conversation is None:
+            logger.warning(
+                f"Failed to update conversation core chat theme - conversation_id: {conversation_id}, "
+                f"user_id: {current_user.id}, core_chat_theme: '{payload.core_chat_theme}'"
+            )
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found")
+        
+        processing_time = time.time() - start_time
+        logger.info(
+            f"update_conversation_core_chat_theme completed successfully - "
+            f"conversation_id: {conversation_id}, new_core_chat_theme: '{payload.core_chat_theme}', "
+            f"processing_time: {processing_time:.3f}s"
+        )   
+        return updated_conversation
+    except HTTPException as he:
+        processing_time = time.time() - start_time
+        logger.warning(
+            f"update_conversation_core_chat_theme HTTP error - "
+            f"conversation_id: {conversation_id}, user_id: {current_user.id}, "
+            f"status_code: {he.status_code}, detail: {he.detail}, "
+            f"processing_time: {processing_time:.3f}s"
+        )
+        raise he
+    except Exception as e:
+        processing_time = time.time() - start_time
+        logger.error(
+            f"update_conversation_core_chat_theme unexpected error - "
+            f"conversation_id: {conversation_id}, user_id: {current_user.id}, "
+            f"error: {str(e)}, "
+            f"processing_time: {processing_time:.3f}s"
+        )
+        raise HTTPException(status_code=500, detail=f"Error updating conversation core chat theme: {str(e)}")

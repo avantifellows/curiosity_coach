@@ -1,6 +1,12 @@
 {
     "default_provider": "groq",
     "calls": {
+        "core_theme_extraction": {
+            "provider": "openai",
+            "model": "gpt-4o-mini",
+            "temperature": 0.5,
+            "max_tokens": 4096
+        },
         "intent_identification": {
             "provider": "groq",
             "model": "llama-3.3-70b-versatile",

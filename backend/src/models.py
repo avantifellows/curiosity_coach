@@ -56,6 +56,7 @@ class Conversation(Base):
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     title = Column(String, nullable=True, default="New Chat")
     prompt_version_id = Column(Integer, ForeignKey("prompt_versions.id", ondelete="SET NULL"), nullable=True)
+    core_chat_theme = Column(String, nullable=True, default=None)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
@@ -237,9 +238,9 @@ def get_or_create_user(db: Session, phone_number: str) -> User:
     """Get a user by phone number or create if not exists. (Backward compatibility)"""
     return get_or_create_user_by_phone(db, phone_number)
 
-def create_conversation(db: Session, user_id: int, title: Optional[str] = "New Chat", prompt_version_id: Optional[int] = None) -> Conversation:
+def create_conversation(db: Session, user_id: int, title: Optional[str] = "New Chat", prompt_version_id: Optional[int] = None, core_chat_theme: Optional[str] = None) -> Conversation:
     """Creates a new conversation for a user."""
-    conversation = Conversation(user_id=user_id, title=title, prompt_version_id=prompt_version_id)
+    conversation = Conversation(user_id=user_id, title=title, prompt_version_id=prompt_version_id, core_chat_theme=core_chat_theme)
     db.add(conversation)
     db.commit()
     db.refresh(conversation)
@@ -550,7 +551,8 @@ def get_conversation_with_visit(db: Session, conversation_id: int) -> Optional[d
         "title": conversation.title,
         "visit_number": visit_record.visit_number if visit_record else None,
         "created_at": conversation.created_at,
-        "updated_at": conversation.updated_at
+        "updated_at": conversation.updated_at,
+        "core_chat_theme": conversation.core_chat_theme
     }
     
     return conv_dict
@@ -572,8 +574,27 @@ def get_user_conversations_with_visits(db: Session, user_id: int, limit: int = 5
             "id": conv.id,
             "title": conv.title,
             "visit_number": visit_record.visit_number if visit_record else None,
-            "updated_at": conv.updated_at
+            "updated_at": conv.updated_at,
+            "core_chat_theme": conv.core_chat_theme
         }
         result.append(conv_dict)
     
     return result
+
+
+def update_conversation_core_chat_theme(db: Session, conversation_id: int, new_core_chat_theme: Optional[str], user_id: int) -> Optional[Conversation]:
+    """Updates the core_chat_theme of a specific conversation for a user."""
+    conversation = db.query(Conversation).filter(Conversation.id == conversation_id).first()
+
+    if not conversation:
+        return None # Conversation not found
+
+    if conversation.user_id != user_id:
+        return None # Not authorized to update this conversation
+
+    conversation.core_chat_theme = new_core_chat_theme
+    # conversation.updated_at = func.now() # This is handled by onupdate=func.now() in the model
+    db.add(conversation)
+    db.commit()
+    db.refresh(conversation)
+    return conversation
