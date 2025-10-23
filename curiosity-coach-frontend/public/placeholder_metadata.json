@@ -196,6 +196,10 @@
               }
             }
           }
+        },
+        "topics_to_chat_for_wow_experience": {
+          "type": "string",
+          "path": "topics_to_chat_for_wow_experience"
         }
       }
     },
@@ -394,6 +398,11 @@
         "path": "kid_learning_profile__engagement_patterns__comment",
         "type": "string",
         "label": "kid_learning_profile \u2192 engagement_patterns \u2192 comment"
+      },
+      {
+        "path": "topics_to_chat_for_wow_experience",
+        "type": "string",
+        "label": "topics_to_chat_for_wow_experience"
       }
     ]
   },
@@ -674,6 +683,10 @@
               }
             }
           }
+        },
+        "topics_to_chat_for_wow_experience": {
+          "type": "string",
+          "path": "topics_to_chat_for_wow_experience"
         }
       }
     },
@@ -872,6 +885,11 @@
         "path": "kid_learning_profile__engagement_patterns__comment",
         "type": "string",
         "label": "kid_learning_profile \u2192 engagement_patterns \u2192 comment"
+      },
+      {
+        "path": "topics_to_chat_for_wow_experience",
+        "type": "string",
+        "label": "topics_to_chat_for_wow_experience"
       }
     ],
     "is_array": true,
