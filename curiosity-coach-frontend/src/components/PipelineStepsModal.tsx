@@ -15,7 +15,11 @@ export interface PipelineStep {
   related_topics?: string[];
   prompt_name?: string | null;
   prompt_version?: number | null;
-  // Add other potential fields from your pipeline steps here
+  // Add chat controller specific fields
+  original_response?: string | null;
+  controlled_response?: string | null;
+  core_theme?: string | null;
+  chat_controller_applied?: boolean;
 }
 
 interface PipelineStepsModalProps {
@@ -136,6 +140,35 @@ const PipelineStepsModal: React.FC<PipelineStepsModalProps> = ({
                             <strong className="text-gray-700">Related Topics:</strong> {step.related_topics.join(', ')}
                           </p>
                         )}
+                        
+                        {/* Chat Controller Handling */}
+                        {step.name === 'chat_controller' && step.chat_controller_applied && (
+                          <div className="space-y-3">
+                            <div className="bg-blue-50 p-3 rounded border-l-4 border-blue-400">
+                              <p className="font-medium text-blue-800">Chat Controller Applied</p>
+                              <p className="text-sm text-blue-600">Core Theme: {step.core_theme}</p>
+                            </div>
+                            
+                            {step.original_response && (
+                              <div>
+                                <p className="font-medium mt-1 text-sm sm:text-base">
+                                  <strong className="text-gray-700">Original Response:</strong>
+                                </p>
+                                <pre className="bg-gray-100 p-2 sm:p-3 rounded text-xs sm:text-sm overflow-x-auto whitespace-pre-wrap border border-gray-300 max-w-full">{step.original_response}</pre>
+                              </div>
+                            )}
+                            
+                            {step.controlled_response && (
+                              <div>
+                                <p className="font-medium mt-1 text-sm sm:text-base">
+                                  <strong className="text-gray-700">Controlled Response:</strong>
+                                </p>
+                                <pre className="bg-green-100 p-2 sm:p-3 rounded text-xs sm:text-sm overflow-x-auto whitespace-pre-wrap border border-green-300 max-w-full">{step.controlled_response}</pre>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                        
                         {step.prompt_template && (
                           <div>
                             <p className="font-medium mt-1 text-sm sm:text-base">
@@ -194,4 +227,4 @@ const PipelineStepsModal: React.FC<PipelineStepsModalProps> = ({
   );
 };
 
-export default PipelineStepsModal; 
+export default PipelineStepsModal;

@@ -91,7 +91,7 @@ class ProcessQueryResponse(BaseModel):
     follow_up_questions: Optional[List[str]] = Field(None, description="List of follow-up questions if clarification is needed")
     needs_clarification: bool = Field(False, description="Whether clarification is needed from the user")
     partial_understanding: Optional[str] = Field(None, description="Partial understanding of the query when clarification is needed")
-
+    pipeline_data: Optional[Dict[str, Any]] = Field(None, description="Additional pipeline metadata and processing information")
 # --- Conversation Memory Schemas ---
 
 class BoosterAttempted(BaseModel):

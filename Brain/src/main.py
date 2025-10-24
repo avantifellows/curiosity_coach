@@ -16,7 +16,8 @@ from pathlib import Path
 import asyncio
 from src.core.core_theme_extractor import extract_core_theme_from_conversation, update_conversation_theme
 from src.core.core_theme_config import CORE_THEME_EXTRACTION_ENABLED, CORE_THEME_TRIGGER_MESSAGE_COUNT, CORE_THEME_MAX_RETRIES, CORE_THEME_PROMPT_NAME
-
+# Add these imports at the top of main.py
+from src.core.chat_controller import control_chat_response
 from src.process_query_entrypoint import process_query, process_follow_up, ProcessQueryResponse
 from src.utils.logger import logger
 # from src.core.conversational_intent_gatherer import gather_initial_intent, process_follow_up_response, ConversationalIntentError
@@ -345,31 +346,74 @@ async def dequeue(message: MessagePayload, background_tasks: Optional[Background
                 )
 
             # Extract core theme from conversation
-                if message.conversation_id and message.purpose in ["chat", "test-prompt"] and CORE_THEME_EXTRACTION_ENABLED:
-                    try:
-                        # Get conversation history to count user messages
-                        conversation_history = await api_service.get_conversation_history(int(message.conversation_id))
-                        if conversation_history:
-                            user_message_count = len([msg for msg in conversation_history if msg.get('is_user', False)])
+            if message.conversation_id and message.purpose in ["chat", "test-prompt"] and CORE_THEME_EXTRACTION_ENABLED:
+                try:
+                    # Get conversation history to count user messages
+                    conversation_history = await api_service.get_conversation_history(int(message.conversation_id))
+                    if conversation_history:
+                        user_message_count = len([msg for msg in conversation_history if msg.get('is_user', False)])
+                        
+                        if user_message_count == CORE_THEME_TRIGGER_MESSAGE_COUNT:
+                            logger.info(f"{CORE_THEME_TRIGGER_MESSAGE_COUNT}th user message detected for conversation {message.conversation_id}. Triggering core theme extraction.")
                             
-                            if user_message_count == CORE_THEME_TRIGGER_MESSAGE_COUNT:
-                                logger.info(f"{CORE_THEME_TRIGGER_MESSAGE_COUNT}th user message detected for conversation {message.conversation_id}. Triggering core theme extraction.")
-                                
-                                # Extract core theme
-                                core_theme = await extract_core_theme_from_conversation(int(message.conversation_id))
-                                
-                                if core_theme:
-                                    # Update conversation with extracted theme
-                                    success = await update_conversation_theme(int(message.conversation_id), core_theme)
-                                    if success:
-                                        logger.info(f"Successfully updated conversation {message.conversation_id} with core theme: '{core_theme}'")
-                                    else:
-                                        logger.error(f"Failed to update conversation {message.conversation_id} with core theme")
+                            # Extract core theme
+                            core_theme = await extract_core_theme_from_conversation(int(message.conversation_id))
+                            
+                            if core_theme:
+                                # Update conversation with extracted theme
+                                success = await update_conversation_theme(int(message.conversation_id), core_theme)
+                                if success:
+                                    logger.info(f"Successfully updated conversation {message.conversation_id} with core theme: '{core_theme}'")
                                 else:
-                                    logger.warning(f"Core theme extraction failed for conversation {message.conversation_id}")
-                    except Exception as e:
-                        logger.error(f"Error in core theme extraction for conversation {message.conversation_id}: {e}", exc_info=True)
-                        # Don't fail the main message processing if theme extraction fails
+                                    logger.error(f"Failed to update conversation {message.conversation_id} with core theme")
+                            else:
+                                logger.warning(f"Core theme extraction failed for conversation {message.conversation_id}")
+                except Exception as e:
+                    logger.error(f"Error in core theme extraction for conversation {message.conversation_id}: {e}", exc_info=True)
+                    # Don't fail the main message processing if theme extraction fails
+
+            # Apply chat controller if core theme exists
+            if message.conversation_id and response_data:
+                try:
+                    # Apply chat controller
+                    chat_controller_result = await control_chat_response(
+                        conversation_id=int(message.conversation_id),
+                        original_response=response_data.final_response,
+                        user_query=user_input,
+                        current_conversation=conversation_history_str
+                    )
+                    print("chat_controller_result", chat_controller_result)
+                    print("########################################################")
+                    # Update the response with the controlled version
+                    response_data.final_response = chat_controller_result["controlled_response"]
+                    
+                    # Add chat controller data to pipeline data for logging
+                    if response_data.pipeline_data is None:
+                        response_data.pipeline_data = {}
+                    
+                    response_data.pipeline_data["chat_controller"] = chat_controller_result
+                    # ALSO add it as a pipeline step so it shows up in the UI
+                    chat_controller_step = {
+                        'name': 'chat_controller',
+                        'enabled': True,
+                        'prompt': chat_controller_result.get("chat_controller_prompt", ""),
+                        'result': chat_controller_result.get("controlled_response", ""),
+                        'original_response': chat_controller_result.get("original_response", ""),
+                        'controlled_response': chat_controller_result.get("controlled_response", ""),
+                        'core_theme': chat_controller_result.get("core_theme", ""),
+                        'chat_controller_applied': chat_controller_result.get("chat_controller_applied", False)
+                    }
+
+                    # Add to steps array
+                    if 'steps' not in response_data.pipeline_data:
+                        response_data.pipeline_data['steps'] = []
+                    response_data.steps.append(chat_controller_step)
+                                        
+                    logger.info(f"Applied chat controller to conversation {message.conversation_id}. Applied: {chat_controller_result['chat_controller_applied']}")
+                    
+                except Exception as e:
+                    logger.error(f"Error applying chat controller for conversation {message.conversation_id}: {e}", exc_info=True)
+                    # Continue with original response if chat controller fails
             
             # Create a client for fetching the prompt version ID
             backend_url = os.getenv("BACKEND_CALLBACK_BASE_URL", "http://localhost:5000")
