@@ -3,10 +3,16 @@
     "calls": {
         "core_theme_extraction": {
             "provider": "openai",
-            "model": "gpt-4o-mini",
+            "model": "gpt-4.1",
             "temperature": 0.5,
             "max_tokens": 4096
         },
+        "chat_controller": {
+            "provider": "openai",
+            "model": "gpt-4.1",
+            "temperature": 0.7,
+            "max_tokens": 1000
+          },
         "intent_identification": {
             "provider": "groq",
             "model": "llama-3.3-70b-versatile",

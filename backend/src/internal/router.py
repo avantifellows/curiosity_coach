@@ -242,3 +242,28 @@ async def update_conversation_core_theme_internal(
     except Exception as e:
         logger.error(f"Error updating core theme for conversation {conversation_id}: {e}")
         raise HTTPException(status_code=500, detail=f"Error updating core theme: {str(e)}")
+    
+
+@router.get("/conversations/{conversation_id}/core-theme")
+async def get_conversation_core_theme_internal(
+    conversation_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    Internal endpoint to get conversation core theme.
+    Used by Brain service - no authentication required.
+    """
+    try:
+        conversation = get_conversation(db, conversation_id)
+        if not conversation:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+        
+        return {
+            "conversation_id": conversation_id,
+            "core_theme": conversation.core_chat_theme
+        }
+        
+    except Exception as e:
+        logger.error(f"Error fetching core theme for conversation {conversation_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Error fetching core theme: {str(e)}")
+    
