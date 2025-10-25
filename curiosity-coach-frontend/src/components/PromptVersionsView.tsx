@@ -78,8 +78,6 @@ const PromptVersionsView: React.FC = () => {
         console.log(`[SelectPrompt] No versions found at all!`);
       }
 
-      console.log(`[SelectPrompt] Final state - activeVersionId: ${activeVersionId}`);
-
       setLoading(false);
     } catch (err) {
       console.error(`[SelectPrompt] Error loading versions for prompt ${prompt.name}:`, err);
