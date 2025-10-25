@@ -653,7 +653,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           cleanupPollingRef.current();
       }
     };
-  }, [user]); // Only depend on user - we want this to run ONLY on login/logout, not when fetchConversations changes
+  }, [user, fetchConversations]); // Include fetchConversations in dependencies
 
   // --- Value Provided by Context ---
   const value: ChatContextState = {

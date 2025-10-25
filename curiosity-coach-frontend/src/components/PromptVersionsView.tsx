@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { CircularProgress, Chip, Dialog, DialogTitle, DialogContent, DialogActions, Button, TextField, MenuItem, Select, FormControl, InputLabel, FormHelperText } from '@mui/material';
 import {
   getPrompts,
@@ -42,40 +42,6 @@ const PromptVersionsView: React.FC = () => {
     prompt_purpose: null
   });
   const [editingPromptId, setEditingPromptId] = useState<number | null>(null);
-
-  // Load all prompts on component mount
-  useEffect(() => {
-    loadPrompts();
-  }, []);
-
-  // Debug: Log whenever activeVersionId changes
-  useEffect(() => {
-    console.log(`[StateUpdate] activeVersionId changed to: ${activeVersionId}`);
-  }, [activeVersionId]);
-
-  // Debug: Log whenever versions array changes
-  useEffect(() => {
-    console.log(`[StateUpdate] versions array updated, length: ${versions.length}`);
-  }, [versions]);
-
-  const loadPrompts = async () => {
-    try {
-      setLoading(true);
-      const promptsData = await getPrompts();
-      setPrompts(promptsData);
-      
-      // Auto-select simplified_conversation prompt if available
-      const simplifiedPrompt = promptsData.find((p: PromptSimple) => p.name === 'simplified_conversation');
-      if (simplifiedPrompt) {
-        await selectPrompt(simplifiedPrompt);
-      }
-      
-      setLoading(false);
-    } catch (err) {
-      setError('Failed to load prompts');
-      setLoading(false);
-    }
-  };
 
   const selectPrompt = async (prompt: PromptSimple) => {
     try {
@@ -121,6 +87,40 @@ const PromptVersionsView: React.FC = () => {
       setLoading(false);
     }
   };
+
+  const loadPrompts = useCallback(async () => {
+    try {
+      setLoading(true);
+      const promptsData = await getPrompts();
+      setPrompts(promptsData);
+      
+      // Auto-select simplified_conversation prompt if available
+      const simplifiedPrompt = promptsData.find((p: PromptSimple) => p.name === 'simplified_conversation');
+      if (simplifiedPrompt) {
+        await selectPrompt(simplifiedPrompt);
+      }
+      
+      setLoading(false);
+    } catch (err) {
+      setError('Failed to load prompts');
+      setLoading(false);
+    }
+  }, []);
+
+  // Load all prompts on component mount
+  useEffect(() => {
+    loadPrompts();
+  }, [loadPrompts]);
+
+  // Debug: Log whenever activeVersionId changes
+  useEffect(() => {
+    console.log(`[StateUpdate] activeVersionId changed to: ${activeVersionId}`);
+  }, [activeVersionId]);
+
+  // Debug: Log whenever versions array changes
+  useEffect(() => {
+    console.log(`[StateUpdate] versions array updated, length: ${versions.length}`);
+  }, [versions]);
 
   // Handle saving a new version
   const handleSaveNewVersion = async () => {

@@ -31,7 +31,6 @@ const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
 
   // Improved alignment with spacing from edges
   const alignment = is_user ? 'justify-end' : 'justify-start';
-  const margin = is_user ? 'mr-2 sm:mr-4' : 'ml-2 sm:ml-4';
   
   // Gradient backgrounds
   const bgGradient = is_user 
