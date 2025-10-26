@@ -29,8 +29,8 @@
             "provider": "openai",
             "model": "gpt-4.1",
             "temperature": 0.7,
-            "max_tokens": 500
-        },
+            "max_tokens": 1000
+          },
         "knowledge_retrieval": {
             "provider": "openai",
             "model": "gpt-4o",
@@ -51,10 +51,10 @@
         },
         "opening_message": {
             "provider": "openai",
-            "model": "gpt-4o-mini",
-            "temperature": 0.8,
-            "max_tokens": 500
-        }
+            "model": "gpt-4.1",
+            "temperature": 0.7,
+            "max_tokens": 1000
+          }
     },
     "providers": {
         "openai": {

@@ -70,7 +70,7 @@ Output JSON format:
       "comment": "Short explanation"
     }}
   }},
-    "topics_to_chat_for_wow_experience": "list of topics we can talk about to create a wow experience"
+    "topics_to_chat_for_wow_experience": "Based on the current conversation topics; list of topics we can talk about to create a wow experience"
   }}
 ```
 
