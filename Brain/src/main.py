@@ -357,8 +357,21 @@ async def dequeue(message: MessagePayload, background_tasks: Optional[Background
                             logger.info(f"{CORE_THEME_TRIGGER_MESSAGE_COUNT}th user message detected for conversation {message.conversation_id}. Triggering core theme extraction.")
                             
                             # Extract core theme
-                            core_theme = await extract_core_theme_from_conversation(int(message.conversation_id))
+                            core_theme, core_theme_prompt = await extract_core_theme_from_conversation(int(message.conversation_id))
                             
+                            # Create core theme extraction step
+                            core_theme_step = {
+                                'name': 'core_theme_extraction',
+                                'enabled': True,
+                                'prompt': core_theme_prompt if core_theme_prompt else 'Core theme extraction prompt not available',
+                                'result': core_theme if core_theme else 'No core theme extracted',
+                                'core_theme': core_theme,
+                                'extraction_successful': core_theme is not None
+                            }
+                            
+                            # Add to main steps array
+                            response_data.steps.append(core_theme_step)
+
                             if core_theme:
                                 # Update conversation with extracted theme
                                 success = await update_conversation_theme(int(message.conversation_id), core_theme)
