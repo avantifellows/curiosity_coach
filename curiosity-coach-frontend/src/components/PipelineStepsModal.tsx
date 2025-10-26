@@ -20,6 +20,8 @@ export interface PipelineStep {
   controlled_response?: string | null;
   core_theme?: string | null;
   chat_controller_applied?: boolean;
+  // Add core theme extraction specific fields
+  extraction_successful?: boolean;
 }
 
 interface PipelineStepsModalProps {
@@ -139,6 +141,39 @@ const PipelineStepsModal: React.FC<PipelineStepsModalProps> = ({
                           <p className="text-sm sm:text-base break-words">
                             <strong className="text-gray-700">Related Topics:</strong> {step.related_topics.join(', ')}
                           </p>
+                        )}
+                        
+                        {/* Core Theme Extraction Handling */}
+                        {step.name === 'core_theme_extraction' && (
+                          <div className="space-y-3">
+                            <div className="bg-purple-50 p-3 rounded border-l-4 border-purple-400">
+                              <p className="font-medium text-purple-800">Core Theme Extraction</p>
+                              <p className="text-sm text-purple-600">
+                                {step.extraction_successful ? 
+                                  `Extracted Theme: ${step.core_theme}` : 
+                                  'No core theme could be extracted'
+                                }
+                              </p>
+                            </div>
+                            
+                            {step.prompt && (
+                              <div>
+                                <p className="font-medium mt-1 text-sm sm:text-base">
+                                  <strong className="text-gray-700">Prompt Used:</strong>
+                                </p>
+                                <pre className="bg-gray-200 p-2 sm:p-3 rounded text-xs sm:text-sm overflow-x-auto whitespace-pre-wrap border border-gray-300 max-w-full">{step.prompt}</pre>
+                              </div>
+                            )}
+                            
+                            {step.result && (
+                              <div>
+                                <p className="font-medium mt-1 text-sm sm:text-base">
+                                  <strong className="text-gray-700">Extracted Theme:</strong>
+                                </p>
+                                <pre className="bg-purple-100 p-2 sm:p-3 rounded text-xs sm:text-sm overflow-x-auto whitespace-pre-wrap border border-purple-300 max-w-full">{step.result}</pre>
+                              </div>
+                            )}
+                          </div>
                         )}
                         
                         {/* Chat Controller Handling */}

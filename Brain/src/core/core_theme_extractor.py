@@ -41,6 +41,7 @@ async def _format_conversation_for_prompt(conversation_history: list) -> str:
 async def extract_core_theme_from_conversation(conversation_id: int) -> Optional[str]:
     """
     Extracts the core theme from a conversation.
+    Returns the (core theme, final prompt) tuple.
     """
     logger.info(f"Starting core theme extraction for conversation {conversation_id}")
     
@@ -91,14 +92,14 @@ async def extract_core_theme_from_conversation(conversation_id: int) -> Optional
         
         if not core_theme:
             logger.warning(f"LLM returned empty theme for conversation {conversation_id}")
-            return None
+            return None, final_prompt
         
         logger.info(f"Successfully extracted core theme for conversation {conversation_id}: '{core_theme}'")
-        return core_theme
+        return core_theme, final_prompt
         
     except Exception as e:
         logger.error(f"Error extracting core theme for conversation {conversation_id}: {e}", exc_info=True)
-        return None
+        return None, final_prompt
 
 async def update_conversation_theme(conversation_id: int, core_theme: str) -> bool:
     """
