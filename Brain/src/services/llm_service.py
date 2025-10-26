@@ -132,6 +132,13 @@ class LLMService:
             #     request_params["max_tokens"] = call_config.get("max_tokens")
             #     request_params["temperature"] = call_config.get("temperature")
 
+            # Add GPT-5 specific parameters if they exist in config
+            if "reasoning_effort" in call_config:
+                request_params["reasoning_effort"] = call_config["reasoning_effort"]
+            
+            if "verbosity" in call_config:
+                request_params["verbosity"] = call_config["verbosity"]
+            
             if json_mode:
                 request_params["response_format"] = {"type": "json_object"}
             
