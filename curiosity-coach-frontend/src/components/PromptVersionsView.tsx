@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { CircularProgress, Chip, Dialog, DialogTitle, DialogContent, DialogActions, Button, TextField, MenuItem, Select, FormControl, InputLabel, FormHelperText } from '@mui/material';
 import {
   getPrompts,
@@ -43,10 +43,72 @@ const PromptVersionsView: React.FC = () => {
   });
   const [editingPromptId, setEditingPromptId] = useState<number | null>(null);
 
+  const selectPrompt = useCallback(async (prompt: PromptSimple) => {
+    try {
+      setLoading(true);
+      setSelectedPrompt(prompt);
+
+      // Load versions for the prompt
+      const promptVersions = await getPromptVersions(prompt.id);
+      console.log(`[SelectPrompt] Loaded ${promptVersions.length} versions for prompt ${prompt.name}:`);
+      console.log(`[SelectPrompt] Versions array:`, promptVersions);
+
+      // Log each version's details
+      promptVersions.forEach((v: PromptVersion, index: number) => {
+        console.log(`[SelectPrompt] Version ${index}: id=${v.id}, version_number=${v.version_number}, is_active=${v.is_active}, is_production=${v.is_production}`);
+      });
+
+      setVersions(promptVersions);
+
+      // Find active version
+      const activeVersion = promptVersions.find((v: PromptVersion) => v.is_active);
+      if (activeVersion) {
+        console.log(`[SelectPrompt] Found active version, setting activeVersionId to ${activeVersion.id} (v${activeVersion.version_number})`);
+        setActiveVersionId(activeVersion.id);
+        setEditedPromptText(activeVersion.prompt_text);
+      } else if (promptVersions.length > 0) {
+        // If no active version, use the latest one
+        const latestVersion = promptVersions.sort((a: PromptVersion, b: PromptVersion) =>
+          b.version_number - a.version_number
+        )[0];
+        console.log(`[SelectPrompt] No active version found, using latest version ${latestVersion.id} (v${latestVersion.version_number})`);
+        setActiveVersionId(latestVersion.id);
+        setEditedPromptText(latestVersion.prompt_text);
+      } else {
+        console.log(`[SelectPrompt] No versions found at all!`);
+      }
+
+      setLoading(false);
+    } catch (err) {
+      console.error(`[SelectPrompt] Error loading versions for prompt ${prompt.name}:`, err);
+      setError(`Failed to load versions for prompt ${prompt.name}`);
+      setLoading(false);
+    }
+  }, []);
+
+  const loadPrompts = useCallback(async () => {
+    try {
+      setLoading(true);
+      const promptsData = await getPrompts();
+      setPrompts(promptsData);
+
+      // Auto-select simplified_conversation prompt if available
+      const simplifiedPrompt = promptsData.find((p: PromptSimple) => p.name === 'simplified_conversation');
+      if (simplifiedPrompt) {
+        await selectPrompt(simplifiedPrompt);
+      }
+
+      setLoading(false);
+    } catch (err) {
+      setError('Failed to load prompts');
+      setLoading(false);
+    }
+  }, [selectPrompt]);
+
   // Load all prompts on component mount
   useEffect(() => {
     loadPrompts();
-  }, []);
+  }, [loadPrompts]);
 
   // Debug: Log whenever activeVersionId changes
   useEffect(() => {
@@ -57,70 +119,6 @@ const PromptVersionsView: React.FC = () => {
   useEffect(() => {
     console.log(`[StateUpdate] versions array updated, length: ${versions.length}`);
   }, [versions]);
-
-  const loadPrompts = async () => {
-    try {
-      setLoading(true);
-      const promptsData = await getPrompts();
-      setPrompts(promptsData);
-      
-      // Auto-select simplified_conversation prompt if available
-      const simplifiedPrompt = promptsData.find((p: PromptSimple) => p.name === 'simplified_conversation');
-      if (simplifiedPrompt) {
-        await selectPrompt(simplifiedPrompt);
-      }
-      
-      setLoading(false);
-    } catch (err) {
-      setError('Failed to load prompts');
-      setLoading(false);
-    }
-  };
-
-  const selectPrompt = async (prompt: PromptSimple) => {
-    try {
-      setLoading(true);
-      setSelectedPrompt(prompt);
-      
-      // Load versions for the prompt
-      const promptVersions = await getPromptVersions(prompt.id);
-      console.log(`[SelectPrompt] Loaded ${promptVersions.length} versions for prompt ${prompt.name}:`);
-      console.log(`[SelectPrompt] Versions array:`, promptVersions);
-      
-      // Log each version's details
-      promptVersions.forEach((v: PromptVersion, index: number) => {
-        console.log(`[SelectPrompt] Version ${index}: id=${v.id}, version_number=${v.version_number}, is_active=${v.is_active}, is_production=${v.is_production}`);
-      });
-      
-      setVersions(promptVersions);
-      
-      // Find active version
-      const activeVersion = promptVersions.find((v: PromptVersion) => v.is_active);
-      if (activeVersion) {
-        console.log(`[SelectPrompt] Found active version, setting activeVersionId to ${activeVersion.id} (v${activeVersion.version_number})`);
-        setActiveVersionId(activeVersion.id);
-        setEditedPromptText(activeVersion.prompt_text);
-      } else if (promptVersions.length > 0) {
-        // If no active version, use the latest one
-        const latestVersion = promptVersions.sort((a: PromptVersion, b: PromptVersion) => 
-          b.version_number - a.version_number
-        )[0];
-        console.log(`[SelectPrompt] No active version found, using latest version ${latestVersion.id} (v${latestVersion.version_number})`);
-        setActiveVersionId(latestVersion.id);
-        setEditedPromptText(latestVersion.prompt_text);
-      } else {
-        console.log(`[SelectPrompt] No versions found at all!`);
-      }
-      
-      console.log(`[SelectPrompt] Final state - activeVersionId: ${activeVersionId}`);
-      
-      setLoading(false);
-    } catch (err) {
-      console.error(`[SelectPrompt] Error loading versions for prompt ${prompt.name}:`, err);
-      setError(`Failed to load versions for prompt ${prompt.name}`);
-      setLoading(false);
-    }
-  };
 
   // Handle saving a new version
   const handleSaveNewVersion = async () => {
