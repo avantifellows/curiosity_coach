@@ -80,4 +80,5 @@ jobs:
         run: |
           aws cloudfront create-invalidation \
             --distribution-id E335ZR1Y2OB5KH \
-            --paths "/*" # Invalidate everything
+            --paths "/*" \
+            --region us-east-1
