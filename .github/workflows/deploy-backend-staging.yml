@@ -70,14 +70,27 @@ jobs:
           echo "Waiting for function update to complete..."
           aws lambda wait function-updated --function-name $LAMBDA_FUNCTION_NAME
 
+      - name: Get Brain API Gateway URL
+        id: get_brain_url
+        run: |
+          API_NAME="curiosity-coach-brain-staging-lambda-api"
+          API_URL=$(aws apigatewayv2 get-apis --region ap-south-2 --query "Items[?Name=='$API_NAME'].ApiEndpoint" --output text)
+          if [ -z "$API_URL" ]; then
+            echo "Error: Could not find API Gateway with name $API_NAME"
+            exit 1
+          fi
+          echo "Found Brain API URL: $API_URL"
+          echo "::set-output name=url::$API_URL"
+
       - name: Update Lambda environment variables
         env:
           LAMBDA_FUNCTION_NAME: ${{ steps.find_lambda.outputs.function_name }}
           DB_NAME: ${{ secrets.STAGING_DB_NAME }}
+          BRAIN_URL: ${{ steps.get_brain_url.outputs.url }}
         run: |
           EXISTING_VARS=$(aws lambda get-function-configuration --function-name $LAMBDA_FUNCTION_NAME --query 'Environment.Variables' --output json)
           if [ -z "$EXISTING_VARS" ] || [ "$EXISTING_VARS" == "null" ]; then
             EXISTING_VARS='{}'
           fi
-          UPDATED_VARS=$(echo $EXISTING_VARS | jq --arg db_name "$DB_NAME" '. + {"DB_NAME": $db_name, "APP_ENV": "staging"}')
+          UPDATED_VARS=$(echo $EXISTING_VARS | jq --arg db_name "$DB_NAME" --arg brain_url "$BRAIN_URL" '. + {"DB_NAME": $db_name, "APP_ENV": "staging", "BRAIN_ENDPOINT_URL": $brain_url}')
           aws lambda update-function-configuration --function-name $LAMBDA_FUNCTION_NAME --environment "{\"Variables\":$UPDATED_VARS}" 
