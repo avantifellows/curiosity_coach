@@ -69,3 +69,4 @@ Return ONLY a JSON object with this exact structure:
 5. Be specific and evidence-based, not generic
 
 **Conversation Memories:**
+{{CONVERSATION_MEMORIES}}
