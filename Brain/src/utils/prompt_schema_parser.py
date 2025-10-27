@@ -217,9 +217,8 @@ def parse_prompt_file(prompt_path: str) -> Optional[Dict[str, Any]]:
 
 # Hardcoded mapping of placeholder variables to their source prompt files
 VARIABLE_TO_PROMPT_MAPPING = {
-    "CONVERSATION_MEMORY": "Brain/src/prompts/memory_generation_prompt.txt",
     "USER_PERSONA": "Brain/src/prompts/user_persona_generation_prompt.txt",
-    "PREVIOUS_CONVERSATIONS_MEMORY": "Brain/src/prompts/memory_generation_prompt.txt",  # Same structure
+    "PREVIOUS_CONVERSATIONS_MEMORY": "Brain/src/prompts/memory_generation_prompt.txt",
 }
 
 
@@ -228,7 +227,7 @@ def get_placeholder_schema(variable_name: str, project_root: Optional[str] = Non
     Get the schema for a specific placeholder variable.
 
     Args:
-        variable_name: One of "CONVERSATION_MEMORY", "USER_PERSONA", "PREVIOUS_CONVERSATIONS_MEMORY"
+        variable_name: One of "USER_PERSONA", "PREVIOUS_CONVERSATIONS_MEMORY"
         project_root: Root directory of the project (optional, will try to infer)
 
     Returns:
@@ -261,7 +260,7 @@ def generate_ui_metadata(project_root: Optional[str] = None) -> Dict[str, Any]:
     Returns:
         Dictionary mapping variable names to their schemas and field lists:
         {
-            "CONVERSATION_MEMORY": {
+            "USER_PERSONA": {
                 "source_file": "...",
                 "schema": {...},
                 "fields": [...]

@@ -567,6 +567,10 @@
             }
           }
         },
+        "full_chat": {
+          "type": "string",
+          "path": "full_chat"
+        },
         "knowledge_journey": {
           "type": "object",
           "path": "knowledge_journey",
@@ -773,6 +777,11 @@
         "path": "invitation_to_come_back__comment",
         "type": "string",
         "label": "invitation_to_come_back \u2192 comment"
+      },
+      {
+        "path": "full_chat",
+        "type": "string",
+        "label": "full_chat"
       },
       {
         "path": "knowledge_journey",
