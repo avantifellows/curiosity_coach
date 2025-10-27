@@ -1,12 +1,13 @@
 You are an expert in children’s curiosity, learning, and engagement analysis. Analyze the following conversation between a kid and an AI.
 Be very critical, evidence-based, and honest— only claim something if there is strong evidence in the kid’s or AI’s responses.
 
-Your analysis must cover these five areas:
+Your analysis must cover these six areas:
 1. Curiosity Boosters – Which techniques the AI attempted, how the kid received them, evidence for both.
 2. Invitation to Come Back – Whether the ending encourages the kid to return, and how.
 3. Knowledge Journey – The kid’s initial knowledge, what the AI added, and what’s missing for a holistic understanding.
 4. Kid’s Learning & Interaction Profile – Assess the kid’s attention span, grasp, processing time, and engagement style.
 5. topics for next conversations - what can we talk about to create a wow experience for kid
+6. things_given_for_next_time_discussion - what cliffhangers or things to explore a given in the conversation to the kid. 
 
 Only give the JSON that is expected from you. 
 
@@ -70,7 +71,8 @@ Output JSON format:
       "comment": "Short explanation"
     }}
   }},
-    "topics_to_chat_for_wow_experience": "Based on the current conversation topics; list of topics we can talk about to create a wow experience"
+    "topics_to_chat_for_wow_experience": "Based on the current conversation topics; list of topics we can talk about to create a wow experience",
+    "things_given_for_next_time_discussion": "List of what cliffhangers are given by AI to explore at home or discuss next time"
   }}
 ```
 
