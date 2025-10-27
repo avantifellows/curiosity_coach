@@ -258,12 +258,18 @@ async def dequeue(message: MessagePayload, background_tasks: Optional[Background
             
             # Always fetch history in simplified mode to maintain conversation context
             from src.process_query_entrypoint import FORCE_SIMPLIFIED_MODE
+
+            # Check simplified mode even when config is None (e.g., S3 config failed to load)
+            is_simplified_mode = FORCE_SIMPLIFIED_MODE
             if flow_config_instance:
-                is_simplified_mode = FORCE_SIMPLIFIED_MODE or flow_config_instance.use_simplified_mode
-                if is_simplified_mode:
-                    should_fetch_history = True
-                    logger.info("Forcing conversation history fetch for simplified mode")
+                is_simplified_mode = is_simplified_mode or flow_config_instance.use_simplified_mode
+
+            if is_simplified_mode:
+                should_fetch_history = True
+                logger.info("Forcing conversation history fetch for simplified mode")
             
+            logger.info(f"🔍 History fetch decision: should_fetch={should_fetch_history}, has_conv_id={bool(message.conversation_id)}, is_simplified={is_simplified_mode}")
+
             if should_fetch_history and message.conversation_id:
                 logger.info(f"Fetching conversation history for conversation_id: {message.conversation_id} via internal endpoint")
                 try:
