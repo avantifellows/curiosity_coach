@@ -79,5 +79,5 @@ jobs:
           if [ -z "$EXISTING_VARS" ] || [ "$EXISTING_VARS" == "null" ]; then
             EXISTING_VARS='{}'
           fi
-          UPDATED_VARS=$(echo $EXISTING_VARS | jq --arg db_name "$DB_NAME" '. + {"DB_NAME": $db_name}')
+          UPDATED_VARS=$(echo $EXISTING_VARS | jq --arg db_name "$DB_NAME" '. + {"DB_NAME": $db_name, "APP_ENV": "staging"}')
           aws lambda update-function-configuration --function-name $LAMBDA_FUNCTION_NAME --environment "{\"Variables\":$UPDATED_VARS}" 
