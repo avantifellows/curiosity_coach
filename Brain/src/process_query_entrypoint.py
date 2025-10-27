@@ -258,6 +258,18 @@ async def generate_simplified_response(query: str, conversation_history: Optiona
             from src.utils.prompt_injection import inject_persona_placeholders
             formatted_prompt = inject_persona_placeholders(formatted_prompt, user_persona)
 
+                # Inject core theme placeholder (for visit-based prompts)
+        if "{{CORE_THEME}}" in formatted_prompt:
+            from src.utils.prompt_injection import inject_core_theme_placeholder
+            core_theme = None
+            if conversation_id:
+                try:
+                    core_theme = await brain_api_service.get_conversation_core_theme(conversation_id)
+                    logger.info(f"Fetched core theme for conversation {conversation_id}: {core_theme}")
+                except Exception as e:
+                    logger.warning(f"Could not fetch core theme: {e}")
+            formatted_prompt = inject_core_theme_placeholder(formatted_prompt, core_theme)
+        
         # Inject conversation memory placeholders if present
         if "{{CONVERSATION_MEMORY" in formatted_prompt:
             from src.utils.prompt_injection import inject_memory_placeholders

@@ -255,6 +255,23 @@ class APIService:
         except Exception as e:
             logger.warning(f"Error fetching messages for conversation {conversation_id}: {e}")
             return []
+        
+    async def get_conversation_core_theme(self, conversation_id: int) -> Optional[str]:
+        """
+        Fetch the core theme for a specific conversation from the backend.
+        """
+        try:
+            backend_url = os.getenv("BACKEND_CALLBACK_BASE_URL", "http://localhost:5000")
+            url = f"{backend_url}/api/internal/conversations/{conversation_id}/core-theme"
+            
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.get(url)
+                response.raise_for_status()
+                data = response.json()
+                return data.get("core_theme")
+        except Exception as e:
+            logger.error(f"Error fetching core theme for conversation {conversation_id}: {e}")
+            return None    
 
 # Singleton instance
 api_service = APIService() 

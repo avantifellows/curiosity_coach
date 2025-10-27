@@ -29,6 +29,8 @@ from src.services.api_service import api_service
 from src.schemas import ConversationMemoryData, OpeningMessageRequest
 from src.core.user_persona_generator import generate_persona_for_user
 from pydantic import ValidationError
+from src.utils.prompt_injection import inject_core_theme_placeholder
+
 
 # Load environment variables from .env file
 load_dotenv()
@@ -749,6 +751,10 @@ async def generate_opening_message(payload: OpeningMessageRequest):
         formatted_prompt = inject_previous_memories_placeholder(prompt_template, previous_memories)
         formatted_prompt = inject_persona_placeholders(formatted_prompt, persona)
         
+        # NEW: Fetch and inject core theme for current conversation
+        core_theme = await api_service.get_conversation_core_theme(payload.conversation_id)
+        formatted_prompt = inject_core_theme_placeholder(formatted_prompt, core_theme)
+                
         # Replace CONVERSATION_HISTORY and QUERY placeholders (for opening message, both are empty/not applicable)
         formatted_prompt = formatted_prompt.replace("{{CONVERSATION_HISTORY}}", "No previous conversation.")
         formatted_prompt = formatted_prompt.replace("{{QUERY}}", "")

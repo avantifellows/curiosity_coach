@@ -200,6 +200,10 @@
         "topics_to_chat_for_wow_experience": {
           "type": "string",
           "path": "topics_to_chat_for_wow_experience"
+        },
+        "things_given_for_next_time_discussion": {
+          "type": "string",
+          "path": "things_given_for_next_time_discussion"
         }
       }
     },
@@ -403,6 +407,11 @@
         "path": "topics_to_chat_for_wow_experience",
         "type": "string",
         "label": "topics_to_chat_for_wow_experience"
+      },
+      {
+        "path": "things_given_for_next_time_discussion",
+        "type": "string",
+        "label": "things_given_for_next_time_discussion"
       }
     ]
   },
@@ -687,6 +696,10 @@
         "topics_to_chat_for_wow_experience": {
           "type": "string",
           "path": "topics_to_chat_for_wow_experience"
+        },
+        "things_given_for_next_time_discussion": {
+          "type": "string",
+          "path": "things_given_for_next_time_discussion"
         }
       }
     },
@@ -890,6 +903,11 @@
         "path": "topics_to_chat_for_wow_experience",
         "type": "string",
         "label": "topics_to_chat_for_wow_experience"
+      },
+      {
+        "path": "things_given_for_next_time_discussion",
+        "type": "string",
+        "label": "things_given_for_next_time_discussion"
       }
     ],
     "is_array": true,

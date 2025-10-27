@@ -44,6 +44,52 @@ PREVIOUS_MEMORY_PLACEHOLDER_REGEX = re.compile(
     r"\{\{PREVIOUS_CONVERSATIONS_MEMORY(?:__([A-Za-z0-9_]+(?:__[A-Za-z0-9_]+)*))?\}\}"
 )
 
+# Core theme placeholder regex
+# Examples (all valid):
+#   {{CORE_THEME}}
+CORE_THEME_PLACEHOLDER_REGEX = re.compile(r'\{\{CORE_THEME(?:\|([^}]+))?\}\}')
+
+def extract_core_theme_placeholders(template: str) -> List[Tuple[str, List[str]]]:
+    """
+    Returns list of (full_token, requested_keys[]) pairs for core theme placeholders.
+    """
+    results: List[Tuple[str, List[str]]] = []
+    for match in CORE_THEME_PLACEHOLDER_REGEX.finditer(template):
+        full_token = match.group(0)
+        keys_blob = match.group(1)
+        if keys_blob:
+            requested_keys = [part for part in keys_blob.split('|') if part]
+        else:
+            requested_keys = []
+        results.append((full_token, requested_keys))
+    return results
+
+def inject_core_theme_placeholder(template: str, core_theme: Optional[str]) -> str:
+    """
+    Replaces {{CORE_THEME}} placeholders with core theme data.
+    
+    Args:
+        template: The prompt template with placeholders
+        core_theme: The extracted core theme string or None
+        
+    Returns:
+        Template with placeholders replaced with core theme data
+    """
+    placeholders = extract_core_theme_placeholders(template)
+    if not placeholders:
+        return template
+
+    if core_theme is None:
+        fallback = "No current theme as such"
+        for token, _ in placeholders:
+            template = template.replace(token, fallback)
+        return template
+
+    # Replace each placeholder with the core theme
+    for token, _ in placeholders:
+        template = template.replace(token, core_theme)
+    
+    return template
 
 def extract_memory_placeholders(template: str) -> List[Tuple[str, List[str]]]:
     """
