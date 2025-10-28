@@ -22,6 +22,9 @@ export interface PipelineStep {
   chat_controller_applied?: boolean;
   // Add core theme extraction specific fields
   extraction_successful?: boolean;
+  // Add exploration directions specific fields
+  directions?: string[];
+  evaluation_successful?: boolean;
 }
 
 interface PipelineStepsModalProps {
@@ -204,6 +207,52 @@ const PipelineStepsModal: React.FC<PipelineStepsModalProps> = ({
                           </div>
                         )}
                         
+                        {/* Exploration Directions Evaluation Handling */}
+                        {step.name === 'exploration_directions_evaluation' && step.directions && step.directions.length > 0 && (
+                          <div className="space-y-3">
+                            <div className="bg-amber-50 p-3 rounded border-l-4 border-amber-400">
+                              <p className="font-medium text-amber-800">Exploration Directions</p>
+                              <p className="text-sm text-amber-600">
+                                {step.evaluation_successful ? 
+                                  `${step.directions.length} exploration direction${step.directions.length !== 1 ? 's' : ''} identified` : 
+                                  'Failed to identify exploration directions'
+                                }
+                              </p>
+                            </div>
+                            
+                            {step.core_theme && (
+                              <div>
+                                <p className="font-medium mt-1 text-sm sm:text-base">
+                                  <strong className="text-gray-700">Core Theme:</strong>
+                                </p>
+                                <p className="bg-purple-50 p-2 rounded text-sm border border-purple-200">{step.core_theme}</p>
+                              </div>
+                            )}
+                            
+                            {step.directions && step.directions.length > 0 && (
+                              <div>
+                                <p className="font-medium mt-1 text-sm sm:text-base">
+                                  <strong className="text-gray-700">Possible Exploration Directions:</strong>
+                                </p>
+                                <ul className="list-disc list-inside space-y-1 bg-amber-50 p-3 rounded border border-amber-200">
+                                  {step.directions.map((direction, directionIdx) => (
+                                    <li key={directionIdx} className="text-sm text-gray-800">{direction}</li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )}
+                            
+                            {step.prompt && (
+                              <div>
+                                <p className="font-medium mt-1 text-sm sm:text-base">
+                                  <strong className="text-gray-700">Prompt Used:</strong>
+                                </p>
+                                <pre className="bg-gray-200 p-2 sm:p-3 rounded text-xs sm:text-sm overflow-x-auto whitespace-pre-wrap border border-gray-300 max-w-full">{step.prompt}</pre>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                        
                         {step.prompt_template && (
                           <div>
                             <p className="font-medium mt-1 text-sm sm:text-base">
@@ -220,7 +269,7 @@ const PipelineStepsModal: React.FC<PipelineStepsModalProps> = ({
                             <pre className="bg-green-50 p-2 sm:p-3 rounded text-xs sm:text-sm overflow-x-auto whitespace-pre-wrap border border-green-300 max-w-full">{step.formatted_prompt}</pre>
                           </div>
                         )}
-                        {step.prompt && !step.formatted_prompt && (
+                        {step.prompt && !step.formatted_prompt && !step.name.startsWith('exploration') && (
                           <div>
                             <p className="font-medium mt-1 text-sm sm:text-base">
                               <strong className="text-gray-700">Prompt:</strong>
