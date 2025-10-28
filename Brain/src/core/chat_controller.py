@@ -1,6 +1,6 @@
 import os
 import httpx
-from typing import Optional
+from typing import Optional, List
 from src.services.llm_service import LLMService
 from src.utils.logger import logger
 
@@ -45,7 +45,8 @@ async def control_chat_response(
     conversation_id: int, 
     original_response: str, 
     user_query: str,
-    current_conversation: Optional[str] = None
+    current_conversation: Optional[str] = None,
+    exploration_directions: Optional[List[str]] = None
 ) -> dict:  # Change return type to dict
     """
     Controls the chat response based on the conversation's core theme.
@@ -93,6 +94,13 @@ async def control_chat_response(
         final_prompt = prompt_template.replace("{{CORE_THEME}}", core_theme)
         final_prompt = final_prompt.replace("{{USER_QUERY}}", user_query)
         final_prompt = final_prompt.replace("{{QUERY_RESPONSE}}", original_response)
+        
+        # Add exploration directions if provided
+        if exploration_directions:
+            directions_text = ", ".join(exploration_directions)
+            final_prompt = final_prompt.replace("{{EXPLORATION_DIRECTIONS}}", directions_text)
+        else:
+            final_prompt = final_prompt.replace("{{EXPLORATION_DIRECTIONS}}", "No exploration directions available")
         
         # Add conversation history if provided
         if current_conversation:

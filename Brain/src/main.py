@@ -30,7 +30,7 @@ from src.schemas import ConversationMemoryData, OpeningMessageRequest
 from src.core.user_persona_generator import generate_persona_for_user
 from pydantic import ValidationError
 from src.utils.prompt_injection import inject_core_theme_placeholder
-
+from src.core.exploration_directions_config import EXPLORATION_DIRECTIONS_ENABLED
 
 # Load environment variables from .env file
 load_dotenv()
@@ -387,6 +387,55 @@ async def dequeue(message: MessagePayload, background_tasks: Optional[Background
                     logger.error(f"Error in core theme extraction for conversation {message.conversation_id}: {e}", exc_info=True)
                     # Don't fail the main message processing if theme extraction fails
 
+            # Evaluate exploration directions if enabled
+            exploration_data = None
+            exploration_directions_list = None
+            if message.conversation_id and message.purpose in ["chat", "test-prompt"] and EXPLORATION_DIRECTIONS_ENABLED:
+                try:
+                    from src.core.exploration_directions_evaluator import (
+                        evaluate_exploration_directions,
+                        get_conversation_core_theme
+                    )
+                    
+                    # Get core theme
+                    core_theme = await get_conversation_core_theme(int(message.conversation_id))
+                    
+                    if core_theme:
+                        # Get conversation history
+                        conversation_history = await api_service.get_conversation_history(int(message.conversation_id))
+                        # Evaluate directions
+                        exploration_data = await evaluate_exploration_directions(
+                            conversation_id=int(message.conversation_id),
+                            core_theme=core_theme,
+                            conversation_history=conversation_history if conversation_history else []
+                        )
+                        
+                        if exploration_data:
+                            exploration_directions_list = exploration_data.get('directions', [])
+                            logger.info(f"Exploration directions: {exploration_directions_list}")
+                            print("########################################################")
+                            # Add as a pipeline step
+                            exploration_step = {
+                                'name': 'exploration_directions_evaluation',
+                                'enabled': True,
+                                'prompt': exploration_data.get('prompt', ''),
+                                'result': ', '.join(exploration_data.get('directions', [])),
+                                'directions': exploration_data.get('directions', []),
+                                'core_theme': exploration_data.get('core_theme', ''),
+                                'evaluation_successful': exploration_data.get('evaluation_successful', False)
+                            }
+                            
+                            # Add to steps array
+                            response_data.steps.append(exploration_step)
+                            
+                            logger.info(f"Generated {len(exploration_data.get('directions', []))} exploration directions for conversation {message.conversation_id}")
+                    else:
+                        logger.debug(f"No core theme found for conversation {message.conversation_id}, skipping exploration directions")
+                        
+                except Exception as e:
+                    logger.error(f"Error in exploration directions evaluation for conversation {message.conversation_id}: {e}", exc_info=True)
+                    # Don't fail main processing if this fails            
+
             # Apply chat controller if core theme exists
             if message.conversation_id and response_data:
                 try:
@@ -395,7 +444,8 @@ async def dequeue(message: MessagePayload, background_tasks: Optional[Background
                         conversation_id=int(message.conversation_id),
                         original_response=response_data.final_response,
                         user_query=user_input,
-                        current_conversation=conversation_history_str
+                        current_conversation=conversation_history_str,
+                        exploration_directions=exploration_directions_list
                     )
                     print("chat_controller_result", chat_controller_result)
                     print("########################################################")
@@ -429,6 +479,7 @@ async def dequeue(message: MessagePayload, background_tasks: Optional[Background
                 except Exception as e:
                     logger.error(f"Error applying chat controller for conversation {message.conversation_id}: {e}", exc_info=True)
                     # Continue with original response if chat controller fails
+            
             
             # Create a client for fetching the prompt version ID
             backend_url = os.getenv("BACKEND_CALLBACK_BASE_URL", "http://localhost:5000")
