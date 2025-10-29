@@ -273,5 +273,24 @@ class APIService:
             logger.error(f"Error fetching core theme for conversation {conversation_id}: {e}")
             return None    
 
+    async def get_conversation_messages_with_pipeline(self, conversation_id: int) -> List[Dict[str, Any]]:
+        """
+        Fetch all messages for a conversation WITH their pipeline data.
+        
+        Returns:
+            List of message dictionaries with pipeline_data included
+        """
+        url = f"{self.backend_url}/api/internal/conversations/{conversation_id}/messages_with_pipeline"
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(url)
+                response.raise_for_status()
+                data = response.json()
+                return data.get("messages", []) if data.get("success") else []
+        except Exception as e:
+            logger.warning(f"Error fetching messages with pipeline for conversation {conversation_id}: {e}")
+            return []
+
+
 # Singleton instance
 api_service = APIService() 

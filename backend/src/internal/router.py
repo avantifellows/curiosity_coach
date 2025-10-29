@@ -9,7 +9,8 @@ from src.user_personas.schemas import UserPersona as UserPersonaSchema
 from src.models import (
     UserPersona, Conversation, ConversationMemory, 
     Prompt, PromptVersion, get_conversation, save_message,
-    save_message_pipeline_data, update_conversation_core_chat_theme
+    save_message_pipeline_data, update_conversation_core_chat_theme,
+    Message, MessagePipelineData
 )
 from src.onboarding.schemas import OpeningMessageCallbackPayload
 import logging
@@ -267,3 +268,37 @@ async def get_conversation_core_theme_internal(
         logger.error(f"Error fetching core theme for conversation {conversation_id}: {e}")
         raise HTTPException(status_code=500, detail=f"Error fetching core theme: {str(e)}")
     
+
+@router.get("/conversations/{conversation_id}/messages_with_pipeline")
+def get_conversation_messages_with_pipeline(
+    conversation_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    Internal endpoint: Return messages with their pipeline data for Brain service.
+    Used to retrieve previous exploration directions.
+    """
+    logger.info(f"get_conversation_messages_with_pipeline called for conversation_id={conversation_id}")
+    
+    # Get messages with their pipeline data
+    messages_with_pipeline = (
+        db.query(Message, MessagePipelineData)
+        .outerjoin(MessagePipelineData, Message.id == MessagePipelineData.message_id)
+        .filter(Message.conversation_id == conversation_id)
+        .order_by(Message.timestamp.asc())
+        .all()
+    )
+    
+    result = []
+    for message, pipeline_data in messages_with_pipeline:
+        message_dict = {
+            "id": message.id,
+            "content": message.content,
+            "is_user": message.is_user,
+            "timestamp": message.timestamp.isoformat(),
+            "pipeline_data": pipeline_data.pipeline_data if pipeline_data else None
+        }
+        result.append(message_dict)
+    
+    logger.info(f"Retrieved {len(result)} messages with pipeline data for conversation {conversation_id}")
+    return {"success": True, "messages": result}

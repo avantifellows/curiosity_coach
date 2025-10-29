@@ -41,7 +41,8 @@ async def _format_conversation_for_prompt(conversation_history: List[Dict[str, A
 async def evaluate_exploration_directions(
     conversation_id: int, 
     core_theme: Optional[str],
-    conversation_history: List[Dict[str, Any]]
+    conversation_history: List[Dict[str, Any]],
+    current_query: Optional[str] = None
 ) -> Optional[Dict[str, Any]]:
     """
     Evaluates possible exploration directions based on core theme and conversation.
@@ -71,6 +72,10 @@ async def evaluate_exploration_directions(
         if "{{CONVERSATION_HISTORY}}" in formatted_prompt:
             formatted_prompt = formatted_prompt.replace("{{CONVERSATION_HISTORY}}", formatted_history)
         
+              # Inject current user query
+        if "{{QUERY}}" in formatted_prompt:
+            query_text = current_query if current_query else "No current query available"
+            formatted_prompt = formatted_prompt.replace("{{QUERY}}", query_text)
         logger.debug(f"Final formatted prompt (first 200 chars): {formatted_prompt[:200]}...")
         
         # Call LLM
@@ -88,7 +93,7 @@ async def evaluate_exploration_directions(
         try:
             if raw_response:
                 # Split by comma and clean up each direction
-                directions = [d.strip() for d in raw_response.split(',') if d.strip()]
+                directions = [d.strip() for d in raw_response.split('#') if d.strip()]
                 if len(directions) > 0:
                     logger.info(f"Generated {len(directions)} exploration directions for conversation {conversation_id}")
                     return {
