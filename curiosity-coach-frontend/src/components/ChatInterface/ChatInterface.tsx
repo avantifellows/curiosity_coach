@@ -12,6 +12,7 @@ import MessageInput from './MessageInput';
 import ChatModals from './ChatModals';
 import FeedbackModal from '../FeedbackModal';
 import DebugInfo from '../DebugInfo';
+import ExplorationPanel from '../ExplorationPanel';
 
 interface ChatInterfaceProps {
   mode: 'chat' | 'test-prompt';
@@ -54,6 +55,12 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ mode }) => {
   const [isLoadingMemory, setIsLoadingMemory] = useState(false);
   const [memoryError, setMemoryError] = useState<string | null>(null);
 
+  // Exploration panel state
+  const [showExplorationPanel, setShowExplorationPanel] = useState(false);
+  const [explorationDirections, setExplorationDirections] = useState<string[]>([]);
+  const [explorationPrompt, setExplorationPrompt] = useState<string | undefined>(undefined);
+  const lastShownAiIdRef = React.useRef<number | string | null>(null);
+
   const { user } = useAuth();
   const location = useLocation();
 
@@ -66,6 +73,39 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ mode }) => {
       fetchBrainConfigSchema();
     }
   }, [isConfigViewActive, brainConfigSchema, isLoadingBrainConfig, brainConfigError, fetchBrainConfigSchema]);
+
+  // Effect to auto-load exploration directions for latest AI message in debug mode
+  React.useEffect(() => {
+    if (!isDebugMode || !messages || messages.length === 0) return;
+
+    const lastAi = [...messages].reverse().find(m => !m.is_user && m.id != null);
+    if (!lastAi) return;
+
+    // avoid refetching for same message
+    if (lastShownAiIdRef.current === lastAi.id) return;
+    lastShownAiIdRef.current = lastAi.id as number | string;
+
+    (async () => {
+      try {
+        const steps: PipelineStep[] = await getPipelineSteps(lastAi.id as number | string);
+        const explorationStep = steps.find(s => s.name === 'exploration_directions_evaluation');
+
+        if (explorationStep && Array.isArray(explorationStep.directions)) {
+          setExplorationDirections(explorationStep.directions || []);
+          setExplorationPrompt(explorationStep.prompt || undefined);
+          setShowExplorationPanel(true);
+        } else {
+          // If missing, hide panel
+          setExplorationDirections([]);
+          setExplorationPrompt(undefined);
+          setShowExplorationPanel(false);
+        }
+      } catch (e) {
+        // On error, do not block chat; simply don't show panel
+        setShowExplorationPanel(false);
+      }
+    })();
+  }, [messages, isDebugMode]);
 
   const handleFormSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -264,6 +304,40 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ mode }) => {
           promptVersionId={currentPromptVersionId}
         />
       )}
+
+      {/* Exploration Panel - only shown when ?debug=true */}
+      <ExplorationPanel
+        isOpen={showExplorationPanel}
+        onClose={() => setShowExplorationPanel(false)}
+        directions={explorationDirections}
+        prompt={explorationPrompt}
+      />
+
+          {/* Reopen button (only in debug mode when panel is collapsed) */}
+      {isDebugMode && !showExplorationPanel && (
+      <button
+        onClick={() => setShowExplorationPanel(true)}
+        className="fixed left-2 bottom-4 z-30 bg-white border border-gray-300 shadow-md text-xs sm:text-sm px-3 py-2 rounded hover:bg-gray-50"
+        title="Show exploration directions"
+      >
+        Show exploration directions
+      </button>
+    )}
+    {isDebugMode && !showExplorationPanel && (
+  <button
+    onClick={() => setShowExplorationPanel(true)}
+    className="
+      fixed left-0 top-4 z-30
+      bg-white border border-l-0 border-gray-300 shadow-md
+      text-[11px] sm:text-xs px-2 py-2
+      rounded-r hover:bg-gray-50
+    "
+    aria-label="Show exploration directions"
+    title="Show exploration directions"
+  >
+    Exploration Directions
+  </button>
+)}
     </div>
   );
 };

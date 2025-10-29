@@ -387,65 +387,77 @@ async def dequeue(message: MessagePayload, background_tasks: Optional[Background
                     logger.error(f"Error in core theme extraction for conversation {message.conversation_id}: {e}", exc_info=True)
                     # Don't fail the main message processing if theme extraction fails
 
-            # Evaluate exploration directions if enabled
-            exploration_data = None
-            exploration_directions_list = None
-            if message.conversation_id and message.purpose in ["chat", "test-prompt"] and EXPLORATION_DIRECTIONS_ENABLED:
-                try:
-                    from src.core.exploration_directions_evaluator import (
-                        evaluate_exploration_directions,
-                        get_conversation_core_theme
-                    )
-                    
-                    # Get core theme
-                    core_theme = await get_conversation_core_theme(int(message.conversation_id))
-                    
-                    if core_theme:
-                        # Get conversation history
-                        conversation_history = await api_service.get_conversation_history(int(message.conversation_id))
-                        # Evaluate directions
-                        exploration_data = await evaluate_exploration_directions(
-                            conversation_id=int(message.conversation_id),
-                            core_theme=core_theme,
-                            conversation_history=conversation_history if conversation_history else []
-                        )
+            # Find previous assistant message's exploration directions to guide the controller
+            previous_exploration_directions = None
+            try:
+                messages_for_brain = await api_service.get_conversation_messages_with_pipeline(int(message.conversation_id))
+                logger.info(f"Retrieved {len(messages_for_brain or [])} messages for previous exploration directions lookup")
+                
+                for m in reversed(messages_for_brain or []):
+                    # Use last assistant message
+                    if m.get("is_user") is True:
+                        continue
                         
-                        if exploration_data:
-                            exploration_directions_list = exploration_data.get('directions', [])
-                            logger.info(f"Exploration directions: {exploration_directions_list}")
-                            print("########################################################")
-                            # Add as a pipeline step
-                            exploration_step = {
-                                'name': 'exploration_directions_evaluation',
-                                'enabled': True,
-                                'prompt': exploration_data.get('prompt', ''),
-                                'result': ', '.join(exploration_data.get('directions', [])),
-                                'directions': exploration_data.get('directions', []),
-                                'core_theme': exploration_data.get('core_theme', ''),
-                                'evaluation_successful': exploration_data.get('evaluation_successful', False)
-                            }
-                            
-                            # Add to steps array
-                            response_data.steps.append(exploration_step)
-                            
-                            logger.info(f"Generated {len(exploration_data.get('directions', []))} exploration directions for conversation {message.conversation_id}")
+                    logger.debug(f"Checking assistant message: {m.get('id', 'no-id')}")
+                    pipeline_data = m.get("pipeline_data") or m.get("llm_pipeline_data") or {}
+                    logger.debug(f"Pipeline data keys: {list(pipeline_data.keys())}")
+                    steps = pipeline_data.get("steps") or []
+                    found_dirs = None
+                    
+                    # Method 1: Look in steps array
+                    for step in steps:
+                        if step.get("name") == "exploration_directions_evaluation":
+                            found_dirs = step.get("directions")
+                            logger.debug(f"Found directions in step: {found_dirs}")
+                            if not found_dirs:
+                                # Sometimes step might store directions as comma-separated in 'result'
+                                result_str = step.get("result")
+                                if isinstance(result_str, str):
+                                    found_dirs = [d.strip() for d in result_str.split(",") if d.strip()]
+                                    logger.debug(f"Parsed directions from result: {found_dirs}")
+                            break
+                    
+                    # Method 2: Look in direct pipeline_data key
+                    if not found_dirs:
+                        ede = pipeline_data.get("exploration_directions_evaluation") or {}
+                        found_dirs = ede.get("directions")
+                        logger.debug(f"Found directions in exploration_directions_evaluation: {found_dirs}")
+                    
+                    # Method 3: Look for any exploration-related data
+                    if not found_dirs:
+                        for key, value in pipeline_data.items():
+                            if "exploration" in key.lower() and isinstance(value, dict):
+                                found_dirs = value.get("directions")
+                                if found_dirs:
+                                    logger.debug(f"Found directions in {key}: {found_dirs}")
+                                    break
+                    
+                    if found_dirs and isinstance(found_dirs, list) and len(found_dirs) > 0:
+                        previous_exploration_directions = found_dirs
+                        logger.info(f"Successfully found previous exploration directions: {previous_exploration_directions}")
+                        break
                     else:
-                        logger.debug(f"No core theme found for conversation {message.conversation_id}, skipping exploration directions")
+                        logger.debug(f"No exploration directions found in message {m.get('id', 'no-id')}")
                         
-                except Exception as e:
-                    logger.error(f"Error in exploration directions evaluation for conversation {message.conversation_id}: {e}", exc_info=True)
-                    # Don't fail main processing if this fails            
+            except Exception as e:
+                logger.error(f"Error retrieving previous exploration directions: {e}", exc_info=True)
+                previous_exploration_directions = None
 
-            # Apply chat controller if core theme exists
+            logger.info(f"Final previous_exploration_directions: {previous_exploration_directions}")
+                        
+            
+            # Apply chat controller if core theme exis
             if message.conversation_id and response_data:
                 try:
                     # Apply chat controller
+                    print("previous_exploration_directions", previous_exploration_directions)
+                    print("%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%")
                     chat_controller_result = await control_chat_response(
                         conversation_id=int(message.conversation_id),
                         original_response=response_data.final_response,
                         user_query=user_input,
                         current_conversation=conversation_history_str,
-                        exploration_directions=exploration_directions_list
+                        exploration_directions=previous_exploration_directions
                     )
                     print("chat_controller_result", chat_controller_result)
                     print("########################################################")
@@ -480,7 +492,50 @@ async def dequeue(message: MessagePayload, background_tasks: Optional[Background
                     logger.error(f"Error applying chat controller for conversation {message.conversation_id}: {e}", exc_info=True)
                     # Continue with original response if chat controller fails
             
-            
+            # Now evaluate exploration directions with the latest assistant message included
+            exploration_data = None
+            exploration_directions_list = None
+            if message.conversation_id and message.purpose in ["chat", "test-prompt"] and EXPLORATION_DIRECTIONS_ENABLED:
+                try:
+                    from src.core.exploration_directions_evaluator import (
+                        evaluate_exploration_directions,
+                        get_conversation_core_theme
+                    )
+                    core_theme = await get_conversation_core_theme(int(message.conversation_id))
+                    if core_theme:
+                        # Fetch current history and append this turn's assistant response
+                        conversation_history = await api_service.get_conversation_history(int(message.conversation_id)) or []
+                        conversation_history_with_latest = list(conversation_history)
+                        conversation_history_with_latest.append({
+                            "is_user": False,
+                            "content": response_data.final_response
+                        })
+                        exploration_data = await evaluate_exploration_directions(
+                            conversation_id=int(message.conversation_id),
+                            core_theme=core_theme,
+                            conversation_history=conversation_history_with_latest,
+                            current_query=user_input
+                        )
+                        if exploration_data:
+                            exploration_directions_list = exploration_data.get('directions', [])
+                            logger.info(f"Exploration directions: {exploration_directions_list}")
+                            exploration_step = {
+                                'name': 'exploration_directions_evaluation',
+                                'enabled': True,
+                                'prompt': exploration_data.get('prompt', ''),
+                                'result': ', '.join(exploration_directions_list or []),
+                                'directions': exploration_directions_list or [],
+                                'core_theme': exploration_data.get('core_theme', ''),
+                                'evaluation_successful': exploration_data.get('evaluation_successful', False)
+                            }
+                            response_data.steps.append(exploration_step)
+                            logger.info(f"Generated {len(exploration_directions_list or [])} exploration directions for conversation {message.conversation_id}")
+                    else:
+                        logger.debug(f"No core theme found for conversation {message.conversation_id}, skipping exploration directions")
+                except Exception as e:
+                    logger.error(f"Error in exploration directions evaluation for conversation {message.conversation_id}: {e}", exc_info=True)
+                        
+                    
             # Create a client for fetching the prompt version ID
             backend_url = os.getenv("BACKEND_CALLBACK_BASE_URL", "http://localhost:5000")
             async with httpx.AsyncClient() as client:
