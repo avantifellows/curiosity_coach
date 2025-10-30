@@ -14,6 +14,9 @@ from src.models import (
     get_user_conversations_list,
     has_messages
 )
+from src.analytics_agent.registry import MEMORY_GENERATION_EVENT
+from src.analytics_agent.scheduler import enqueue_flows
+
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +59,7 @@ async def generate_memory_sync(conversation_id: int, db: Session):
         memory = get_memory_for_conversation(db, conversation_id)
         if memory:
             logger.info(f"Memory generated successfully for conversation {conversation_id}")
+            await enqueue_flows(conversation_id, MEMORY_GENERATION_EVENT)
             return memory
         await asyncio.sleep(1)  # Non-blocking sleep
         db.expire_all()  # Refresh DB session

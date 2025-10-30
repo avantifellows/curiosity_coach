@@ -119,6 +119,41 @@ class MessagePipelineData(Base):
 
     message = relationship("Message", back_populates="pipeline_info")
 
+
+class LMHomework(Base):
+    __tablename__ = "lm_homework"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+
+    # Conversation where homework was generated
+    conversation_id_generated = Column(Integer, ForeignKey("conversations.id", ondelete="SET NULL"), nullable=True, index=True)
+
+    content = Column(Text, nullable=False)
+
+    # Allowed: 'Complete', 'Incomplete', 'Active'
+    status = Column(String(20), nullable=False, index=True, server_default="Active")
+
+    remark = Column(Text, nullable=True)
+    response_of_kid = Column(Text, nullable=True)
+
+    # Conversation where the homework was discussed later
+    conversation_id_discussed = Column(Integer, ForeignKey("conversations.id", ondelete="SET NULL"), nullable=True, index=True)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    user = relationship("User")
+    conversation_generated = relationship("Conversation", foreign_keys=[conversation_id_generated])
+    conversation_discussed = relationship("Conversation", foreign_keys=[conversation_id_discussed])
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('Complete','Incomplete','Active')",
+            name="ck_lm_homework_status_valid"
+        ),
+    )
+
 # --- Prompt Versioning Models ---
 
 class Prompt(Base):
