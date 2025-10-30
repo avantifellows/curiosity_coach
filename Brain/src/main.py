@@ -31,7 +31,7 @@ from src.core.user_persona_generator import generate_persona_for_user
 from pydantic import ValidationError
 from src.utils.prompt_injection import inject_core_theme_placeholder
 from src.core.exploration_directions_config import EXPLORATION_DIRECTIONS_ENABLED
-
+from src.analytics_agent import runner as analytics_runner
 # Load environment variables from .env file
 load_dotenv()
 
@@ -198,6 +198,9 @@ class BatchTaskRequest(BaseModel):
     task_type: str
     conversation_ids: Optional[List[int]] = None
     user_id: Optional[int] = None
+    conversation_id: Optional[int] = None
+    flows: Optional[List[str]] = None
+    event: Optional[str] = None
 
 # Updated dequeue function containing the core logic
 async def dequeue(message: MessagePayload, background_tasks: Optional[BackgroundTasks] = None):
@@ -1104,6 +1107,11 @@ async def handle_batch_tasks(task_request: BatchTaskRequest, background_tasks: B
         logger.info(f"Queued background task for user persona generation for user_id: {task_request.user_id}.")
         return {"message": f"Accepted task to generate user persona for user_id: {task_request.user_id}."}
 
+    elif task_request.task_type == "RUN_LM_ANALYTICS_FLOWS":
+        if not task_request.conversation_id or not task_request.flows:
+            raise HTTPException(status_code=400, detail="conversation_id and flows are required")
+        background_tasks.add_task(analytics_runner.run_flows, task_request.conversation_id, task_request.flows)
+        return {"message": f"Accepted analytics flows for conversation_id={task_request.conversation_id}", "flows": task_request.flows}
     else:
         logger.warning(f"Received unknown task type: {task_request.task_type}")
         raise HTTPException(status_code=400, detail=f"Unknown task type: {task_request.task_type}")

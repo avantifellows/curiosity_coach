@@ -290,6 +290,25 @@ class APIService:
         except Exception as e:
             logger.warning(f"Error fetching messages with pipeline for conversation {conversation_id}: {e}")
             return []
+        
+    async def get_production_prompt_version(self, prompt_name: str) -> Dict[str, Any]:
+        url = f"{self.backend_url}/api/prompts/{prompt_name}/versions/production"
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.get(url)
+            resp.raise_for_status()
+            return resp.json()
+
+    async def post_homework_items(self, conversation_id: int, items: list) -> None:
+        url = f"{self.backend_url}/api/internal/analytics/homework/{conversation_id}" 
+        try:
+            async with httpx.AsyncClient(timeout=20.0) as client:
+                print("Posting homework items for conversation {0}".format(conversation_id))
+                await client.post(url, headers={"Content-Type": "application/json"}, json={"items": items})
+                print("Successfully posted homework items for conversation {0}".format(conversation_id))
+                return True
+        except Exception as e:
+            logger.error(f"Error posting homework items for conversation {conversation_id}: {e}")
+            return False
 
 
 # Singleton instance

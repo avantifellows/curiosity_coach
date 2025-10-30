@@ -10,10 +10,13 @@ from src.models import (
     UserPersona, Conversation, ConversationMemory, 
     Prompt, PromptVersion, get_conversation, save_message,
     save_message_pipeline_data, update_conversation_core_chat_theme,
-    Message, MessagePipelineData
+    Message, MessagePipelineData, LMHomework
 )
 from src.onboarding.schemas import OpeningMessageCallbackPayload
 import logging
+from src.analytics_agent.schemas import HomeworkItemsPayload, AnalyticsTriggerPayload
+from src.analytics_agent.registry import MEMORY_GENERATION_EVENT, flows_for_event
+from src.analytics_agent.scheduler import enqueue_flows
 
 logger = logging.getLogger(__name__)
 
@@ -302,3 +305,34 @@ def get_conversation_messages_with_pipeline(
     
     logger.info(f"Retrieved {len(result)} messages with pipeline data for conversation {conversation_id}")
     return {"success": True, "messages": result}
+
+
+@router.post("/analytics/homework/{conversation_id}", status_code=204)
+def save_homework_items(conversation_id: int, payload: HomeworkItemsPayload, db: Session = Depends(get_db)):
+    conv = db.query(Conversation).get(conversation_id)
+    if not conv:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    try:
+        for item in payload.items:
+            content = item.content
+            if not content:
+                continue
+            db.add(LMHomework(
+                user_id=conv.user_id,
+                conversation_id_generated=conversation_id,
+                content=content,
+                status=(item.status or "Active")
+            ))
+        db.commit()
+        return
+    except Exception as e:
+        logger.error(f"Error saving homework items for conversation {conversation_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Error saving homework items: {str(e)}")
+
+
+@router.post("/analytics/run-flows", status_code=202)
+async def trigger_analytics_flows(payload: AnalyticsTriggerPayload):
+    flow_list = payload.flows or flows_for_event(payload.event or MEMORY_GENERATION_EVENT)
+    await enqueue_flows(payload.conversation_id, payload.event or MEMORY_GENERATION_EVENT, flow_list)
+    return {"scheduled": flow_list}
