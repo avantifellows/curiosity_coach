@@ -35,6 +35,7 @@ class UserResponse(BaseModel):
     phone_number: Optional[str] = None
     name: Optional[str] = None
     created_at: datetime
+    student: Optional['StudentResponse'] = None  # Forward reference, defined below
 
     model_config = ConfigDict(from_attributes=True)
 
