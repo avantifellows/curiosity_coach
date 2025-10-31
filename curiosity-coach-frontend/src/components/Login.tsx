@@ -76,7 +76,12 @@ const Login: React.FC = () => {
         });
 
         if (response.success && response.user) {
-          login(response.user);
+          // Merge student data into user object for localStorage
+          const userWithStudent = {
+            ...response.user,
+            student: response.student
+          };
+          login(userWithStudent);
 
           // Preserve query parameters during navigation
           const queryParams = new URLSearchParams(location.search);

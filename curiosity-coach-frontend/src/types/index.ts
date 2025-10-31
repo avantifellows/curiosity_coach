@@ -2,6 +2,7 @@ export interface User {
   id: number;
   phone_number?: string;
   name?: string;
+  student?: Student;  // Include student profile if user is a student
 }
 
 export interface Message {
