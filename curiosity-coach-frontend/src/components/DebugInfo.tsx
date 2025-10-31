@@ -19,7 +19,7 @@ const DebugInfo: React.FC<DebugInfoProps> = ({ visitNumber, promptVersionId }) =
   if (visitNumber === null) return null;
 
   return (
-    <div className="fixed top-4 right-4 z-50 bg-black bg-opacity-80 text-white p-3 rounded-lg shadow-lg text-xs font-mono max-w-xs backdrop-blur-sm">
+    <div className="fixed top-20 right-4 z-50 bg-black bg-opacity-80 text-white p-3 rounded-lg shadow-lg text-xs font-mono max-w-xs backdrop-blur-sm">
       <div className="flex items-center gap-2 mb-2 border-b border-gray-600 pb-2">
         <Code fontSize="small" />
         <span className="font-bold">Debug Info</span>

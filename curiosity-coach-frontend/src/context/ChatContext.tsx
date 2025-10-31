@@ -627,7 +627,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   }, [user]); // Removed fetchBrainConfigSchema from deps for now
 
-  // --- Initial Fetch --- 
+  // --- Initial Fetch ---
   useEffect(() => {
     if (user) {
       // Reset the auto-creation flag when user logs in
@@ -653,7 +653,8 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           cleanupPollingRef.current();
       }
     };
-  }, [user, fetchConversations]); // Include fetchConversations in dependencies
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]); // Only depend on user - fetchConversations causes double-trigger bug
 
   // --- Value Provided by Context ---
   const value: ChatContextState = {

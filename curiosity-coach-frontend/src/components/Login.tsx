@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { loginUser } from '../services/api';
+import { loginUser, loginStudent, getStudentOptions } from '../services/api';
+import { StudentOptions } from '../types';
 
 const Login: React.FC = () => {
   const [identifier, setIdentifier] = useState('');
@@ -11,23 +12,79 @@ const Login: React.FC = () => {
   const location = useLocation();
   const { login } = useAuth();
 
+  // Student login state
+  const [school, setSchool] = useState('');
+  const [grade, setGrade] = useState<number | ''>('');
+  const [section, setSection] = useState('');
+  const [rollNumber, setRollNumber] = useState<number | ''>('');
+  const [firstName, setFirstName] = useState('');
+  const [studentOptions, setStudentOptions] = useState<StudentOptions | null>(null);
+
+  // Debug mode detection from URL query params
+  const searchParams = new URLSearchParams(location.search);
+  const debugMode = searchParams.get('debug') === 'true';
+
+  // Fetch student options on component mount (only if not in debug mode)
+  useEffect(() => {
+    if (!debugMode) {
+      const fetchOptions = async () => {
+        try {
+          const options = await getStudentOptions();
+          setStudentOptions(options);
+        } catch (err) {
+          console.error('Failed to fetch student options:', err);
+          setError('Failed to load student options. Please refresh the page.');
+        }
+      };
+      fetchOptions();
+    }
+  }, [debugMode]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setIsLoading(true);
 
     try {
-      // Call the API to login with identifier (phone or name)
-      const response = await loginUser(identifier);
-      if (response.success && response.user) {
-        login(response.user);
-        
-        // Preserve query parameters during navigation
-        const queryParams = new URLSearchParams(location.search);
-        const targetPath = queryParams.toString() ? `/chat?${queryParams.toString()}` : '/chat';
-        navigate(targetPath);
+      if (debugMode) {
+        // Debug mode: use identifier-based login
+        const response = await loginUser(identifier);
+        if (response.success && response.user) {
+          login(response.user);
+
+          // Preserve query parameters during navigation
+          const queryParams = new URLSearchParams(location.search);
+          const targetPath = queryParams.toString() ? `/chat?${queryParams.toString()}` : '/chat';
+          navigate(targetPath);
+        } else {
+          setError(response.message || 'Login failed');
+        }
       } else {
-        setError(response.message || 'Login failed');
+        // Student mode: use student login
+        if (!school || grade === '' || rollNumber === '' || !firstName) {
+          setError('Please fill in all required fields');
+          setIsLoading(false);
+          return;
+        }
+
+        const response = await loginStudent({
+          school,
+          grade: Number(grade),
+          section: section || null,
+          roll_number: Number(rollNumber),
+          first_name: firstName
+        });
+
+        if (response.success && response.user) {
+          login(response.user);
+
+          // Preserve query parameters during navigation
+          const queryParams = new URLSearchParams(location.search);
+          const targetPath = queryParams.toString() ? `/chat?${queryParams.toString()}` : '/chat';
+          navigate(targetPath);
+        } else {
+          setError(response.message || 'Student login failed');
+        }
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to log in');
@@ -47,23 +104,125 @@ const Login: React.FC = () => {
             Sign in to start your learning journey
           </p>
         </div>
-        
+
         <form className="mt-6 sm:mt-8 space-y-4 sm:space-y-6" onSubmit={handleSubmit}>
-          <div>
-            <label htmlFor="identifier" className="sr-only">Name or Phone Number</label>
-            <input
-              id="identifier"
-              name="identifier"
-              type="text"
-              autoComplete="off"
-              required
-              className="appearance-none relative block w-full px-3 py-3 sm:py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-md focus:outline-hidden focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 text-base sm:text-sm"
-              placeholder="Your name or phone number"
-              value={identifier}
-              onChange={(e) => setIdentifier(e.target.value)}
-            />
-            <p className="mt-1 text-xs text-gray-500">Enter your name (e.g., Surya) or phone number</p>
-          </div>
+          {debugMode ? (
+            // Debug mode: Simple identifier input
+            <div>
+              <label htmlFor="identifier" className="sr-only">User ID</label>
+              <input
+                id="identifier"
+                name="identifier"
+                type="text"
+                autoComplete="off"
+                required
+                className="appearance-none relative block w-full px-3 py-3 sm:py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-md focus:outline-hidden focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 text-base sm:text-sm"
+                placeholder="User ID"
+                value={identifier}
+                onChange={(e) => setIdentifier(e.target.value)}
+              />
+              <p className="mt-1 text-xs text-gray-500">Developer mode: Enter user ID for testing</p>
+            </div>
+          ) : (
+            // Student mode: Multiple fields
+            <>
+              <div>
+                <label htmlFor="school" className="block text-sm font-medium text-gray-700 mb-1">
+                  School *
+                </label>
+                <select
+                  id="school"
+                  name="school"
+                  required
+                  className="appearance-none relative block w-full px-3 py-3 sm:py-2 border border-gray-300 text-gray-900 rounded-md focus:outline-hidden focus:ring-indigo-500 focus:border-indigo-500 text-base sm:text-sm"
+                  value={school}
+                  onChange={(e) => setSchool(e.target.value)}
+                >
+                  <option value="">Select your school</option>
+                  {studentOptions?.schools.map((s) => (
+                    <option key={s} value={s}>{s}</option>
+                  ))}
+                </select>
+                <p className="mt-1 text-xs text-gray-500">Choose your school from the list</p>
+              </div>
+
+              <div>
+                <label htmlFor="grade" className="block text-sm font-medium text-gray-700 mb-1">
+                  Grade *
+                </label>
+                <select
+                  id="grade"
+                  name="grade"
+                  required
+                  className="appearance-none relative block w-full px-3 py-3 sm:py-2 border border-gray-300 text-gray-900 rounded-md focus:outline-hidden focus:ring-indigo-500 focus:border-indigo-500 text-base sm:text-sm"
+                  value={grade}
+                  onChange={(e) => setGrade(Number(e.target.value))}
+                >
+                  <option value="">Select your grade</option>
+                  {studentOptions?.grades.map((g) => (
+                    <option key={g} value={g}>Grade {g}</option>
+                  ))}
+                </select>
+                <p className="mt-1 text-xs text-gray-500">Select your current grade (3 to 10)</p>
+              </div>
+
+              <div>
+                <label htmlFor="section" className="block text-sm font-medium text-gray-700 mb-1">
+                  Section (Optional)
+                </label>
+                <select
+                  id="section"
+                  name="section"
+                  className="appearance-none relative block w-full px-3 py-3 sm:py-2 border border-gray-300 text-gray-900 rounded-md focus:outline-hidden focus:ring-indigo-500 focus:border-indigo-500 text-base sm:text-sm"
+                  value={section}
+                  onChange={(e) => setSection(e.target.value)}
+                >
+                  <option value="">No section / Not applicable</option>
+                  {studentOptions?.sections.map((s) => (
+                    <option key={s} value={s}>Section {s}</option>
+                  ))}
+                </select>
+                <p className="mt-1 text-xs text-gray-500">Select your section if your school has sections (A, B, C, etc.)</p>
+              </div>
+
+              <div>
+                <label htmlFor="rollNumber" className="block text-sm font-medium text-gray-700 mb-1">
+                  Roll Number *
+                </label>
+                <input
+                  id="rollNumber"
+                  name="rollNumber"
+                  type="number"
+                  min="1"
+                  max="100"
+                  required
+                  className="appearance-none relative block w-full px-3 py-3 sm:py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-md focus:outline-hidden focus:ring-indigo-500 focus:border-indigo-500 text-base sm:text-sm"
+                  placeholder="Enter your roll number"
+                  value={rollNumber}
+                  onChange={(e) => setRollNumber(e.target.value ? Number(e.target.value) : '')}
+                />
+                <p className="mt-1 text-xs text-gray-500">Your roll number in your class (1-100)</p>
+              </div>
+
+              <div>
+                <label htmlFor="firstName" className="block text-sm font-medium text-gray-700 mb-1">
+                  First Name *
+                </label>
+                <input
+                  id="firstName"
+                  name="firstName"
+                  type="text"
+                  autoComplete="given-name"
+                  required
+                  className="appearance-none relative block w-full px-3 py-3 sm:py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-md focus:outline-hidden focus:ring-indigo-500 focus:border-indigo-500 text-base sm:text-sm"
+                  placeholder="Enter your first name"
+                  value={firstName}
+                  onChange={(e) => setFirstName(e.target.value)}
+                />
+                <p className="mt-1 text-xs text-gray-500">Enter your first name (e.g., Amit, Priya)</p>
+              </div>
+            </>
+          )}
 
           {error && (
             <div className="text-red-500 text-sm text-center px-2">{error}</div>
