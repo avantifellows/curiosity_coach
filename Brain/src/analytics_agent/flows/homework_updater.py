@@ -22,16 +22,16 @@ async def run(conversation_id: int) -> None:
     llm = LLMService()
     response_dict = await asyncio.to_thread(llm.generate_response, final_prompt, "homework_updater", True)
     raw = response_dict.get("raw_response", "")
-    print(raw)
-    print(type(raw))
-    print(len(raw))
-    print("--------------------------------")
     try:
         items = json.loads(raw)["cliffhangers in conversation"]
         print(items)
         temp_dict = [{"content": item} for item in items]
+        print(temp_dict)
+        print(type(temp_dict))
+        print(len(temp_dict))
+        print("--------------------------------")
         if isinstance(items, list) and items:
-            await api_service.post_homework_items(conversation_id, temp_dict)
+            await api_service.post_generic_flow_items("homework", conversation_id, temp_dict)
     except Exception as e:
         print("Error parsing JSON")
         print(e)
