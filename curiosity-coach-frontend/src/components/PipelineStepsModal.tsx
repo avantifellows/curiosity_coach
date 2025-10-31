@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { CircularProgress } from '@mui/material';
 import { KeyboardArrowDown, KeyboardArrowUp } from '@mui/icons-material';
 
@@ -62,8 +63,8 @@ const PipelineStepsModal: React.FC<PipelineStepsModalProps> = ({
     }));
   };
 
-  return (
-    <div 
+  return createPortal(
+    <div
       className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full flex justify-center items-start sm:items-center z-50 p-2 sm:p-4"
       onClick={(e) => {
         if (e.target === e.currentTarget) { // Check if the click is on the backdrop itself
@@ -258,7 +259,8 @@ const PipelineStepsModal: React.FC<PipelineStepsModalProps> = ({
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };
 

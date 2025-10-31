@@ -1,6 +1,9 @@
 from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.orm import Session
-from src.auth.schemas import PhoneNumberRequest, LoginRequest, LoginResponse, UserResponse
+from src.auth.schemas import (
+    PhoneNumberRequest, LoginRequest, LoginResponse, UserResponse,
+    StudentLoginRequest, StudentLoginResponse, StudentResponse
+)
 from src.auth.service import auth_service
 from src.database import get_db # Import the dependency
 from src.models import User # Import User model for potential type hinting if needed
@@ -64,9 +67,36 @@ async def login_with_phone(request: PhoneNumberRequest, db: Session = Depends(ge
 async def read_users_me(current_user: User = Depends(get_current_user)):
     """
     Fetch the details of the currently authenticated user.
-    Relies on the get_current_user dependency to validate the token 
+    Relies on the get_current_user dependency to validate the token
     and retrieve the user.
     """
     # If Depends(get_current_user) succeeds, current_user is the valid User object.
     # Pydantic will automatically serialize it based on UserResponse schema.
-    return current_user 
+    return current_user
+
+@router.post("/student/login", response_model=StudentLoginResponse)
+async def login_with_student(request: StudentLoginRequest, db: Session = Depends(get_db)):
+    """
+    Authenticate a student with their school, grade, section, roll number, and first name.
+    Creates a new user and student profile if the student doesn't exist.
+    """
+    try:
+        # Get or create student
+        user, student = await auth_service.login_with_student(
+            db=db,
+            school=request.school,
+            grade=request.grade,
+            section=request.section,
+            roll_number=request.roll_number,
+            first_name=request.first_name
+        )
+
+        return {
+            'success': True,
+            'message': 'Student login successful',
+            'user': user,
+            'student': student
+        }
+    except Exception as e:
+        print(f"Student login error: {e}")
+        raise HTTPException(status_code=500, detail=f"Error during student login: {str(e)}") 

@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { LoginResponse, Message, ChatHistory, SendMessageResponse, ConversationSummary, Conversation, ConversationCreateResponse, User } from '../types';
+import { LoginResponse, Message, ChatHistory, SendMessageResponse, ConversationSummary, Conversation, ConversationCreateResponse, User, StudentLoginResponse, StudentLoginRequest, StudentOptions } from '../types';
 
 const API = axios.create({
   baseURL: process.env.REACT_APP_BACKEND_BASE_URL + '/api' || '/api',
@@ -25,6 +25,26 @@ export const loginUser = async (identifier: string): Promise<LoginResponse> => {
   } catch (error: any) {
     console.error("Login error:", error.response?.data || error.message);
     throw new Error(error.response?.data?.detail || 'Login failed');
+  }
+};
+
+export const loginStudent = async (studentData: StudentLoginRequest): Promise<StudentLoginResponse> => {
+  try {
+    const response = await API.post('/auth/student/login', studentData);
+    return response.data;
+  } catch (error: any) {
+    console.error("Student login error:", error.response?.data || error.message);
+    throw new Error(error.response?.data?.detail || 'Student login failed');
+  }
+};
+
+export const getStudentOptions = async (): Promise<StudentOptions> => {
+  try {
+    const response = await API.get('/config/student-options');
+    return response.data;
+  } catch (error: any) {
+    console.error("Error fetching student options:", error.response?.data || error.message);
+    throw new Error(error.response?.data?.detail || 'Failed to get student options');
   }
 };
 

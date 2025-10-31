@@ -20,6 +20,35 @@ class User(Base):
     conversations = relationship("Conversation", back_populates="user", cascade="all, delete-orphan")
     persona = relationship("UserPersona", back_populates="user", uselist=False, cascade="all, delete-orphan")
     feedbacks = relationship("UserFeedback", back_populates="user", cascade="all, delete-orphan")
+    student_profile = relationship("Student", back_populates="user", uselist=False, cascade="all, delete-orphan")
+
+class Student(Base):
+    """
+    Student profile data linked to User.
+    A student is a user with additional profile information.
+    """
+    __tablename__ = "students"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), unique=True, nullable=False, index=True)
+    school = Column(String(100), nullable=False, index=True)
+    grade = Column(Integer, nullable=False, index=True)
+    section = Column(String(10), nullable=True, index=True)  # Optional: A, B, C, etc.
+    roll_number = Column(Integer, nullable=False, index=True)
+    first_name = Column(String(50), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    # Relationship back to User
+    user = relationship("User", back_populates="student_profile")
+
+    # Composite unique constraint: school + grade + section + roll_number uniquely identifies a student
+    __table_args__ = (
+        UniqueConstraint('school', 'grade', 'section', 'roll_number',
+                        name='uq_student_identifier'),
+    )
+
+    def __repr__(self):
+        return f"<Student(id={self.id}, user_id={self.user_id}, school='{self.school}', grade={self.grade}, section='{self.section}', roll={self.roll_number}, name='{self.first_name}')>"
 
 class UserFeedback(Base):
     __tablename__ = "user_feedback"
@@ -598,3 +627,63 @@ def update_conversation_core_chat_theme(db: Session, conversation_id: int, new_c
     db.commit()
     db.refresh(conversation)
     return conversation
+
+# --- Student CRUD Functions ---
+
+def get_or_create_student(
+    db: Session,
+    school: str,
+    grade: int,
+    section: Optional[str],
+    roll_number: int,
+    first_name: str
+) -> User:
+    """
+    Get or create a student by their unique identifier (school, grade, section, roll_number).
+    Returns the associated User object.
+    """
+    # Normalize inputs
+    school = school.strip()
+    first_name = first_name.strip().title()
+    section = section.strip().upper() if section else None
+
+    # Check if student already exists
+    student = db.query(Student).filter(
+        Student.school == school,
+        Student.grade == grade,
+        Student.section == section,
+        Student.roll_number == roll_number
+    ).first()
+
+    if student:
+        # Student exists, return the associated user
+        return student.user
+
+    # Student doesn't exist, create new user and student profile
+    # Create a unique name for the user table (composite identifier)
+    section_part = f"_{section}" if section else ""
+    # Replace spaces in school name with underscores for cleaner username
+    school_normalized = school.replace(" ", "_")
+    user_name = f"{first_name}_{school_normalized}_{grade}{section_part}_{roll_number}"
+
+    user = User(name=user_name)
+    db.add(user)
+    db.flush()  # Get user.id without committing
+
+    student = Student(
+        user_id=user.id,
+        school=school,
+        grade=grade,
+        section=section,
+        roll_number=roll_number,
+        first_name=first_name
+    )
+    db.add(student)
+    db.commit()
+    db.refresh(user)
+
+    return user
+
+def get_student_by_user_id(db: Session, user_id: int) -> Optional[Student]:
+    """Get student profile by user_id."""
+    return db.query(Student).filter(Student.user_id == user_id).first()
