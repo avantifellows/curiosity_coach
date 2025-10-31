@@ -154,6 +154,24 @@ class LMHomework(Base):
         ),
     )
 
+
+class LMUserKnowledge(Base):
+    __tablename__ = "lm_user_knowledge"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    remark = Column(Text, nullable=True)
+    conversation_id = Column(Integer, ForeignKey("conversations.id", ondelete="SET NULL"), nullable=True, index=True)
+    summary = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    user = relationship("User")
+    conversation = relationship("Conversation")
+    
+    __table_args__ = (
+        UniqueConstraint("user_id", "conversation_id", name="uq_user_conversation"),
+    )
+
+
 # --- Prompt Versioning Models ---
 
 class Prompt(Base):

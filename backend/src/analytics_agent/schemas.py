@@ -11,6 +11,13 @@ class HomeworkItemIn(BaseModel):
 class HomeworkItemsPayload(BaseModel):
     items: List[HomeworkItemIn]
     
+class KnowledgeItemIn(BaseModel):
+    summary: str
+    remark: Optional[str] = None
+    
+class KnowledgeItemsPayload(BaseModel):
+    items: List[KnowledgeItemIn]
+     
 class AnalyticsTriggerPayload(BaseModel):
     conversation_id: int
     flows: Optional[List[str]] = None

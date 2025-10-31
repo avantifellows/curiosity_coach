@@ -298,17 +298,16 @@ class APIService:
             resp.raise_for_status()
             return resp.json()
 
-    async def post_homework_items(self, conversation_id: int, items: list) -> None:
-        url = f"{self.backend_url}/api/internal/analytics/homework/{conversation_id}" 
+        
+    async def post_generic_flow_items(self, flow_slug: str, conversation_id: int, items: list) -> bool:
+        url = f"{self.backend_url}/api/internal/analytics/{flow_slug}/{conversation_id}"
         try:
             async with httpx.AsyncClient(timeout=20.0) as client:
-                print("Posting homework items for conversation {0}".format(conversation_id))
                 await client.post(url, headers={"Content-Type": "application/json"}, json={"items": items})
-                print("Successfully posted homework items for conversation {0}".format(conversation_id))
-                return True
+            return True
         except Exception as e:
-            logger.error(f"Error posting homework items for conversation {conversation_id}: {e}")
-            return False
+            logger.error(f"Error posting items for flow {flow_slug} (conversation {conversation_id}): {e}")
+            return False 
 
 
 # Singleton instance

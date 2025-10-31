@@ -1,0 +1,167 @@
+### Concrete steps (new table per flow)
+
+- **Design the table fields**
+  - Decide required columns (e.g., `id`, `user_id`, `conversation_id_generated`, core payload fields, status enums, timestamps).
+  - Add useful indexes: `user_id`, `status`, `conversation_id_*`.
+
+- **Add SQLAlchemy model**
+  - File: `backend/src/models.py`
+```python
+class LMYourFlow(Base):
+    __tablename__ = "lm_your_flow"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+
+    conversation_id_generated = Column(Integer, ForeignKey("conversations.id", ondelete="SET NULL"), nullable=True, index=True)
+
+    content = Column(Text, nullable=False)
+    status = Column(String(20), nullable=False, index=True, server_default="Active")  # adapt as needed
+    # add flow-specific fields...
+    remark = Column(Text, nullable=True)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    user = relationship("User")
+    conversation_generated = relationship("Conversation", foreign_keys=[conversation_id_generated])
+
+    __table_args__ = (
+        CheckConstraint("status IN ('Complete','Incomplete','Active')", name="ck_lm_your_flow_status_valid"),
+    )
+```
+
+- **Create Alembic migration**
+  - Update the model, then:
+```bash
+poetry run alembic revision -m "add lm_your_flow"
+poetry run alembic upgrade head
+```
+  - If not using autogenerate, write the `op.create_table(...)` and indexes similar to `lm_homework`.
+
+- **Define Pydantic schemas for the input payload**
+  - File: `backend/src/analytics_agent/schemas.py`
+```python
+class YourFlowItemIn(BaseModel):
+    content: str
+    status: Optional[str] = None
+    remark: Optional[str] = None
+
+class YourFlowItemsPayload(BaseModel):
+    items: List[YourFlowItemIn]
+```
+
+- **Add an internal backend endpoint to persist flow output**
+  - File: `backend/src/internal/router.py`
+```python
+@router.post("/analytics/your-flow/{conversation_id}", status_code=204)
+def save_your_flow_items(conversation_id: int, payload: YourFlowItemsPayload, db: Session = Depends(get_db)):
+    conv = db.query(Conversation).get(conversation_id)
+    if not conv:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    try:
+        for item in payload.items:
+            if not item.content:
+                continue
+            db.add(LMYourFlow(
+                user_id=conv.user_id,
+                conversation_id_generated=conversation_id,
+                content=item.content,
+                status=(item.status or "Active"),
+                remark=item.remark,
+            ))
+        db.commit()
+        return
+    except Exception as e:
+        logger.error(f"Error saving your-flow items for conversation {conversation_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Error saving your-flow items: {str(e)}")
+```
+
+- **Create the Brain flow**
+  - File: `Brain/src/analytics_agent/flows/your_flow.py`
+```python
+import asyncio, json
+from typing import Any, Dict, List
+from src.services.api_service import api_service
+from src.services.llm_service import LLMService  # assuming same pattern
+
+def _format_history(history: List[Dict[str, Any]]) -> str:
+    return "\n".join([f"{'User' if m['is_user'] else 'AI'}: {m['content']}" for m in history])
+
+async def run(conversation_id: int) -> None:
+    history = await api_service.get_conversation_history(conversation_id)
+    if not history:
+        return
+    pv = await api_service.get_production_prompt_version("lm_your_flow")
+    prompt_text = pv.get("prompt_text", "")
+    if not prompt_text:
+        return
+    final_prompt = prompt_text.replace("{{CONVERSATION_HISTORY}}", _format_history(history))
+
+    llm = LLMService()
+    response = await asyncio.to_thread(llm.generate_response, final_prompt, "your_flow", True)
+    raw = response.get("raw_response", "")
+    try:
+        items = json.loads(raw)["items"]  # align with your prompt’s JSON schema
+        if isinstance(items, list) and items:
+            payload = [{"content": it} if isinstance(it, str) else it for it in items]
+            await api_service.post_generic_flow_items("your-flow", conversation_id, payload)
+    except Exception:
+        return
+```
+  - Add a convenience poster in `APIService` or reuse a generic poster:
+```python
+async def post_generic_flow_items(self, flow_slug: str, conversation_id: int, items: list) -> bool:
+    url = f"{self.backend_url}/api/internal/analytics/{flow_slug}/{conversation_id}"
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        await client.post(url, headers={"Content-Type": "application/json"}, json={"items": items})
+    return True
+```
+
+- **Register the Brain flow handler**
+  - File: `Brain/src/analytics_agent/flows/__init__.py`
+```python
+from . import your_flow
+
+FLOW_HANDLERS.update({
+    "lm_your_flow": your_flow.run,
+})
+```
+
+- **Optionally map the flow to an event**
+  - File: `backend/src/analytics_agent/registry.py`
+```python
+FLOW_REGISTRY = {
+    MEMORY_GENERATION_EVENT: ["lm_homework_updater", "lm_your_flow"],
+}
+```
+
+- **Triggering**
+  - Via event mapping:
+    - POST `POST /api/internal/analytics/run-flows` with:
+```json
+{ "conversation_id": 123, "event": "memory_generation" }
+```
+  - Directly:
+```json
+{ "conversation_id": 123, "flows": ["lm_your_flow"] }
+```
+
+- **Prompts**
+  - Create a prompt named `lm_your_flow` and a production prompt version. The flow fetches it via `get_production_prompt_version("lm_your_flow")`.
+
+- **Validation and indexing**
+  - Add `CheckConstraint`s for enums, and create indexes on high-selectivity columns. Mirror `lm_homework` style for consistency.
+
+- **Observability**
+  - Add logs in Brain and backend endpoint; consider saving pipeline data with messages if relevant.
+
+- **Security and schema evolution**
+  - Keep internal endpoints under `/api/internal` and excluded from public docs.
+  - Ensure Alembic migrations are committed and run in each environment.
+
+- **Naming convention**
+  - Table: `lm_<flow_slug>`
+  - Model: `LM<PascalCaseFlow>`
+  - Endpoint: `/api/internal/analytics/<flow-slug>/{conversation_id}`
+  - Flow key in Brain: `lm_<flow_slug>`
