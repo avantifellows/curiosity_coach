@@ -55,6 +55,12 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ mode }) => {
   const [isLoadingMemory, setIsLoadingMemory] = useState(false);
   const [memoryError, setMemoryError] = useState<string | null>(null);
 
+  // Exploration panel state
+  const [showExplorationPanel, setShowExplorationPanel] = useState(false);
+  const [explorationDirections, setExplorationDirections] = useState<string[]>([]);
+  const [explorationPrompt, setExplorationPrompt] = useState<string | undefined>(undefined);
+  const lastShownAiIdRef = React.useRef<number | string | null>(null);
+
   const { user, logout } = useAuth();
   const location = useLocation();
 
