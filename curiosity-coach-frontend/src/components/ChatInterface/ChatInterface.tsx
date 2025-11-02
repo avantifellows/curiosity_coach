@@ -55,13 +55,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ mode }) => {
   const [isLoadingMemory, setIsLoadingMemory] = useState(false);
   const [memoryError, setMemoryError] = useState<string | null>(null);
 
-  // Exploration panel state
-  const [showExplorationPanel, setShowExplorationPanel] = useState(false);
-  const [explorationDirections, setExplorationDirections] = useState<string[]>([]);
-  const [explorationPrompt, setExplorationPrompt] = useState<string | undefined>(undefined);
-  const lastShownAiIdRef = React.useRef<number | string | null>(null);
-
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
   const location = useLocation();
 
   // Check for debug mode
@@ -233,6 +227,9 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ mode }) => {
           isConfigViewActive={isConfigViewActive}
           onViewMemory={handleViewMemory}
           isLoadingMemory={isLoadingMemory}
+          currentVisitNumber={currentVisitNumber}
+          user={user}
+          onLogout={logout}
         />
 
         <main className="flex-1 p-2 sm:p-4 flex justify-center overflow-hidden relative">

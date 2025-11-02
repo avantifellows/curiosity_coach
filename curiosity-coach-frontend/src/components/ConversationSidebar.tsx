@@ -207,10 +207,10 @@ const ConversationSidebar: React.FC<ConversationSidebarProps> = ({ onConversatio
             </button>
             <div className="text-center">
                 <span className="user-info-text text-sm">
-                Logged in as: <span className="font-medium text-white">{user.name || user.phone_number}</span>
+                Logged in as: <span className="font-medium text-white">{user.student?.first_name || user.name || user.phone_number}</span>
                 </span>
                 <span className="mx-2 text-gray-400">|</span>
-                <button 
+                <button
                 onClick={handleLogout}
                 className="text-sm text-gray-300 hover:text-white hover:underline transition-colors duration-200"
                 >

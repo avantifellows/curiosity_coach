@@ -1,4 +1,5 @@
 import React from 'react';
+import { createPortal } from 'react-dom';
 import { CircularProgress } from '@mui/material';
 
 interface MemoryViewModalProps {
@@ -22,7 +23,7 @@ const MemoryViewModal: React.FC<MemoryViewModalProps> = ({
 
   const memoryJson = memoryData ? JSON.stringify(memoryData, null, 2) : "No memory data available.";
 
-  return (
+  return createPortal(
     <div 
       className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full flex justify-center items-start sm:items-center z-50 p-2 sm:p-4"
       onClick={(e) => {
@@ -70,7 +71,8 @@ const MemoryViewModal: React.FC<MemoryViewModalProps> = ({
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };
 
