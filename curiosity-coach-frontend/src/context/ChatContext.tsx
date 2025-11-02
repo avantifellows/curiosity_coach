@@ -120,7 +120,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       // Each login session = new visit = new conversation with appropriate prompt
       // Use ref to ensure we only create once per session
       // ONLY run on /chat route - don't auto-create when user is on other pages like /prompts
-      /*
+      
       const isOnChatRoute = location.pathname === '/chat' || location.pathname === '/';
       if (!hasAutoCreatedConversationRef.current && isOnChatRoute) {
         console.log(`[OnboardingDebug] User login detected on chat route - automatically creating new conversation (Visit ${fetchedConversations.length + 1})`);
@@ -194,7 +194,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       // Optionally select the most recent conversation by default
       // if (fetchedConversations.length > 0 && currentConversationId === null) {
       //   setCurrentConversationId(fetchedConversations[0].id);
-      // } */
+      // }
     } catch (err: any) {
       setError(err.message || 'Failed to fetch conversations');
     } finally {
