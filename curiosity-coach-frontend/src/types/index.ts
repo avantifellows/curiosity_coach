@@ -2,6 +2,7 @@ export interface User {
   id: number;
   phone_number?: string;
   name?: string;
+  student?: Student;  // Include student profile if user is a student
 }
 
 export interface Message {
@@ -104,4 +105,40 @@ export interface PromptSimple {
   updated_at: string;
   active_version_number: number | null;
   active_version_text: string | null;
-} 
+}
+
+// --- Student Types ---
+
+export interface Student {
+  id: number;
+  user_id: number;
+  school: string;
+  grade: number;
+  section?: string | null;
+  roll_number: number;
+  first_name: string;
+  created_at: string;
+}
+
+export interface StudentLoginRequest {
+  school: string;
+  grade: number;
+  section?: string | null;
+  roll_number: number;
+  first_name: string;
+}
+
+export interface StudentLoginResponse {
+  success: boolean;
+  message: string;
+  user?: User;
+  student?: Student;
+}
+
+export interface StudentOptions {
+  schools: string[];
+  grades: number[];
+  sections: string[];
+}
+
+// --- End Student Types --- 
