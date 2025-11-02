@@ -43,6 +43,8 @@ executing==2.2.0
     # via stack-data
 fastapi==0.115.12
     # via -r requirements.txt
+greenlet==3.2.4
+    # via sqlalchemy
 gunicorn==21.2.0
     # via -r requirements.txt
 h11==0.16.0
