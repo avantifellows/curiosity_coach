@@ -18,6 +18,7 @@ from src.core.core_theme_extractor import extract_core_theme_from_conversation, 
 from src.core.core_theme_config import CORE_THEME_EXTRACTION_ENABLED, CORE_THEME_TRIGGER_MESSAGE_COUNT, CORE_THEME_MAX_RETRIES, CORE_THEME_PROMPT_NAME
 # Add these imports at the top of main.py
 from src.core.chat_controller import control_chat_response
+from src.core.age_adapter import generate_response_for_13_year_old
 from src.process_query_entrypoint import process_query, process_follow_up, ProcessQueryResponse
 from src.utils.logger import logger
 # from src.core.conversational_intent_gatherer import gather_initial_intent, process_follow_up_response, ConversationalIntentError
@@ -500,6 +501,34 @@ async def dequeue(message: MessagePayload, background_tasks: Optional[Background
                 except Exception as e:
                     logger.error(f"Error applying chat controller for conversation {message.conversation_id}: {e}", exc_info=True)
                     # Continue with original response if chat controller fails
+            
+            # Apply 13-year-old simplification to the final response (unconditionally)
+            try:
+                simplify_result = await generate_response_for_13_year_old(response_data.final_response)
+                response_data.final_response = simplify_result.get("simplified_response", response_data.final_response)
+
+                if response_data.pipeline_data is None:
+                    response_data.pipeline_data = {}
+
+                step = {
+                    'name': 'response_for_13_year_old',
+                    'enabled': True,
+                    'prompt': simplify_result.get('prompt', ''),
+                    'result': simplify_result.get('simplified_response', ''),
+                    'original_response': simplify_result.get('original_response', ''),
+                    'applied': simplify_result.get('applied', False),
+                    'error': simplify_result.get('error', None)
+                }
+                response_data.steps.append(step)
+                response_data.pipeline_data['response_for_13_year_old'] = simplify_result
+                # Also ensure it shows in UI lists that read from pipeline_data['steps']
+                if 'steps' not in response_data.pipeline_data:
+                    response_data.pipeline_data['steps'] = []
+                response_data.pipeline_data['steps'].append(step)
+
+                logger.info(f"Applied 13-year-old simplification. Applied={simplify_result.get('applied', False)}")
+            except Exception as e:
+                logger.error(f"Error applying 13-year-old simplification: {e}", exc_info=True)
             
             # Now evaluate exploration directions with the latest assistant message included
             exploration_data = None
