@@ -206,7 +206,7 @@ const Login: React.FC = () => {
                   value={rollNumber}
                   onChange={(e) => setRollNumber(e.target.value ? Number(e.target.value) : '')}
                 />
-                <p className="mt-1 text-xs text-gray-500">Your roll number in your class (1-100)</p>
+                <p className="mt-1 text-xs text-gray-500">Your roll number in your class</p>
               </div>
 
               <div>
