@@ -1,8 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, BackgroundTasks
 from sqlalchemy.orm import Session
 from typing import List, Optional
 import logging
 import time
+import asyncio
 
 from src.database import get_db
 from src.models import User, Conversation # Assuming User model is needed for auth dependency
@@ -78,6 +79,7 @@ async def create_new_conversation(
     conversation_data: Optional[schemas.ConversationCreate] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    background_tasks: BackgroundTasks = Depends(),
 ):
     """
     Create a new conversation with visit tracking and onboarding preparation.
@@ -169,17 +171,18 @@ async def create_new_conversation(
         
         # 4. Handle visit-specific requirements (OUTSIDE transaction for long operations)
         if visit_number >= 2 and visit_number <= 3:
-            preparation_status = "generating_memory"
-            logger.info(f"Ensuring memories for all previous conversations (visit {visit_number})")
-            
-            # Ensure ALL previous conversations have memories
-            await ensure_memories_for_conversations(
+            preparation_status = "ready"
+            logger.info(f"Queuing memory generation for all previous conversations (visit {visit_number})")
+
+            # Queue memory generation as background task - don't block the endpoint
+            # Memory will be ready for follow-up messages even if not for opening message
+            background_tasks.add_task(
+                ensure_memories_for_conversations,
                 db=db,
                 user_id=current_user.id,
                 exclude_conversation_id=conversation.id
             )
-            
-            logger.info("Memory generation completed for all previous conversations")
+            logger.info("Memory generation queued as background task")
         
         elif visit_number >= 4:
             preparation_status = "generating_persona"
@@ -204,26 +207,29 @@ async def create_new_conversation(
                     detail="Unable to prepare your personalized experience. Please ensure you have completed at least 3 conversations with messages."
                 )
             
-            # Ensure memories exist for previous conversations (at least the first 3 with messages)
-            await ensure_memories_for_conversations(
+            # Queue memory generation as background task
+            logger.info(f"Queuing memory generation for visit {visit_number}")
+            background_tasks.add_task(
+                ensure_memories_for_conversations,
                 db=db,
                 user_id=current_user.id,
                 exclude_conversation_id=conversation.id
             )
-            
-            # THEN: Generate persona if not exists
+
+            # Check if persona exists, generate if needed
             persona = db.query(models.UserPersona).filter(
                 models.UserPersona.user_id == current_user.id
             ).first()
-            
+
             if not persona:
-                logger.info(f"Generating persona for user {current_user.id}")
-                await generate_persona_sync_with_retry(
+                logger.info(f"Queuing persona generation for user {current_user.id}")
+                # Queue persona generation as background task
+                background_tasks.add_task(
+                    generate_persona_sync_with_retry,
                     user_id=current_user.id,
                     db=db,
                     max_retries=2
                 )
-                logger.info("Persona generation completed successfully")
             else:
                 logger.info(f"Persona already exists for user {current_user.id}")
         

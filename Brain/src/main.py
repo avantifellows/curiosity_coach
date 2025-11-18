@@ -1042,7 +1042,7 @@ async def process_memory_generation_batch(conversation_ids: List[int]):
             response_dict = await asyncio.to_thread(
                 llm_service.generate_response,
                 prompt,
-                call_type="response_generation",
+                call_type="memory_generation",
                 json_mode=True
             )
             summary_json_str = response_dict.get("raw_response")
