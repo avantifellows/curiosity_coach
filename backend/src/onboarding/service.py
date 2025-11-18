@@ -27,17 +27,21 @@ async def generate_memory_sync(conversation_id: int, db: Session):
     Calls Brain's /tasks endpoint with GENERATE_MEMORY_BATCH task.
     Polls until memory is generated or timeout (120s).
     Raises TimeoutError on timeout, HTTPException on other errors.
+
+    Note: Brain may take >29s due to API Gateway limits, so we use short timeout
+    on the request and rely on polling + background processing.
     """
     brain_endpoint = (
-        settings.LOCAL_BRAIN_ENDPOINT_URL 
-        if settings.APP_ENV == "development" 
+        settings.LOCAL_BRAIN_ENDPOINT_URL
+        if settings.APP_ENV == "development"
         else settings.BRAIN_ENDPOINT_URL
     )
-    timeout = settings.MEMORY_GENERATION_TIMEOUT
-    
+    total_timeout = settings.MEMORY_GENERATION_TIMEOUT
+    request_timeout = 10  # Short timeout just to get the 202 response
+
     logger.info(f"Starting async memory generation for conversation {conversation_id}")
-    
-    # 1. Trigger Brain task
+
+    # 1. Trigger Brain task (with short timeout to avoid API Gateway issues)
     try:
         async with httpx.AsyncClient() as client:
             response = await client.post(
@@ -46,16 +50,24 @@ async def generate_memory_sync(conversation_id: int, db: Session):
                     "task_type": "GENERATE_MEMORY_BATCH",
                     "conversation_ids": [conversation_id]
                 },
-                timeout=timeout
+                timeout=request_timeout
             )
-            response.raise_for_status()
+            # Accept 202 Accepted or 503 Service Unavailable (Brain may still be working)
+            if response.status_code not in [202, 200, 503]:
+                response.raise_for_status()
+            if response.status_code == 503:
+                logger.warning(f"Got 503 from Brain for conversation {conversation_id}, but will continue polling - Brain is likely still processing")
+            else:
+                logger.info(f"Brain accepted memory generation task for conversation {conversation_id}")
+    except httpx.TimeoutException:
+        logger.warning(f"Request to Brain timed out for conversation {conversation_id}, but will continue polling - Brain is likely still processing")
     except httpx.HTTPError as e:
         logger.error(f"Error calling Brain for memory generation: {e}")
         raise HTTPException(status_code=503, detail=f"Memory generation request failed: {e}")
-    
+
     # 2. Poll for memory with timeout (using asyncio.sleep to avoid blocking)
     start_time = time.time()
-    while time.time() - start_time < timeout:
+    while time.time() - start_time < total_timeout:
         memory = get_memory_for_conversation(db, conversation_id)
         if memory:
             logger.info(f"Memory generated successfully for conversation {conversation_id}")
@@ -63,8 +75,8 @@ async def generate_memory_sync(conversation_id: int, db: Session):
             return memory
         await asyncio.sleep(1)  # Non-blocking sleep
         db.expire_all()  # Refresh DB session
-    
-    raise TimeoutError(f"Memory generation timed out after {timeout}s for conversation {conversation_id}")
+
+    raise TimeoutError(f"Memory generation timed out after {total_timeout}s for conversation {conversation_id}")
 
 
 async def generate_memory_sync_with_retry(
@@ -92,17 +104,21 @@ async def generate_persona_sync(user_id: int, db: Session):
     Asynchronously generate persona for a user.
     Calls Brain's /tasks endpoint with USER_PERSONA_GENERATION task.
     Polls until persona is generated or timeout (120s).
+
+    Note: Brain may take >29s due to API Gateway limits, so we use short timeout
+    on the request and rely on polling + background processing.
     """
     brain_endpoint = (
-        settings.LOCAL_BRAIN_ENDPOINT_URL 
-        if settings.APP_ENV == "development" 
+        settings.LOCAL_BRAIN_ENDPOINT_URL
+        if settings.APP_ENV == "development"
         else settings.BRAIN_ENDPOINT_URL
     )
-    timeout = settings.PERSONA_GENERATION_TIMEOUT
-    
+    total_timeout = settings.PERSONA_GENERATION_TIMEOUT
+    request_timeout = 10  # Short timeout just to get the 202 response
+
     logger.info(f"Starting async persona generation for user {user_id}")
-    
-    # 1. Trigger Brain task
+
+    # 1. Trigger Brain task (with short timeout to avoid API Gateway issues)
     try:
         async with httpx.AsyncClient() as client:
             response = await client.post(
@@ -111,24 +127,32 @@ async def generate_persona_sync(user_id: int, db: Session):
                     "task_type": "USER_PERSONA_GENERATION",
                     "user_id": user_id  # Brain expects singular user_id, not user_ids list
                 },
-                timeout=timeout
+                timeout=request_timeout
             )
-            response.raise_for_status()
+            # Accept 202 Accepted or 503 Service Unavailable (Brain may still be working)
+            if response.status_code not in [202, 200, 503]:
+                response.raise_for_status()
+            if response.status_code == 503:
+                logger.warning(f"Got 503 from Brain for user {user_id}, but will continue polling - Brain is likely still processing")
+            else:
+                logger.info(f"Brain accepted persona generation task for user {user_id}")
+    except httpx.TimeoutException:
+        logger.warning(f"Request to Brain timed out for user {user_id}, but will continue polling - Brain is likely still processing")
     except httpx.HTTPError as e:
         logger.error(f"Error calling Brain for persona generation: {e}")
         raise HTTPException(status_code=503, detail=f"Persona generation request failed: {e}")
-    
+
     # 2. Poll for persona with timeout (using asyncio.sleep to avoid blocking)
     start_time = time.time()
-    while time.time() - start_time < timeout:
+    while time.time() - start_time < total_timeout:
         persona = db.query(UserPersona).filter(UserPersona.user_id == user_id).first()
         if persona:
             logger.info(f"Persona generated successfully for user {user_id}")
             return persona
         await asyncio.sleep(1)  # Non-blocking sleep
         db.expire_all()  # Refresh DB session
-    
-    raise TimeoutError(f"Persona generation timed out after {timeout}s for user {user_id}")
+
+    raise TimeoutError(f"Persona generation timed out after {total_timeout}s for user {user_id}")
 
 
 async def generate_persona_sync_with_retry(
