@@ -65,8 +65,7 @@
         "user_persona_generation": {
             "provider": "openai",
             "model": "gpt-5-mini",
-            "temperature": 0.5,
-            "max_tokens": 4096
+            "max_completion_tokens": 4096
         },
         "opening_message": {
             "provider": "openai",
@@ -77,8 +76,7 @@
         "memory_generation": {
             "provider": "openai",
             "model": "gpt-5-mini",
-            "temperature": 0.5,
-            "max_tokens": 4096
+            "max_completion_tokens": 4096
         }
     },
     "providers": {
