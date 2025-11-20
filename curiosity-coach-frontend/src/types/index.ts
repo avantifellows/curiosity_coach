@@ -141,4 +141,23 @@ export interface StudentOptions {
   sections: string[];
 }
 
+export interface ConversationMessage {
+  id: number;
+  content: string;
+  is_user: boolean;
+  timestamp: string;
+}
+
+export interface ConversationWithMessages {
+  id: number;
+  title: string | null;
+  updated_at: string;
+  messages: ConversationMessage[];
+}
+
+export interface StudentWithConversation {
+  student: Student;
+  latest_conversation?: ConversationWithMessages | null;
+}
+
 // --- End Student Types --- 
