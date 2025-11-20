@@ -13,6 +13,7 @@ from src.user_personas import router as user_personas_router
 from src.internal import router as internal_router
 from src.feedback import router as feedback_router
 from src.config import router as config_router
+from src.students import router as students_router
 from src.config.settings import settings
 from src.database import init_db
 from mangum import Mangum
@@ -109,6 +110,7 @@ def create_app() -> FastAPI:
     app.include_router(internal_router.router)
     app.include_router(feedback_router.router)
     app.include_router(config_router.router)
+    app.include_router(students_router.router)
     
     logger.info("FastAPI app created successfully")
     return app
