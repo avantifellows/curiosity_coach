@@ -9,6 +9,25 @@ interface ClassDetailsState {
   section?: string;
 }
 
+const formatDateTime = (isoString?: string) => {
+  if (!isoString) {
+    return { date: '—', time: '' };
+  }
+
+  const date = new Date(isoString);
+  return {
+    date: date.toLocaleDateString(undefined, {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+    }),
+    time: date.toLocaleTimeString(undefined, {
+      hour: '2-digit',
+      minute: '2-digit',
+    }),
+  };
+};
+
 const ClassDetails: React.FC = () => {
   const location = useLocation();
   const navigate = useNavigate();
@@ -64,96 +83,126 @@ const ClassDetails: React.FC = () => {
     };
   }, [school, gradeNumber, section, navigate]);
 
+  const hasClassInfo = Boolean(school || gradeNumber || section);
+  const summaryChips = [
+    { label: 'School', value: school, icon: '🏫' },
+    { label: 'Grade', value: gradeNumber ? `Grade ${gradeNumber}` : undefined, icon: '📘' },
+    { label: 'Section', value: section ? `Section ${section}` : undefined, icon: '✏️' },
+  ].filter((chip) => Boolean(chip.value));
+
+  const studentCountLabel = students
+    ? `${students.length} Student${students.length === 1 ? '' : 's'}`
+    : 'Students';
+
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 py-8 px-4">
-      <div className="max-w-lg w-full bg-white p-8 rounded-lg shadow space-y-4 text-center">
-        <h1 className="text-3xl font-bold text-gray-900">Class Details</h1>
-        <p className="text-lg text-gray-700">Welcome!</p>
-        {(school || grade || section) && (
-          <div className="text-left space-y-1 text-gray-700">
-            {school && <p><span className="font-semibold">School:</span> {school}</p>}
-            {gradeNumber && <p><span className="font-semibold">Grade:</span> {gradeNumber}</p>}
-            {section && <p><span className="font-semibold">Section:</span> {section}</p>}
-          </div>
-        )}
-        {!school && !grade && !section && (
-          <p className="text-sm text-gray-500">
-            No class info provided. Return to the teacher view to enter details.
-          </p>
-        )}
-        <div className="text-left space-y-2">
-          {isLoading && <p className="text-sm text-gray-500">Loading students...</p>}
-          {error && <p className="text-sm text-red-600">{error}</p>}
-          {!isLoading && !error && students && (
-            <>
-              {students.length === 0 ? (
-                <p className="text-sm text-gray-500">No students found for this class.</p>
-              ) : (
-                <div className="space-y-2">
-                  <p className="font-semibold text-gray-800">
-                    {students.length} student{students.length === 1 ? '' : 's'} found
-                  </p>
-                  <ul className="divide-y divide-gray-200 border border-gray-100 rounded-md">
+    <div className="min-h-screen bg-slate-50 py-12 px-4">
+      <div className="mx-auto w-full max-w-4xl">
+        <div className="rounded-3xl bg-white px-6 py-10 shadow-2xl shadow-slate-200 sm:px-10 space-y-10">
+          <section className="text-center space-y-6">
+            <div className="space-y-3">
+              <h1 className="text-4xl font-semibold text-slate-900">Class Details</h1>
+              <div className="mx-auto h-1 w-20 rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500" />
+            </div>
+            {hasClassInfo ? (
+              <div className="flex flex-wrap items-center justify-center gap-3 text-sm font-medium text-slate-600">
+                {summaryChips.map((chip) => (
+                  <div
+                    key={chip.label}
+                    className="inline-flex items-center gap-2 rounded-full bg-slate-100/80 px-4 py-2 text-slate-700"
+                  >
+                    <span aria-hidden>{chip.icon}</span>
+                    <span>{chip.value}</span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-slate-500">
+                No class info provided. Return to the teacher view to enter details.
+              </p>
+            )}
+          </section>
+
+          <section className="space-y-4">
+            <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+              <div>
+                <p className="text-lg font-semibold text-slate-900">{studentCountLabel}</p>
+                <p className="text-sm text-slate-500">Tap a student to see their last chat</p>
+              </div>
+            </div>
+
+            {isLoading && <p className="text-sm text-slate-500">Loading students...</p>}
+            {error && <p className="text-sm text-red-600">{error}</p>}
+
+            {!isLoading && !error && students && (
+              <>
+                {students.length === 0 ? (
+                  <p className="text-sm text-slate-500">No students found for this class.</p>
+                ) : (
+                  <ul className="space-y-4">
                     {students.map(({ student, latest_conversation }) => {
-                      const lastUpdated = latest_conversation?.updated_at
-                        ? new Date(latest_conversation.updated_at).toLocaleString()
-                        : null;
+                      const initials = (student.first_name || '?').charAt(0).toUpperCase();
+                      const { date, time } = formatDateTime(latest_conversation?.updated_at);
+                      const lastChatLabel = latest_conversation?.title || 'New Chat';
+                      const canViewConversation = Boolean(latest_conversation);
+
                       return (
                         <li
                           key={student.id}
-                          className="px-4 py-3 text-sm text-gray-700 space-y-3"
+                          className="flex flex-col gap-4 rounded-3xl bg-slate-50/80 p-5 shadow-md shadow-slate-200 sm:flex-row sm:items-center sm:justify-between"
                         >
-                          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                            <div>
-                              <span className="font-medium">{student.first_name}</span>
-                              <span className="text-gray-500 ml-2">Roll #{student.roll_number}</span>
+                          <div className="flex items-center gap-4">
+                            <div className="flex h-14 w-14 items-center justify-center rounded-full bg-indigo-100 text-lg font-semibold text-indigo-600">
+                              {initials}
                             </div>
-                            <div className="text-xs text-gray-500 text-left sm:text-right">
-                              {latest_conversation ? (
-                                <>
-                                  <p className="font-semibold text-gray-600">
-                                    Last chat: {latest_conversation.title || 'Untitled'}
-                                  </p>
-                                  <p>{lastUpdated}</p>
-                                </>
-                              ) : (
-                                <p>No conversations yet</p>
-                              )}
+                            <div className="text-left">
+                              <p className="text-xl font-semibold text-slate-900">{student.first_name}</p>
+                              <p className="text-sm text-slate-500">Roll #{student.roll_number || '—'}</p>
                             </div>
                           </div>
-                          {latest_conversation && (
-                            <div className="flex justify-end">
-                              <button
-                                type="button"
-                                className="inline-flex items-center gap-2 px-4 py-1.5 text-xs font-semibold rounded-full text-white bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 shadow-lg shadow-indigo-200/60 hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-indigo-500"
-                                onClick={() =>
-                                  navigate('/class-conversation', {
-                                    state: {
-                                      studentName: student.first_name,
-                                      conversation: latest_conversation,
-                                    },
-                                  })
-                                }
-                              >
-                                <span>View Conversation</span>
-                              </button>
+
+                          <div className="flex flex-col items-start gap-3 sm:items-end">
+                            <div className="text-sm text-slate-500">
+                              <p className="font-semibold text-slate-700">Last Chat: {lastChatLabel}</p>
+                              <p>{date}</p>
+                              {time && <p className="text-xs">{time}</p>}
                             </div>
-                          )}
+                            <button
+                              type="button"
+                              disabled={!canViewConversation}
+                              className={`inline-flex items-center justify-center rounded-full px-5 py-2 text-sm font-semibold text-white shadow-lg shadow-indigo-200/60 transition ${
+                                canViewConversation
+                                  ? 'bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-indigo-500'
+                                  : 'cursor-not-allowed bg-slate-300 text-slate-500'
+                              }`}
+                              onClick={() =>
+                                canViewConversation &&
+                                navigate('/class-conversation', {
+                                  state: {
+                                    studentName: student.first_name,
+                                    conversation: latest_conversation,
+                                  },
+                                })
+                              }
+                            >
+                              View Conversation
+                            </button>
+                          </div>
                         </li>
                       );
                     })}
                   </ul>
-                </div>
-              )}
-            </>
-          )}
+                )}
+              </>
+            )}
+          </section>
+
+          <button
+            onClick={() => navigate('/teacher-view')}
+            className="inline-flex w-full items-center justify-center rounded-full bg-indigo-600 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-indigo-200/60 transition hover:bg-indigo-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-indigo-500"
+          >
+            Back to Teacher Dashboard
+          </button>
         </div>
-        <button
-          onClick={() => navigate('/teacher-view')}
-          className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
-        >
-          Back to Teacher View
-        </button>
       </div>
     </div>
   );
