@@ -142,8 +142,8 @@ const ClassDetails: React.FC = () => {
                     {students.map(({ student, latest_conversation }) => {
                       const initials = (student.first_name || '?').charAt(0).toUpperCase();
                       const { date, time } = formatDateTime(latest_conversation?.updated_at);
-                      const lastChatLabel = latest_conversation?.title || 'New Chat';
-                      const canViewConversation = Boolean(latest_conversation);
+                      const hasConversation = Boolean(latest_conversation);
+                      const lastChatLabel = hasConversation ? latest_conversation?.title || 'New Chat' : 'No conversations yet';
 
                       return (
                         <li
@@ -168,18 +168,11 @@ const ClassDetails: React.FC = () => {
                             </div>
                             <button
                               type="button"
-                              disabled={!canViewConversation}
-                              className={`inline-flex items-center justify-center rounded-full px-5 py-2 text-sm font-semibold text-white shadow-lg shadow-indigo-200/60 transition ${
-                                canViewConversation
-                                  ? 'bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-indigo-500'
-                                  : 'cursor-not-allowed bg-slate-300 text-slate-500'
-                              }`}
+                              className="inline-flex items-center justify-center rounded-full px-5 py-2 text-sm font-semibold text-white shadow-lg shadow-indigo-200/60 transition bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-indigo-500"
                               onClick={() =>
-                                canViewConversation &&
                                 navigate('/class-conversation', {
                                   state: {
-                                    studentName: student.first_name,
-                                    conversation: latest_conversation,
+                                    student,
                                   },
                                 })
                               }

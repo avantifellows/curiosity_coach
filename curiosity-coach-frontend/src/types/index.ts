@@ -160,4 +160,9 @@ export interface StudentWithConversation {
   latest_conversation?: ConversationWithMessages | null;
 }
 
+export interface PaginatedStudentConversations {
+  conversations: ConversationWithMessages[];
+  next_offset: number | null;
+}
+
 // --- End Student Types --- 

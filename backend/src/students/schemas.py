@@ -29,3 +29,8 @@ class StudentWithConversationResponse(BaseModel):
     student: StudentResponse
     latest_conversation: Optional[ConversationWithMessagesResponse] = None
 
+
+class PaginatedConversationsResponse(BaseModel):
+    conversations: List[ConversationWithMessagesResponse]
+    next_offset: Optional[int] = None
+

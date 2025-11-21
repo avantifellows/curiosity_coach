@@ -9,6 +9,7 @@ from src.students.schemas import (
     StudentWithConversationResponse,
     ConversationWithMessagesResponse,
     ConversationMessageResponse,
+    PaginatedConversationsResponse,
 )
 
 
@@ -121,4 +122,62 @@ def list_students(
         )
 
     return response
+
+
+@router.get("/{student_id}/conversations", response_model=PaginatedConversationsResponse)
+def list_student_conversations(
+    student_id: int,
+    limit: int = Query(3, ge=1, le=50),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+):
+    student = db.query(Student).filter(Student.id == student_id).first()
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found")
+
+    base_query = (
+        db.query(Conversation)
+        .filter(Conversation.user_id == student.user_id)
+        .order_by(Conversation.updated_at.desc())
+    )
+
+    conversations = base_query.offset(offset).limit(limit + 1).all()
+    has_more = len(conversations) > limit
+    conversations = conversations[:limit]
+
+    conversation_ids = [conversation.id for conversation in conversations]
+    messages_by_conversation: Dict[int, List[ConversationMessageResponse]] = {}
+
+    if conversation_ids:
+        messages = (
+            db.query(Message)
+            .filter(Message.conversation_id.in_(conversation_ids))
+            .order_by(Message.conversation_id.asc(), Message.timestamp.asc())
+            .all()
+        )
+
+        for message in messages:
+            messages_by_conversation.setdefault(message.conversation_id, []).append(
+                ConversationMessageResponse(
+                    id=message.id,
+                    content=message.content,
+                    is_user=message.is_user,
+                    timestamp=message.timestamp,
+                )
+            )
+
+    response_conversations = [
+        ConversationWithMessagesResponse(
+            id=conversation.id,
+            title=conversation.title,
+            updated_at=conversation.updated_at,
+            messages=messages_by_conversation.get(conversation.id, []),
+        )
+        for conversation in conversations
+    ]
+
+    return PaginatedConversationsResponse(
+        conversations=response_conversations,
+        next_offset=offset + limit if has_more else None,
+    )
 
