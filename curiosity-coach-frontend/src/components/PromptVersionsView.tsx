@@ -11,7 +11,7 @@ import {
   updatePrompt
 } from '../services/api';
 import { PromptSimple, PromptVersion } from '../types';
-import { PlaceholderSelector } from './PlaceholderSelector';
+import PlaceholderSelector from './PlaceholderSelector';
 
 interface PromptFormData {
   name: string;
