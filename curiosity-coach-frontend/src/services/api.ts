@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { LoginResponse, Message, ChatHistory, SendMessageResponse, ConversationSummary, Conversation, ConversationCreateResponse, User, StudentLoginResponse, StudentLoginRequest, StudentOptions } from '../types';
+import { LoginResponse, Message, ChatHistory, SendMessageResponse, ConversationSummary, Conversation, ConversationCreateResponse, User, StudentLoginResponse, StudentLoginRequest, StudentOptions, StudentWithConversation, PaginatedStudentConversations } from '../types';
 
 const API = axios.create({
   baseURL: process.env.REACT_APP_BACKEND_BASE_URL + '/api' || '/api',
@@ -45,6 +45,43 @@ export const getStudentOptions = async (): Promise<StudentOptions> => {
   } catch (error: any) {
     console.error("Error fetching student options:", error.response?.data || error.message);
     throw new Error(error.response?.data?.detail || 'Failed to get student options');
+  }
+};
+
+export const getStudentsForClass = async (
+  school: string,
+  grade: number,
+  section?: string | null
+): Promise<StudentWithConversation[]> => {
+  try {
+    const params: Record<string, string | number> = {
+      school,
+      grade,
+    };
+    if (section) {
+      params.section = section;
+    }
+    const response = await API.get<StudentWithConversation[]>('/students', { params });
+    return response.data;
+  } catch (error: any) {
+    console.error("Error fetching students for class:", error.response?.data || error.message);
+    throw new Error(error.response?.data?.detail || 'Failed to fetch students');
+  }
+};
+
+export const getStudentConversations = async (
+  studentId: number,
+  limit = 3,
+  offset = 0
+): Promise<PaginatedStudentConversations> => {
+  try {
+    const response = await API.get<PaginatedStudentConversations>(`/students/${studentId}/conversations`, {
+      params: { limit, offset },
+    });
+    return response.data;
+  } catch (error: any) {
+    console.error(`Error fetching conversations for student ${studentId}:`, error.response?.data || error.message);
+    throw new Error(error.response?.data?.detail || 'Failed to fetch conversations');
   }
 };
 

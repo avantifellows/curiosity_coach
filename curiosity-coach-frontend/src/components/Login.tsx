@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { loginUser, loginStudent, getStudentOptions } from '../services/api';
@@ -18,26 +18,47 @@ const Login: React.FC = () => {
   const [section, setSection] = useState('');
   const [rollNumber, setRollNumber] = useState<number | ''>('');
   const [firstName, setFirstName] = useState('');
-  const [studentOptions, setStudentOptions] = useState<StudentOptions | null>(null);
 
   // Debug mode detection from URL query params
   const searchParams = new URLSearchParams(location.search);
   const debugMode = searchParams.get('debug') === 'true';
 
-  // Fetch student options on component mount (only if not in debug mode)
+  const [studentOptions, setStudentOptions] = useState<StudentOptions | null>(null);
+  const [studentOptionsLoading, setStudentOptionsLoading] = useState(false);
+  const [studentOptionsError, setStudentOptionsError] = useState<string | null>(null);
+
   useEffect(() => {
-    if (!debugMode) {
-      const fetchOptions = async () => {
-        try {
-          const options = await getStudentOptions();
-          setStudentOptions(options);
-        } catch (err) {
-          console.error('Failed to fetch student options:', err);
-          setError('Failed to load student options. Please refresh the page.');
-        }
-      };
-      fetchOptions();
+    if (debugMode) {
+      return;
     }
+
+    let isMounted = true;
+
+    const fetchOptions = async () => {
+      setStudentOptionsLoading(true);
+      setStudentOptionsError(null);
+      try {
+        const options = await getStudentOptions();
+        if (isMounted) {
+          setStudentOptions(options);
+        }
+      } catch (err) {
+        console.error('Failed to fetch student options:', err);
+        if (isMounted) {
+          setStudentOptionsError('Failed to load student options. Please refresh the page.');
+        }
+      } finally {
+        if (isMounted) {
+          setStudentOptionsLoading(false);
+        }
+      }
+    };
+
+    fetchOptions();
+
+    return () => {
+      isMounted = false;
+    };
   }, [debugMode]);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -131,6 +152,16 @@ const Login: React.FC = () => {
           ) : (
             // Student mode: Multiple fields
             <>
+              {studentOptionsLoading && (
+                <div className="text-sm text-gray-500 text-center">
+                  Loading school details...
+                </div>
+              )}
+              {studentOptionsError && (
+                <div className="text-sm text-red-600 text-center">
+                  {studentOptionsError}
+                </div>
+              )}
               <div>
                 <label htmlFor="school" className="block text-sm font-medium text-gray-700 mb-1">
                   School *
@@ -142,6 +173,7 @@ const Login: React.FC = () => {
                   className="appearance-none relative block w-full px-3 py-3 sm:py-2 border border-gray-300 text-gray-900 rounded-md focus:outline-hidden focus:ring-indigo-500 focus:border-indigo-500 text-base sm:text-sm"
                   value={school}
                   onChange={(e) => setSchool(e.target.value)}
+                  disabled={!studentOptions}
                 >
                   <option value="">Select your school</option>
                   {studentOptions?.schools.map((s) => (
@@ -162,6 +194,7 @@ const Login: React.FC = () => {
                   className="appearance-none relative block w-full px-3 py-3 sm:py-2 border border-gray-300 text-gray-900 rounded-md focus:outline-hidden focus:ring-indigo-500 focus:border-indigo-500 text-base sm:text-sm"
                   value={grade}
                   onChange={(e) => setGrade(Number(e.target.value))}
+                  disabled={!studentOptions}
                 >
                   <option value="">Select your grade</option>
                   {studentOptions?.grades.map((g) => (
@@ -181,6 +214,7 @@ const Login: React.FC = () => {
                   className="appearance-none relative block w-full px-3 py-3 sm:py-2 border border-gray-300 text-gray-900 rounded-md focus:outline-hidden focus:ring-indigo-500 focus:border-indigo-500 text-base sm:text-sm"
                   value={section}
                   onChange={(e) => setSection(e.target.value)}
+                  disabled={!studentOptions}
                 >
                   <option value="">No section / Not applicable</option>
                   {studentOptions?.sections.map((s) => (
