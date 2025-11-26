@@ -138,9 +138,6 @@ class LLMService:
                 if "text" in call_config:
                     request_params["text"] = call_config["text"]
                 
-                if json_mode:
-                    request_params["response_format"] = {"type": "json_object"}
-                
                 response = client.responses.create(**request_params)
                 logger.debug("Successfully received completion from LLM (Responses API)")
                 return response.output_text
