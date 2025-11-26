@@ -62,8 +62,8 @@ class StudentLoginRequest(BaseModel):
     @field_validator('grade')
     @classmethod
     def validate_grade(cls, v):
-        if v < 3 or v > 10:
-            raise ValueError('Grade must be between 3 and 10')
+        if v < 3 or v > 12:
+            raise ValueError('Grade must be between 3 and 12')
         return v
 
     @field_validator('section')
@@ -80,8 +80,8 @@ class StudentLoginRequest(BaseModel):
     @field_validator('roll_number')
     @classmethod
     def validate_roll_number(cls, v):
-        if v < 1 or v > 100:
-            raise ValueError('Roll number must be between 1 and 100')
+        if v < 1 or v > 1000000000000:
+            raise ValueError('Roll number must be between 1 and 1000000000000')
         return v
 
     @field_validator('first_name')
