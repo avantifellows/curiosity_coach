@@ -5,6 +5,9 @@ import { ChatProvider } from './context/ChatContext';
 import Login from './components/Login';
 import ChatInterface from './components/ChatInterface';
 import PromptVersionsView from './components/PromptVersionsView';
+import TeacherView from './components/TeacherView';
+import ClassDetails from './components/ClassDetails';
+import TeacherConversationView from './components/TeacherConversationView';
 
 // Protected route component
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -56,6 +59,9 @@ const App: React.FC = () => {
                   </ProtectedRoute>
                 }
               />
+              <Route path="/teacher-view" element={<TeacherView />} />
+              <Route path="/class-details" element={<ClassDetails />} />
+              <Route path="/class-conversation" element={<TeacherConversationView />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </div>

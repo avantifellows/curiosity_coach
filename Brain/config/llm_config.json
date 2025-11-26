@@ -9,9 +9,9 @@
         },
         "age_adapter_13yo": {
             "provider": "openai",
-            "model": "gpt-4.1",
-            "temperature": 0.4,
-            "max_tokens": 500
+            "model": "gpt-5.1",  
+            "reasoning":  { "effort": "low" },
+            "text": { "verbosity": "low" }      
         },
         "exploration_directions_evaluation": {
             "provider": "openai",
@@ -21,10 +21,10 @@
         },
         "chat_controller": {
             "provider": "openai",
-            "model": "gpt-4o",
-            "temperature": 0.7,
-            "max_tokens": 1000
-          },
+            "model": "gpt-5.1",  
+            "reasoning":  { "effort": "low" },
+            "text": { "verbosity": "low" }          
+        },
         "homework_updater": {
             "provider": "openai",
             "model": "gpt-4.1",
@@ -46,9 +46,9 @@
         },
         "response_generation": {
             "provider": "openai",
-            "model": "gpt-4.1",
-            "temperature": 0.7,
-            "max_tokens": 4096
+            "model": "gpt-5.1",  
+            "reasoning":  { "effort": "medium" },
+            "text": { "verbosity": "low" }         
         },
         "simplified_conversation": {
             "provider": "openai",
@@ -75,12 +75,6 @@
             "max_tokens": 4096
         },
         "opening_message": {
-            "provider": "openai",
-            "model": "gpt-4.1",
-            "temperature": 0.3,
-            "max_tokens": 1000
-        },
-        "memory_generation": {
             "provider": "openai",
             "model": "gpt-4.1",
             "temperature": 0.5,

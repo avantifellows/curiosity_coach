@@ -120,33 +120,44 @@ class LLMService:
             logger.info(f"Making LLM call to {provider} with model {call_config['model']}")
             client = self.get_client(provider)
             
-            request_params = {
-                "model": call_config["model"],
-                "messages": messages,
-                "temperature": call_config["temperature"],
-                "max_tokens": call_config["max_tokens"]
-            }
-            # if call_type == "simplified_conversation":
-            #     request_params["max_completion_tokens"] = call_config.get("max_completion_tokens")
-            # else:
-            #     request_params["max_tokens"] = call_config.get("max_tokens")
-            #     request_params["temperature"] = call_config.get("temperature")
-
-            # Add GPT-5 specific parameters if they exist in config
-            if "reasoning_effort" in call_config:
-                request_params["reasoning_effort"] = call_config["reasoning_effort"]
+            # Check if model is GPT 5.x to use Responses API
+            model_name = call_config["model"]
+            is_gpt5_model = model_name.startswith("gpt-5")
             
-            if "verbosity" in call_config:
-                request_params["verbosity"] = call_config["verbosity"]
+            if is_gpt5_model and provider == "openai":
+                # Use Responses API for GPT 5.1 and other GPT-5 models
+                request_params = {
+                    "model": model_name,
+                    "input": messages,  # Use 'input' instead of 'messages' for Responses API
+                }
+                
+                # Add GPT-5 specific parameters if they exist in config
+                if "reasoning" in call_config:
+                    request_params["reasoning"] = call_config["reasoning"]
+                
+                if "text" in call_config:
+                    request_params["text"] = call_config["text"]
+                
+                response = client.responses.create(**request_params)
+                logger.debug("Successfully received completion from LLM (Responses API)")
+                return response.output_text
+            else:
+                # Use Chat Completions API for older models (GPT-4, etc.) and non-OpenAI providers
+                request_params = {
+                    "model": model_name,
+                    "messages": messages,
+                    "temperature": call_config["temperature"],
+                    "max_tokens": call_config["max_tokens"]
+                }
+                
+                if json_mode:
+                    request_params["response_format"] = {"type": "json_object"}
+                
+                response = client.chat.completions.create(**request_params)
+                logger.debug("Successfully received completion from LLM (Chat Completions API)")
             
-            if json_mode:
-                request_params["response_format"] = {"type": "json_object"}
-            
-            response = client.chat.completions.create(**request_params)
-            
-            logger.debug("Successfully received completion from LLM")
-            return response.choices[0].message.content
-            
+                return response.choices[0].message.content
+                
         except Exception as e:
             logger.error(f"Error getting completion: {str(e)}", exc_info=True)
             raise
