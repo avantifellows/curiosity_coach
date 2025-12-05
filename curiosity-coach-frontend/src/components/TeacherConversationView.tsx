@@ -14,7 +14,6 @@ const TeacherConversationView: React.FC = () => {
   const location = useLocation();
   const state = (location.state as ConversationLocationState) || {};
   const student = state.student;
-
   const [conversations, setConversations] = useState<ConversationWithMessages[]>([]);
   const [nextOffset, setNextOffset] = useState<number | null>(null);
   const [isInitialLoading, setIsInitialLoading] = useState(false);
