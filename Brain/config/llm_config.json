@@ -13,6 +13,12 @@
             "reasoning":  { "effort": "low" },
             "text": { "verbosity": "low" }      
         },
+        "curiosity_score_evaluation": {
+            "provider": "openai",
+            "model": "gpt-5.1",  
+            "reasoning":  { "effort": "low" },
+            "text": { "verbosity": "low" }      
+        },
         "exploration_directions_evaluation": {
             "provider": "openai",
             "model": "gpt-4.1",
@@ -73,6 +79,12 @@
             "model": "gpt-4.1",
             "temperature": 0.5,
             "max_tokens": 4096
+        },
+        "memory_generation": {
+            "provider": "openai",
+            "model": "gpt-5.1",  
+            "reasoning":  { "effort": "high" },
+            "text": { "verbosity": "medium" }         
         },
         "opening_message": {
             "provider": "openai",

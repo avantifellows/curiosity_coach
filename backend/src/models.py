@@ -133,6 +133,7 @@ class Message(Base):
     is_user = Column(Boolean, nullable=False)
     timestamp = Column(DateTime(timezone=True), server_default=func.now())
     responds_to_message_id = Column(Integer, ForeignKey("messages.id", ondelete="SET NULL"), nullable=True)
+    curiosity_score = Column(Integer, nullable=True)
 
     conversation = relationship("Conversation", back_populates="messages")
     pipeline_info = relationship("MessagePipelineData", back_populates="message", uselist=False, cascade="all, delete-orphan")
@@ -373,7 +374,14 @@ def delete_conversation(db: Session, conversation_id: int, user_id: int) -> bool
     db.commit()
     return True
 
-def save_message(db: Session, conversation_id: int, content: str, is_user: bool, responds_to_message_id: Optional[int] = None) -> Message:
+def save_message(
+    db: Session,
+    conversation_id: int,
+    content: str,
+    is_user: bool,
+    responds_to_message_id: Optional[int] = None,
+    curiosity_score: Optional[int] = None
+) -> Message:
     """Save a message to a specific conversation."""
     conversation = get_conversation(db, conversation_id)
     if not conversation:
@@ -383,7 +391,8 @@ def save_message(db: Session, conversation_id: int, content: str, is_user: bool,
         conversation_id=conversation_id,
         content=content,
         is_user=is_user,
-        responds_to_message_id=responds_to_message_id
+        responds_to_message_id=responds_to_message_id,
+        curiosity_score=curiosity_score
     )
     db.add(message)
     db.commit()
