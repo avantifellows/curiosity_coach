@@ -65,13 +65,25 @@ class SimplifiedConversationStepData(BaseModel):
     response_data: Optional[Dict[str, Any]] = None
     needs_clarification: bool = False
 
+class CuriosityScoreEvaluationStepData(BaseModel):
+    name: Literal["curiosity_score_evaluation"]
+    enabled: bool
+    prompt: Optional[str] = None
+    result: Optional[str] = None
+    raw_response: Optional[str] = None
+    curiosity_score: Optional[int] = None
+    reason: Optional[str] = None
+    applied: bool = False
+    error: Optional[str] = None
+
 PipelineStepData = Union[
     IntentGatheringStepData, 
     FollowUpProcessingStepData,
     KnowledgeStepData, 
     InitialResponseStepData, 
     LearningEnhancementStepData,
-    SimplifiedConversationStepData  # Add to the union
+    SimplifiedConversationStepData,
+    CuriosityScoreEvaluationStepData
 ]
 
 class PipelineData(BaseModel):
@@ -92,6 +104,7 @@ class ProcessQueryResponse(BaseModel):
     needs_clarification: bool = Field(False, description="Whether clarification is needed from the user")
     partial_understanding: Optional[str] = Field(None, description="Partial understanding of the query when clarification is needed")
     pipeline_data: Optional[Dict[str, Any]] = Field(None, description="Additional pipeline metadata and processing information")
+    curiosity_score: Optional[int] = Field(None, description="Curiosity score generated for this response")
 # --- Conversation Memory Schemas ---
 
 class BoosterAttempted(BaseModel):

@@ -182,7 +182,8 @@ async def receive_opening_message(
         conversation_id=payload.conversation_id,
         content=payload.ai_message,
         is_user=False,
-        responds_to_message_id=None
+        responds_to_message_id=None,
+        curiosity_score=payload.curiosity_score,
     )
     
     # Save pipeline data if provided
