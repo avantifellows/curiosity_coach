@@ -98,11 +98,27 @@ const ClassDetails: React.FC = () => {
     <div className="min-h-screen bg-slate-50 py-12 px-4">
       <div className="mx-auto w-full max-w-4xl">
         <div className="rounded-3xl bg-white px-6 py-10 shadow-2xl shadow-slate-200 sm:px-10 space-y-10">
-          <section className="text-center space-y-6">
-            <div className="space-y-3">
-              <h1 className="text-4xl font-semibold text-slate-900">Class Details</h1>
-              <div className="mx-auto h-1 w-20 rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500" />
+          <section className="space-y-6">
+            {/* Header with title and button */}
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex-1 space-y-3 text-center">
+                <h1 className="text-4xl font-semibold text-slate-900">Class Details</h1>
+                <div className="mx-auto h-1 w-20 rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500" />
+              </div>
+              <button
+                type="button"
+                className="inline-flex items-center justify-center rounded-full px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-indigo-200/60 transition bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-indigo-500 whitespace-nowrap"
+                onClick={() => {
+                  navigate('/class-summary', {
+                    state: { school, grade, section },
+                  });
+                }}
+              >
+                Class Summary
+              </button>
             </div>
+            
+            {/* Summary chips */}
             {hasClassInfo ? (
               <div className="flex flex-wrap items-center justify-center gap-3 text-sm font-medium text-slate-600">
                 {summaryChips.map((chip) => (
