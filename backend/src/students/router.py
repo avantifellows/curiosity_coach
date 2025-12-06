@@ -379,3 +379,97 @@ async def analyze_class_conversations(
         logger.error(f"Unexpected error in class analysis: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to generate analysis: {str(e)}")
 
+
+@router.post("/{student_id}/analysis", response_model=ClassAnalysisResponse)
+async def analyze_student_conversations(
+    student_id: int,
+    db: Session = Depends(get_db),
+):
+    """
+    Analyze all conversations for a student by calling Brain's analysis endpoint.
+    Returns AI-generated insights about the student's conversations.
+    """
+    student = db.query(Student).filter(Student.id == student_id).first()
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found")
+
+    # Get all conversations for this student
+    conversations = (
+        db.query(Conversation)
+        .filter(Conversation.user_id == student.user_id)
+        .order_by(Conversation.updated_at.desc())
+        .all()
+    )
+
+    conversation_ids = [conversation.id for conversation in conversations]
+    messages_by_conversation: Dict[int, List[ConversationMessageResponse]] = {}
+
+    if conversation_ids:
+        messages = (
+            db.query(Message)
+            .filter(Message.conversation_id.in_(conversation_ids))
+            .order_by(Message.conversation_id.asc(), Message.timestamp.asc())
+            .all()
+        )
+
+        for message in messages:
+            messages_by_conversation.setdefault(message.conversation_id, []).append(
+                ConversationMessageResponse(
+                    id=message.id,
+                    content=message.content,
+                    is_user=message.is_user,
+                    timestamp=message.timestamp,
+                )
+            )
+
+    # Format conversations as flat text
+    all_conversations_text_parts = []
+    
+    for conversation in conversations:
+        all_conversations_text_parts.append(f"Conversation: {conversation.title or 'Untitled'}")
+        messages = messages_by_conversation.get(conversation.id, [])
+        for message in messages:
+            sender = "Student" if message.is_user else "AI"
+            all_conversations_text_parts.append(f"  {sender}: {message.content}")
+        all_conversations_text_parts.append("")  # Empty line between conversations
+    
+    all_conversations_text = "\n".join(all_conversations_text_parts)
+    
+    if not all_conversations_text.strip():
+        raise HTTPException(status_code=400, detail="No conversations found for this student to analyze")
+
+    # Call Brain's /student-analysis endpoint
+    brain_endpoint = (
+        settings.LOCAL_BRAIN_ENDPOINT_URL
+        if settings.APP_ENV == "development"
+        else settings.BRAIN_ENDPOINT_URL
+    )
+    
+    try:
+        async with httpx.AsyncClient(timeout=180.0) as client:
+            response = await client.post(
+                f"{brain_endpoint}/student-analysis",
+                json={
+                    "all_conversations": all_conversations_text,
+                    "call_type": "student_analysis"
+                }
+            )
+            response.raise_for_status()
+            brain_response = response.json()
+            return ClassAnalysisResponse(
+                analysis=brain_response.get("analysis", ""),
+                status="success"
+            )
+    except httpx.TimeoutException:
+        logger.error("Timeout calling Brain for student analysis")
+        raise HTTPException(status_code=504, detail="Analysis request timed out. Please try again.")
+    except httpx.HTTPStatusError as e:
+        logger.error(f"Brain returned error {e.response.status_code}: {e.response.text}")
+        raise HTTPException(status_code=e.response.status_code, detail=f"Brain analysis failed: {e.response.text}")
+    except httpx.RequestError as e:
+        logger.error(f"Error connecting to Brain: {e}")
+        raise HTTPException(status_code=503, detail=f"Failed to connect to Brain service: {str(e)}")
+    except Exception as e:
+        logger.error(f"Unexpected error in student analysis: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to generate analysis: {str(e)}")
+

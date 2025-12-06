@@ -123,6 +123,23 @@ export const analyzeClassConversations = async (
   }
 };
 
+export interface StudentAnalysisResponse {
+  analysis: string;
+  status: string;
+}
+
+export const analyzeStudentConversations = async (
+  studentId: number
+): Promise<StudentAnalysisResponse> => {
+  try {
+    const response = await API.post<StudentAnalysisResponse>(`/students/${studentId}/analysis`);
+    return response.data;
+  } catch (error: any) {
+    console.error("Error analyzing student conversations:", error.response?.data || error.message);
+    throw new Error(error.response?.data?.detail || 'Failed to analyze student conversations');
+  }
+};
+
 export const sendMessage = async (conversationId: number, content: string, purpose: string = "chat"): Promise<SendMessageResponse> => {
   try {
     const response = await API.post<SendMessageResponse>(`/conversations/${conversationId}/messages`, { 

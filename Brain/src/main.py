@@ -27,7 +27,7 @@ from src.utils.logger import logger
 from src.config_models import FlowConfig
 from src.services.llm_service import LLMService
 from src.services.api_service import api_service
-from src.schemas import ConversationMemoryData, OpeningMessageRequest, ClassAnalysisRequest, ClassAnalysisResponse
+from src.schemas import ConversationMemoryData, OpeningMessageRequest, ClassAnalysisRequest, ClassAnalysisResponse, StudentAnalysisRequest, StudentAnalysisResponse
 from src.core.user_persona_generator import generate_persona_for_user
 from pydantic import ValidationError
 from src.utils.prompt_injection import inject_core_theme_placeholder
@@ -1243,6 +1243,100 @@ async def analyze_class_conversations(request: ClassAnalysisRequest):
         raise HTTPException(status_code=500, detail=f"LLM configuration error: {str(e)}")
     except Exception as e:
         logger.error(f"Error generating class analysis: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to generate analysis: {str(e)}")
+
+
+@app.post("/student-analysis", response_model=StudentAnalysisResponse)
+async def analyze_student_conversations(request: StudentAnalysisRequest):
+    """
+    Analyze student conversations using a prompt template from the database.
+    Fetches the prompt "analyse_student_all_conversation" from the backend,
+    replaces {{ALL_CONVERSATIONS}} with the provided conversations text,
+    and returns analysis text from the LLM.
+    """
+    logger.info(f"Received student analysis request with call_type: {request.call_type}")
+    
+    if not request.all_conversations or not request.all_conversations.strip():
+        raise HTTPException(status_code=400, detail="all_conversations is required and cannot be empty")
+    
+    try:
+        # Fetch prompt from backend database
+        prompt_name = "analyse_student_all_conversation"
+        backend_url = os.getenv("BACKEND_CALLBACK_BASE_URL", "http://localhost:5000")
+        # Use production version for analysis
+        version_url = f"{backend_url}/api/prompts/{prompt_name}/versions/production"
+        
+        logger.info(f"Fetching prompt '{prompt_name}' from backend: {version_url}")
+        
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(version_url)
+            
+            if response.status_code == 200:
+                data = response.json()
+                prompt_template = data.get("prompt_text")
+                if not prompt_template:
+                    raise HTTPException(status_code=500, detail=f"Prompt '{prompt_name}' found but has no prompt_text")
+                logger.info(f"Successfully fetched prompt '{prompt_name}' from backend")
+            elif response.status_code == 404:
+                # Try active version if production not found
+                logger.warning(f"Production version not found for '{prompt_name}', trying active version")
+                active_version_url = f"{backend_url}/api/prompts/{prompt_name}/versions/active"
+                response = await client.get(active_version_url)
+                if response.status_code == 200:
+                    data = response.json()
+                    prompt_template = data.get("prompt_text")
+                    if not prompt_template:
+                        raise HTTPException(status_code=500, detail=f"Prompt '{prompt_name}' found but has no prompt_text")
+                    logger.info(f"Successfully fetched active version of prompt '{prompt_name}' from backend")
+                else:
+                    raise HTTPException(status_code=404, detail=f"Prompt '{prompt_name}' not found in database")
+            else:
+                response.raise_for_status()
+                raise HTTPException(status_code=response.status_code, detail=f"Failed to fetch prompt: {response.text}")
+        
+        # Replace {{ALL_CONVERSATIONS}} placeholder in the prompt
+        formatted_prompt = prompt_template.replace("{{ALL_CONVERSATIONS}}", request.all_conversations)
+        
+        # Initialize LLM service
+        llm_service = LLMService()
+        
+        # Prepare messages for the LLM
+        messages = [
+            {
+                "role": "user",
+                "content": formatted_prompt
+            }
+        ]
+        
+        # Call LLM with the specified call type
+        logger.info(f"Calling LLM for student analysis with call_type: {request.call_type}")
+        analysis_text = llm_service.get_completion(
+            messages=messages,
+            call_type=request.call_type,
+            json_mode=False
+        )
+        
+        logger.info(f"Successfully generated student analysis (length: {len(analysis_text)} characters)")
+        
+        return StudentAnalysisResponse(
+            analysis=analysis_text.strip(),
+            status="success"
+        )
+        
+    except HTTPException:
+        # Re-raise HTTP exceptions
+        raise
+    except httpx.RequestError as e:
+        logger.error(f"Request error fetching prompt from backend: {e}")
+        raise HTTPException(status_code=503, detail=f"Failed to connect to backend to fetch prompt: {str(e)}")
+    except httpx.HTTPStatusError as e:
+        logger.error(f"HTTP error fetching prompt: {e.response.status_code} - {e.response.text}")
+        raise HTTPException(status_code=e.response.status_code, detail=f"Failed to fetch prompt from backend: {e.response.text}")
+    except ValueError as e:
+        logger.error(f"Configuration error in student analysis: {e}")
+        raise HTTPException(status_code=500, detail=f"LLM configuration error: {str(e)}")
+    except Exception as e:
+        logger.error(f"Error generating student analysis: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to generate analysis: {str(e)}")
 
 

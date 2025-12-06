@@ -169,3 +169,14 @@ class ClassAnalysisRequest(BaseModel):
 class ClassAnalysisResponse(BaseModel):
     analysis: str = Field(..., description="The generated analysis text")
     status: str = Field("success", description="Status of the analysis generation")
+
+
+# --- Student Analysis Request/Response Schemas ---
+class StudentAnalysisRequest(BaseModel):
+    all_conversations: str = Field(..., description="The formatted conversations text to replace {{ALL_CONVERSATIONS}} placeholder")
+    call_type: Optional[str] = Field("student_analysis", description="Call type for LLM configuration")
+
+
+class StudentAnalysisResponse(BaseModel):
+    analysis: str = Field(..., description="The generated analysis text")
+    status: str = Field("success", description="Status of the analysis generation")
