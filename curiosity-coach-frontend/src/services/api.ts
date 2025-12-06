@@ -97,6 +97,32 @@ export const getAllStudentConversations = async (
   }
 };
 
+export interface ClassAnalysisResponse {
+  analysis: string;
+  status: string;
+}
+
+export const analyzeClassConversations = async (
+  school: string,
+  grade: number,
+  section?: string | null
+): Promise<ClassAnalysisResponse> => {
+  try {
+    const params: Record<string, string | number> = {
+      school,
+      grade,
+    };
+    if (section) {
+      params.section = section;
+    }
+    const response = await API.post<ClassAnalysisResponse>('/students/class-analysis', {}, { params });
+    return response.data;
+  } catch (error: any) {
+    console.error("Error analyzing class conversations:", error.response?.data || error.message);
+    throw new Error(error.response?.data?.detail || 'Failed to analyze class conversations');
+  }
+};
+
 export const sendMessage = async (conversationId: number, content: string, purpose: string = "chat"): Promise<SendMessageResponse> => {
   try {
     const response = await API.post<SendMessageResponse>(`/conversations/${conversationId}/messages`, { 

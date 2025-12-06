@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { StudentWithConversation, ConversationWithMessages } from '../types';
-import { getStudentsForClass } from '../services/api';
+import { getStudentsForClass, analyzeClassConversations } from '../services/api';
 
 interface ClassSummaryState {
   school?: string;
@@ -24,6 +24,9 @@ const ClassSummary: React.FC = () => {
   const [students, setStudents] = useState<StudentWithConversation[] | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [analysis, setAnalysis] = useState<string | null>(null);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [analysisError, setAnalysisError] = useState<string | null>(null);
 
   const gradeNumber = useMemo(() => {
     if (typeof grade === 'number') {
@@ -69,6 +72,49 @@ const ClassSummary: React.FC = () => {
       isMounted = false;
     };
   }, [school, gradeNumber, section, navigate]);
+
+  // Fetch analysis when students are loaded
+  useEffect(() => {
+    if (!students || students.length === 0 || !school || !gradeNumber || !section) {
+      return;
+    }
+
+    // Check if any students have conversations
+    const hasConversations = students.some(
+      ({ latest_conversation }) => latest_conversation !== null && latest_conversation !== undefined
+    );
+
+    if (!hasConversations) {
+      return;
+    }
+
+    let isMounted = true;
+    const fetchAnalysis = async () => {
+      setIsAnalyzing(true);
+      setAnalysisError(null);
+      try {
+        const data = await analyzeClassConversations(school, gradeNumber, section);
+        if (isMounted) {
+          setAnalysis(data.analysis);
+        }
+      } catch (err) {
+        console.error('Failed to analyze class conversations:', err);
+        if (isMounted) {
+          setAnalysisError(err instanceof Error ? err.message : 'Failed to generate analysis. Please try again.');
+        }
+      } finally {
+        if (isMounted) {
+          setIsAnalyzing(false);
+        }
+      }
+    };
+
+    fetchAnalysis();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [students, school, gradeNumber, section]);
 
   // Flatten the latest conversations with student info
   const conversations: ConversationWithStudent[] = useMemo(() => {
@@ -124,35 +170,28 @@ const ClassSummary: React.FC = () => {
                 {conversations.length === 0 ? (
                   <p className="text-sm text-slate-500">No conversations found for this class.</p>
                 ) : (
-                  <div className="space-y-8">
-                    {conversations.map((conversation) => (
-                      <div
-                        key={`${conversation.student_id}-${conversation.id}`}
-                        className="space-y-2"
-                      >
-                        <h2 className="text-xl font-semibold text-slate-900">
-                          {conversation.student_name}
-                        </h2>
-                        <div className="space-y-2 pl-4">
-                          {conversation.messages.length === 0 ? (
-                            <p className="text-slate-500">No messages</p>
-                          ) : (
-                            conversation.messages.map((message, index) => (
-                              <p
-                                key={message.id || index}
-                                className="text-slate-700 whitespace-pre-wrap"
-                              >
-                                <span className="font-semibold">
-                                  {message.is_user ? 'Student: ' : 'AI: '}
-                                </span>
-                                {message.content}
-                              </p>
-                            ))
-                          )}
+                  <>
+                    {isAnalyzing && (
+                      <div className="rounded-lg bg-blue-50 p-4">
+                        <p className="text-sm text-blue-700">Generating analysis...</p>
+                      </div>
+                    )}
+                    {analysisError && (
+                      <div className="rounded-lg bg-red-50 p-4">
+                        <p className="text-sm text-red-700">{analysisError}</p>
+                      </div>
+                    )}
+                    {analysis && !isAnalyzing && (
+                      <div className="space-y-4">
+                        <h2 className="text-2xl font-semibold text-slate-900">Class Analysis</h2>
+                        <div className="rounded-lg bg-slate-50 p-6">
+                          <p className="text-slate-700 whitespace-pre-wrap leading-relaxed">
+                            {analysis}
+                          </p>
                         </div>
                       </div>
-                    ))}
-                  </div>
+                    )}
+                  </>
                 )}
               </>
             )}
