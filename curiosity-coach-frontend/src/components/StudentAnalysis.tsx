@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { ConversationWithMessages, Student } from '../types';
-import { getAllStudentConversations } from '../services/api';
+import { Student } from '../types';
+import { analyzeStudentConversations } from '../services/api';
 
 interface StudentAnalysisState {
   student?: Student;
@@ -13,9 +13,9 @@ const StudentAnalysis: React.FC = () => {
   const state = (location.state as StudentAnalysisState) || {};
   const student = state.student;
 
-  const [conversations, setConversations] = useState<ConversationWithMessages[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [analysis, setAnalysis] = useState<string | null>(null);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [analysisError, setAnalysisError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!student) {
@@ -24,27 +24,27 @@ const StudentAnalysis: React.FC = () => {
     }
 
     let isMounted = true;
-    const fetchConversations = async () => {
-      setIsLoading(true);
-      setError(null);
+    const fetchAnalysis = async () => {
+      setIsAnalyzing(true);
+      setAnalysisError(null);
       try {
-        const data = await getAllStudentConversations(student.id);
+        const data = await analyzeStudentConversations(student.id);
         if (isMounted) {
-          setConversations(data);
+          setAnalysis(data.analysis);
         }
       } catch (err) {
-        console.error('Failed to fetch student conversations:', err);
+        console.error('Failed to analyze student conversations:', err);
         if (isMounted) {
-          setError('Failed to fetch conversations. Please try again.');
+          setAnalysisError(err instanceof Error ? err.message : 'Failed to generate analysis. Please try again.');
         }
       } finally {
         if (isMounted) {
-          setIsLoading(false);
+          setIsAnalyzing(false);
         }
       }
     };
 
-    fetchConversations();
+    fetchAnalysis();
 
     return () => {
       isMounted = false;
@@ -65,45 +65,28 @@ const StudentAnalysis: React.FC = () => {
           </section>
 
           <section className="space-y-6">
-            {isLoading && <p className="text-sm text-slate-500">Loading conversations...</p>}
-            {error && <p className="text-sm text-red-600">{error}</p>}
+            {isAnalyzing && (
+              <div className="text-center py-8">
+                <p className="text-sm text-slate-500">Analyzing conversations...</p>
+              </div>
+            )}
+            
+            {analysisError && (
+              <div className="rounded-lg bg-red-50 p-4">
+                <p className="text-sm text-red-600">{analysisError}</p>
+              </div>
+            )}
 
-            {!isLoading && !error && (
-              <>
-                {conversations.length === 0 ? (
-                  <p className="text-sm text-slate-500">No conversations found for this student.</p>
-                ) : (
-                  <div className="space-y-8">
-                    {conversations.map((conversation, index) => (
-                      <div
-                        key={conversation.id}
-                        className="space-y-2"
-                      >
-                        <h2 className="text-xl font-semibold text-slate-900">
-                          Conversation {index + 1}: {conversation.title || 'Untitled'}
-                        </h2>
-                        <div className="space-y-2 pl-4">
-                          {conversation.messages.length === 0 ? (
-                            <p className="text-slate-500">No messages</p>
-                          ) : (
-                            conversation.messages.map((message, msgIndex) => (
-                              <p
-                                key={message.id || msgIndex}
-                                className="text-slate-700 whitespace-pre-wrap"
-                              >
-                                <span className="font-semibold">
-                                  {message.is_user ? 'Student: ' : 'AI: '}
-                                </span>
-                                {message.content}
-                              </p>
-                            ))
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </>
+            {!isAnalyzing && !analysisError && analysis && (
+              <div className="prose prose-slate max-w-none">
+                <div className="whitespace-pre-wrap text-slate-700 leading-relaxed">
+                  {analysis}
+                </div>
+              </div>
+            )}
+
+            {!isAnalyzing && !analysisError && !analysis && (
+              <p className="text-sm text-slate-500">No analysis available.</p>
             )}
           </section>
 
