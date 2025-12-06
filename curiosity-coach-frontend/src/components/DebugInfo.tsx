@@ -4,9 +4,10 @@ import { Code } from '@mui/icons-material';
 interface DebugInfoProps {
   visitNumber: number | null;
   promptVersionId?: number;
+  curiosityScore?: number;
 }
 
-const DebugInfo: React.FC<DebugInfoProps> = ({ visitNumber, promptVersionId }) => {
+const DebugInfo: React.FC<DebugInfoProps> = ({ visitNumber, promptVersionId, curiosityScore }) => {
   // Derive prompt purpose from visit number
   const getPromptPurpose = (visit: number | null): string => {
     if (visit === null) return 'Unknown';
@@ -17,6 +18,10 @@ const DebugInfo: React.FC<DebugInfoProps> = ({ visitNumber, promptVersionId }) =
   };
 
   if (visitNumber === null) return null;
+
+  const formattedScore = typeof curiosityScore === 'number'
+    ? Math.max(0, Math.min(100, Math.round(curiosityScore)))
+    : null;
 
   return (
     <div className="fixed top-20 right-4 z-50 bg-black bg-opacity-80 text-white p-3 rounded-lg shadow-lg text-xs font-mono max-w-xs backdrop-blur-sm">
@@ -42,10 +47,16 @@ const DebugInfo: React.FC<DebugInfoProps> = ({ visitNumber, promptVersionId }) =
             <span className="font-bold text-purple-400">{promptVersionId}</span>
           </div>
         )}
+
+        {formattedScore !== null && (
+          <div className="flex justify-between pt-1 border-t border-gray-700 mt-1">
+            <span className="text-gray-400">Curiosity Score:</span>
+            <span className="font-bold text-yellow-300">{formattedScore}</span>
+          </div>
+        )}
       </div>
     </div>
   );
 };
 
 export default DebugInfo;
-

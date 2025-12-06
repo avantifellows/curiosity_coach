@@ -12,6 +12,7 @@ export interface Message {
   timestamp?: string;
   user_id?: number;
   status?: 'sending' | 'sent' | 'error';
+  curiosity_score?: number;
 }
 
 export interface ChatHistory {

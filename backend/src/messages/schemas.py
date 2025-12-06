@@ -23,6 +23,7 @@ class MessageData(BaseModel):
     content: str = Field(..., description="Content of the message")
     is_user: bool = Field(..., description="Whether the message is from the user")
     timestamp: datetime = Field(..., description="Timestamp of the message")
+    curiosity_score: Optional[int] = Field(None, description="Monotonically increasing curiosity score for AI messages")
     
     model_config = {
         "from_attributes": True,
@@ -52,4 +53,5 @@ class BrainResponsePayload(BaseModel):
     original_message_id: Optional[int] = Field(None, description="ID of the user message this is a response to")
     llm_response: str = Field(..., description="The final content of the AI's response")
     pipeline_data: Dict[str, Any] = Field(..., description="Detailed data from the Brain pipeline")
-    prompt_version_id: Optional[int] = Field(None, description="ID of the prompt version used for this conversation") 
+    prompt_version_id: Optional[int] = Field(None, description="ID of the prompt version used for this conversation")
+    curiosity_score: Optional[int] = Field(None, description="Curiosity score provided by the Brain for this response")

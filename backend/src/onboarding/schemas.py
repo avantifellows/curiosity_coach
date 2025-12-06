@@ -37,4 +37,4 @@ class OpeningMessageCallbackPayload(BaseModel):
     ai_message: str
     is_opening_message: bool = True
     pipeline_data: Optional[dict] = None  # Includes prompt_used, visit_number, context flags
-
+    curiosity_score: Optional[int] = None
