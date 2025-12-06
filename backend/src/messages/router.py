@@ -289,6 +289,7 @@ async def receive_brain_response(payload: BrainResponsePayload, db: Session = De
             content=payload.llm_response, # Use llm_response from the payload
             is_user=False,
             responds_to_message_id=payload.original_message_id,
+            curiosity_score=payload.curiosity_score,
         )
         logger.info(f"Brain response message saved successfully - message_id: {saved_response.id}")
 

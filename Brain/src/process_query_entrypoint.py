@@ -171,7 +171,16 @@ def _get_default_prompt_name(step_name: str) -> str:
         logger.warning(f"Unknown step name: {step_name}, returning the step name as prompt name")
         return step_name
 
-async def generate_simplified_response(query: str, conversation_history: Optional[str] = None, user_persona: Optional[Dict[str, Any]] = None, purpose: str = "chat", conversation_memory: Optional[Dict[str, Any]] = None, conversation_id: Optional[int] = None, user_id: Optional[int] = None) -> Tuple[str, str, str, Dict[str, Any], str, Optional[int]]:
+async def generate_simplified_response(
+    query: str,
+    conversation_history: Optional[str] = None,
+    user_persona: Optional[Dict[str, Any]] = None,
+    purpose: str = "chat",
+    conversation_memory: Optional[Dict[str, Any]] = None,
+    conversation_id: Optional[int] = None,
+    user_id: Optional[int] = None,
+    current_curiosity_score: int = 0,
+) -> Tuple[str, str, str, Dict[str, Any], str, Optional[int]]:
     """
     Generate a simplified response using a single prompt approach.
     
@@ -183,6 +192,7 @@ async def generate_simplified_response(query: str, conversation_history: Optiona
         conversation_memory (Optional[Dict[str, Any]]): The conversation memory data
         conversation_id (Optional[int]): The conversation ID to fetch assigned prompt
         user_id (Optional[int]): The user ID for fetching previous memories
+        current_curiosity_score (int): The latest curiosity score before generating this turn
         
     Returns:
         Tuple[str, str, str, Dict[str, Any], str, Optional[int]]: The response, the prompt template (with placeholders), the formatted prompt (sent to LLM), the full structured response data, the prompt name used, and the prompt version number
@@ -228,9 +238,12 @@ async def generate_simplified_response(query: str, conversation_history: Optiona
             logger.warning(f"🔄 BRAIN: FALLING BACK to default simplified_conversation prompt (this should NOT happen for visit-based conversations!)")
             prompt_template = await _get_prompt_template(prompt_file_path, "simplified_conversation", purpose)
             logger.info(f"📝 BRAIN: Loaded fallback template, length={len(prompt_template)}")
-        
+
         # Format the prompt with query and conversation history
         logger.info(f"📝 BRAIN: Formatting prompt with query (length={len(query)}) and history (length={len(conversation_history) if conversation_history else 0})")
+        curiosity_score_str = str(max(0, min(100, current_curiosity_score)))
+        prompt_template = prompt_template.replace("{{CURRENT_CURIOSITY_SCORE}}", curiosity_score_str)
+
         formatted_prompt = prompt_template.replace("{{QUERY}}", query)
         
         if conversation_history:
@@ -405,7 +418,17 @@ async def _get_prompt_from_backend(prompt_name: str, purpose: str = "chat") -> O
         logger.warning(f"Error getting prompt version from backend: {e}")
         return None
 
-async def process_query(query: str, config: Optional[FlowConfig] = None, conversation_history: Optional[str] = None, user_persona: Optional[Dict[str, Any]] = None, purpose: str = "chat", conversation_memory: Optional[Dict[str, Any]] = None, conversation_id: Optional[int] = None, user_id: Optional[int] = None) -> ProcessQueryResponse:
+async def process_query(
+    query: str,
+    config: Optional[FlowConfig] = None,
+    conversation_history: Optional[str] = None,
+    user_persona: Optional[Dict[str, Any]] = None,
+    purpose: str = "chat",
+    conversation_memory: Optional[Dict[str, Any]] = None,
+    conversation_id: Optional[int] = None,
+    user_id: Optional[int] = None,
+    current_curiosity_score: int = 0,
+) -> ProcessQueryResponse:
     """
     Process a user query through the intent identification and response generation pipeline.
     
@@ -442,7 +465,8 @@ async def process_query(query: str, config: Optional[FlowConfig] = None, convers
             'steps': [],
             'final_response': None,
             'follow_up_questions': None,
-            'needs_clarification': False
+            'needs_clarification': False,
+            'current_curiosity_score': current_curiosity_score,
         }
         
         # Check if simplified mode is enabled (either by config or force flag)
@@ -452,7 +476,16 @@ async def process_query(query: str, config: Optional[FlowConfig] = None, convers
             logger.info("Using simplified conversation mode")
             
             # Generate simplified response
-            response, prompt_template, formatted_prompt, response_data, prompt_name_used, prompt_version_used = await generate_simplified_response(query, conversation_history, user_persona, purpose, conversation_memory, conversation_id, user_id)
+            response, prompt_template, formatted_prompt, response_data, prompt_name_used, prompt_version_used = await generate_simplified_response(
+                query,
+                conversation_history,
+                user_persona,
+                purpose,
+                conversation_memory,
+                conversation_id,
+                user_id,
+                current_curiosity_score=current_curiosity_score,
+            )
             
             # Check if we need clarification
             needs_clarification = response_data.get("needs_clarification", False)
@@ -670,7 +703,8 @@ async def process_follow_up(
     purpose: str = "chat",
     conversation_memory: Optional[Dict[str, Any]] = None,
     conversation_id: Optional[int] = None,
-    user_id: Optional[int] = None
+    user_id: Optional[int] = None,
+    current_curiosity_score: int = 0,
 ) -> ProcessQueryResponse:
     """
     Process a follow-up response from the student to determine intent and generate a final response.
@@ -707,7 +741,8 @@ async def process_follow_up(
             'query': student_response,
             'config_used': effective_config.model_dump(),
             'steps': [],
-            'final_response': None
+            'final_response': None,
+            'current_curiosity_score': current_curiosity_score,
         }
         
         # Check if simplified mode is enabled (by config or force flag)
@@ -724,7 +759,16 @@ async def process_follow_up(
                 enhanced_conversation_history = f"User: {original_query}\nAI: {', '.join(follow_up_questions)}\nUser: {student_response}"
             
             # Generate simplified response
-            response, prompt_template, formatted_prompt, response_data, prompt_name_used, prompt_version_used = await generate_simplified_response(student_response, enhanced_conversation_history, user_persona, purpose, conversation_memory, conversation_id, user_id)
+            response, prompt_template, formatted_prompt, response_data, prompt_name_used, prompt_version_used = await generate_simplified_response(
+                student_response,
+                enhanced_conversation_history,
+                user_persona,
+                purpose,
+                conversation_memory,
+                conversation_id,
+                user_id,
+                current_curiosity_score=current_curiosity_score,
+            )
             
             # Check if we need clarification (again)
             needs_clarification = response_data.get("needs_clarification", False)

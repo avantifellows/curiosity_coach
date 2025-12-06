@@ -5,10 +5,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import uvicorn
 import httpx # Added for callback
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Tuple
 import os
 from dotenv import load_dotenv # Added import
 import json # Added for S3 config parsing
+import re
 import boto3 # Added for S3 interaction
 from botocore.exceptions import NoCredentialsError, PartialCredentialsError, ClientError # Added for S3 error handling
 from mangum import Mangum
@@ -19,6 +20,8 @@ from src.core.core_theme_config import CORE_THEME_EXTRACTION_ENABLED, CORE_THEME
 # Add these imports at the top of main.py
 from src.core.chat_controller import control_chat_response
 from src.core.age_adapter import generate_response_for_13_year_old
+from src.core.curiosity_score_adapter import evaluate_curiosity_score
+from src.schemas import CuriosityScoreEvaluationStepData
 from src.process_query_entrypoint import process_query, process_follow_up, ProcessQueryResponse
 from src.utils.logger import logger
 # from src.core.conversational_intent_gatherer import gather_initial_intent, process_follow_up_response, ConversationalIntentError
@@ -40,6 +43,90 @@ BACKEND_CALLBACK_BASE_URL = os.getenv("BACKEND_CALLBACK_BASE_URL", "http://local
 
 BACKEND_CALLBACK_ROUTE = os.getenv("BACKEND_CALLBACK_ROUTE", "/api/internal/brain_response")
 BACKEND_CALLBACK_URL = f"{BACKEND_CALLBACK_BASE_URL}{BACKEND_CALLBACK_ROUTE}"
+
+DEFAULT_CURIOSITY_SCORE_INCREMENT = 4
+
+_CURIOSITY_TAG_PATTERN = re.compile(r"\[\[curiosity_score_signal:(\d{1,3})\]\]", re.IGNORECASE)
+
+
+async def get_current_curiosity_score(conversation_id: Optional[int]) -> int:
+    """Fetch the most recent curiosity score for a conversation."""
+    if conversation_id is None:
+        return 0
+
+    try:
+        conversation_id_int = int(conversation_id)
+    except (TypeError, ValueError):
+        logger.warning(
+            "Invalid conversation_id when retrieving curiosity score",
+            extra={"conversation_id": conversation_id}
+        )
+        return 0
+
+    try:
+        messages = await api_service.get_conversation_messages(conversation_id_int)
+    except Exception as exc:
+        logger.warning(
+            "Unable to fetch messages while retrieving curiosity score",
+            extra={"conversation_id": conversation_id_int, "error": str(exc)}
+        )
+        return 0
+
+    existing_scores = [
+        m.get("curiosity_score")
+        for m in messages or []
+        if isinstance(m, dict) and isinstance(m.get("curiosity_score"), (int, float))
+    ]
+
+    if not existing_scores:
+        return 0
+
+    return int(max(existing_scores))
+
+
+def strip_curiosity_signal(text: Optional[str]) -> Tuple[Optional[str], Optional[int]]:
+    """Remove curiosity signal tag from text and return the cleaned text and score."""
+    if not text:
+        return text, None
+
+    match = _CURIOSITY_TAG_PATTERN.search(text)
+    print("&&&&&&&SDFDfDF&&&&&&&&&&&&", match)
+    if not match:
+        return text, None
+
+    try:
+        extracted = int(match.group(1))
+    except ValueError:
+        extracted = None
+
+    cleaned = _CURIOSITY_TAG_PATTERN.sub("", text).strip()
+
+    if extracted is None:
+        return cleaned, None
+
+    bounded = max(0, min(100, extracted))
+    print("$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$", cleaned, bounded)
+    return cleaned, bounded
+
+
+async def compute_next_curiosity_score(conversation_id: Optional[int], requested_score: Optional[int] = None) -> int:
+    """Compute the next curiosity score, honoring a requested value when possible."""
+    last_score = await get_current_curiosity_score(conversation_id)
+
+    if conversation_id is None and not isinstance(requested_score, int):
+        return last_score
+
+    if isinstance(requested_score, int):
+        return max(last_score, max(0, min(100, requested_score)))
+
+    increment = max(0, DEFAULT_CURIOSITY_SCORE_INCREMENT)
+    if increment == 0:
+        return last_score
+
+    next_score = min(100, last_score + increment)
+    if next_score < last_score:
+        return last_score
+    return next_score
 
 app = FastAPI()
 
@@ -315,6 +402,9 @@ async def dequeue(message: MessagePayload, background_tasks: Optional[Background
 
             # Determine if this is a new query or a follow-up response
             response_data = None
+
+            current_curiosity_score = await get_current_curiosity_score(message.conversation_id)
+
             if message.is_follow_up_response:
                 # This is a response to a follow-up question
                 logger.info("Processing as a follow-up response")
@@ -331,7 +421,8 @@ async def dequeue(message: MessagePayload, background_tasks: Optional[Background
                     user_persona=user_persona,
                     conversation_memory=None,  # Can fetch if needed
                     conversation_id=int(message.conversation_id) if message.conversation_id else None,
-                    user_id=int(message.user_id) if message.user_id else None
+                    user_id=int(message.user_id) if message.user_id else None,
+                    current_curiosity_score=current_curiosity_score,
                 )
             else:
                 # This is a new query
@@ -354,8 +445,52 @@ async def dequeue(message: MessagePayload, background_tasks: Optional[Background
                     user_persona=user_persona,
                     conversation_memory=conversation_memory,
                     conversation_id=int(message.conversation_id) if message.conversation_id else None,
-                    user_id=int(message.user_id) if message.user_id else None
+                    user_id=int(message.user_id) if message.user_id else None,
+                    current_curiosity_score=current_curiosity_score,
                 )
+
+            # Handle embedded curiosity score tag in the response
+            raw_final_response = response_data.final_response
+            cleaned_response, curiosity_signal = strip_curiosity_signal(raw_final_response)
+
+            if curiosity_signal is not None:
+                response_data.curiosity_score = curiosity_signal
+            else:
+                response_data.curiosity_score = getattr(response_data, "curiosity_score", None)
+
+            if cleaned_response is not None and raw_final_response != cleaned_response:
+                response_data.final_response = cleaned_response
+
+                if isinstance(response_data.pipeline_data, dict):
+                    response_data.pipeline_data['final_response'] = cleaned_response
+                    if curiosity_signal is not None:
+                        response_data.pipeline_data['curiosity_score_signal'] = curiosity_signal
+
+                    pipeline_steps = response_data.pipeline_data.get('steps')
+                    if isinstance(pipeline_steps, list):
+                        for step in pipeline_steps:
+                            if not isinstance(step, dict):
+                                continue
+                            if step.get('result') == raw_final_response:
+                                step['result'] = cleaned_response
+                            if curiosity_signal is not None:
+                                step_payload = step.get('response_data')
+                                if isinstance(step_payload, dict):
+                                    step_payload['curiosity_score_signal'] = curiosity_signal
+
+                if isinstance(response_data.steps, list):
+                    for step in response_data.steps:
+                        if not isinstance(step, dict):
+                            continue
+                        if step.get('result') == raw_final_response:
+                            step['result'] = cleaned_response
+                        if curiosity_signal is not None:
+                            step_payload = step.get('response_data')
+                            if isinstance(step_payload, dict):
+                                step_payload['curiosity_score_signal'] = curiosity_signal
+
+            elif curiosity_signal is not None and isinstance(response_data.pipeline_data, dict):
+                response_data.pipeline_data['curiosity_score_signal'] = curiosity_signal
 
             # Extract core theme from conversation
             if message.conversation_id and message.purpose in ["chat", "test-prompt"] and CORE_THEME_EXTRACTION_ENABLED:
@@ -529,7 +664,52 @@ async def dequeue(message: MessagePayload, background_tasks: Optional[Background
                 logger.info(f"Applied 13-year-old simplification. Applied={simplify_result.get('applied', False)}")
             except Exception as e:
                 logger.error(f"Error applying 13-year-old simplification: {e}", exc_info=True)
-            
+
+            # Evaluate curiosity score using dedicated prompt layer
+            try:
+                score_evaluation = await evaluate_curiosity_score(
+                    conversation_history=conversation_history_str,
+                    latest_user_message=user_input,
+                    latest_ai_response=response_data.final_response,
+                    current_curiosity_score=current_curiosity_score,
+                    conversation_id=int(message.conversation_id) if message.conversation_id else None,
+                )
+
+                evaluated_score = score_evaluation.get("curiosity_score")
+
+                curiosity_step = CuriosityScoreEvaluationStepData(
+                    name='curiosity_score_evaluation',
+                    enabled=True,
+                    prompt=score_evaluation.get('prompt'),
+                    result=(
+                        str(evaluated_score)
+                        if evaluated_score is not None
+                        else score_evaluation.get('error')
+                    ),
+                    raw_response=score_evaluation.get('raw_response'),
+                    curiosity_score=evaluated_score,
+                    reason=score_evaluation.get('reason'),
+                    applied=bool(score_evaluation.get('applied')),
+                    error=score_evaluation.get('error'),
+                )
+
+                response_data.steps.append(curiosity_step)
+
+                if response_data.pipeline_data is None:
+                    response_data.pipeline_data = {}
+
+                response_data.pipeline_data['curiosity_score_evaluation'] = score_evaluation
+
+                if 'steps' not in response_data.pipeline_data:
+                    response_data.pipeline_data['steps'] = []
+                response_data.pipeline_data['steps'].append(curiosity_step.model_dump())
+
+                if isinstance(evaluated_score, int):
+                    response_data.curiosity_score = evaluated_score
+                    current_curiosity_score = evaluated_score
+            except Exception as e:
+                logger.error(f"Error evaluating curiosity score: {e}", exc_info=True)
+
             # Now evaluate exploration directions with the latest assistant message included
             exploration_data = None
             exploration_directions_list = None
@@ -577,6 +757,12 @@ async def dequeue(message: MessagePayload, background_tasks: Optional[Background
             # Create a client for fetching the prompt version ID
             backend_url = os.getenv("BACKEND_CALLBACK_BASE_URL", "http://localhost:5000")
             async with httpx.AsyncClient() as client:
+                curiosity_score = await compute_next_curiosity_score(message.conversation_id, getattr(response_data, "curiosity_score", None))
+                response_data.curiosity_score = curiosity_score
+
+                if isinstance(response_data.pipeline_data, dict):
+                    response_data.pipeline_data['curiosity_score'] = curiosity_score
+
                 # Check if the response needs clarification (has follow-up questions)
                 if response_data.needs_clarification and response_data.follow_up_questions:
                     # Prepare and schedule the callback with follow-up questions
@@ -589,6 +775,7 @@ async def dequeue(message: MessagePayload, background_tasks: Optional[Background
                         "needs_clarification": True,
                         "follow_up_questions": response_data.follow_up_questions,
                         "original_query": message.original_query if message.is_follow_up_response else user_input,
+                        "curiosity_score": curiosity_score,
                         # DON'T send prompt_version_id - conversation already has correct prompt assigned
                     }
                 else:
@@ -600,6 +787,7 @@ async def dequeue(message: MessagePayload, background_tasks: Optional[Background
                         "llm_response": response_data.final_response,
                         "pipeline_data": response_data.model_dump(),
                         "needs_clarification": False,
+                        "curiosity_score": curiosity_score,
                         # DON'T send prompt_version_id - conversation already has correct prompt assigned
                     }
 
@@ -922,6 +1110,8 @@ async def generate_opening_message(payload: OpeningMessageRequest):
         logger.info(f"Generated opening message for conversation {payload.conversation_id} (length: {len(opening_message)})")
         
         # 6. Send callback to backend with AI message and pipeline data
+        curiosity_score = await compute_next_curiosity_score(payload.conversation_id)
+
         # Format pipeline data with steps array to match frontend expectations
         callback_payload = {
             "conversation_id": payload.conversation_id,
@@ -948,7 +1138,8 @@ async def generate_opening_message(payload: OpeningMessageRequest):
                         "opening_message_generation": True
                     }
                 ]
-            }
+            },
+            "curiosity_score": curiosity_score
         }
         
         try:

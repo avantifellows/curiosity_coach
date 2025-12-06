@@ -13,6 +13,7 @@ import ChatModals from './ChatModals';
 import FeedbackModal from '../FeedbackModal';
 import DebugInfo from '../DebugInfo';
 import ExplorationPanel from '../ExplorationPanel';
+import CuriosityScoreIndicator from '../common/CuriosityScoreIndicator';
 
 interface ChatInterfaceProps {
   mode: 'chat' | 'test-prompt';
@@ -63,6 +64,16 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ mode }) => {
 
   const { user, logout } = useAuth();
   const location = useLocation();
+
+  const curiosityScore = React.useMemo(() => {
+    if (!messages || messages.length === 0) return 0;
+    return messages.reduce((maxScore, message) => {
+      if (!message.is_user && typeof message.curiosity_score === 'number') {
+        return Math.max(maxScore, message.curiosity_score);
+      }
+      return maxScore;
+    }, 0);
+  }, [messages]);
 
   // Check for debug mode
   const queryParams = new URLSearchParams(location.search);
@@ -305,7 +316,12 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ mode }) => {
         <DebugInfo 
           visitNumber={currentVisitNumber} 
           promptVersionId={currentPromptVersionId}
+          curiosityScore={curiosityScore}
         />
+      )}
+
+      {!isDebugMode && (
+        <CuriosityScoreIndicator score={curiosityScore} />
       )}
 
       {/* Exploration Panel - only shown when ?debug=true */}
