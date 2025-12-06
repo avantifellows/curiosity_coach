@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { LoginResponse, Message, ChatHistory, SendMessageResponse, ConversationSummary, Conversation, ConversationCreateResponse, User, StudentLoginResponse, StudentLoginRequest, StudentOptions, StudentWithConversation, PaginatedStudentConversations } from '../types';
+import { LoginResponse, Message, ChatHistory, SendMessageResponse, ConversationSummary, Conversation, ConversationCreateResponse, User, StudentLoginResponse, StudentLoginRequest, StudentOptions, StudentWithConversation, PaginatedStudentConversations, ConversationWithMessages } from '../types';
 
 const API = axios.create({
   baseURL: process.env.REACT_APP_BACKEND_BASE_URL + '/api' || '/api',
@@ -82,6 +82,18 @@ export const getStudentConversations = async (
   } catch (error: any) {
     console.error(`Error fetching conversations for student ${studentId}:`, error.response?.data || error.message);
     throw new Error(error.response?.data?.detail || 'Failed to fetch conversations');
+  }
+};
+
+export const getAllStudentConversations = async (
+  studentId: number
+): Promise<ConversationWithMessages[]> => {
+  try {
+    const response = await API.get<ConversationWithMessages[]>(`/students/${studentId}/conversations/all`);
+    return response.data;
+  } catch (error: any) {
+    console.error(`Error fetching all conversations for student ${studentId}:`, error.response?.data || error.message);
+    throw new Error(error.response?.data?.detail || 'Failed to fetch all conversations');
   }
 };
 
