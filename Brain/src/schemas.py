@@ -171,3 +171,25 @@ class OpeningMessageRequest(BaseModel):
     user_id: int = Field(..., description="ID of the user")
     visit_number: int = Field(..., description="Visit number (1, 2, 3, or 4+)")
     callback_url: str = Field(..., description="Backend callback URL to send the opening message")
+
+
+# --- Class Analysis Request/Response Schemas ---
+class ClassAnalysisRequest(BaseModel):
+    all_conversations: str = Field(..., description="The formatted conversations text to replace {{ALL_CONVERSATIONS}} placeholder")
+    call_type: Optional[str] = Field("class_analysis", description="Call type for LLM configuration")
+
+
+class ClassAnalysisResponse(BaseModel):
+    analysis: str = Field(..., description="The generated analysis text")
+    status: str = Field("success", description="Status of the analysis generation")
+
+
+# --- Student Analysis Request/Response Schemas ---
+class StudentAnalysisRequest(BaseModel):
+    all_conversations: str = Field(..., description="The formatted conversations text to replace {{ALL_CONVERSATIONS}} placeholder")
+    call_type: Optional[str] = Field("student_analysis", description="Call type for LLM configuration")
+
+
+class StudentAnalysisResponse(BaseModel):
+    analysis: str = Field(..., description="The generated analysis text")
+    status: str = Field("success", description="Status of the analysis generation")

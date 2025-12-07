@@ -34,3 +34,8 @@ class PaginatedConversationsResponse(BaseModel):
     conversations: List[ConversationWithMessagesResponse]
     next_offset: Optional[int] = None
 
+
+class ClassAnalysisResponse(BaseModel):
+    analysis: str
+    status: str = "success"
+
