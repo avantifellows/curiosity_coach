@@ -301,7 +301,9 @@ def get_conversation_messages_with_pipeline(
             "id": message.id,
             "content": message.content,
             "is_user": message.is_user,
-            "timestamp": message.timestamp.isoformat(),
+            "timestamp": message.timestamp.isoformat() if message.timestamp else None,
+            "responds_to_message_id": message.responds_to_message_id,
+            "curiosity_score": message.curiosity_score,
             "pipeline_data": pipeline_data.pipeline_data if pipeline_data else None
         }
         result.append(message_dict)
