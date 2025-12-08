@@ -5,43 +5,15 @@ import { getStudentsForClass, analyzeClassConversations } from '../services/api'
 import parse from 'html-react-parser';
 
 // AnalysisLoading component (inline to avoid module resolution issues)
-const AnalysisLoading: React.FC<{ message?: string; videoPath?: string }> = ({ 
-  message = "PROCESSING",
-  videoPath = "/analysis-loading.mp4"
+const AnalysisLoading: React.FC<{ message?: string }> = ({ 
+  message = "PROCESSING, IT TAKES AROUND 2 MINS......."
 }) => {
-  const videoRef = React.useRef<HTMLVideoElement>(null);
-
-  React.useEffect(() => {
-    return () => {
-      // Cleanup: pause and reset video when component unmounts
-      if (videoRef.current) {
-        videoRef.current.pause();
-        videoRef.current.src = '';
-        videoRef.current.load();
-      }
-    };
-  }, []);
-
   return (
     <div className="flex flex-col items-center justify-center py-12 px-4">
-      <div className="max-w-md w-full space-y-6">
-        <div className="relative w-full aspect-video rounded-lg overflow-hidden bg-slate-100 shadow-lg">
-          <video
-            ref={videoRef}
-            autoPlay
-            loop
-            muted
-            playsInline
-            className="w-full h-full object-cover"
-          >
-            <source src={videoPath} type="video/mp4" />
-          </video>
-        </div>
-        <div className="text-center">
-          <p className="text-lg font-medium text-slate-700 animate-pulse">
-            {message}
-          </p>
-        </div>
+      <div className="text-center">
+        <p className="text-lg font-medium text-slate-700 animate-pulse">
+          {message}
+        </p>
       </div>
     </div>
   );
@@ -220,7 +192,7 @@ const ClassSummary: React.FC = () => {
                 ) : (
                   <>
                     {isAnalyzing && (
-                      <AnalysisLoading key="analysis-loading" message="PROCESSING" />
+                      <AnalysisLoading key="analysis-loading" />
                     )}
                     {analysisError && (
                       <div className="rounded-lg bg-red-50 p-4">
