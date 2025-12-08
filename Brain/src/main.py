@@ -10,6 +10,7 @@ import os
 from dotenv import load_dotenv # Added import
 import json # Added for S3 config parsing
 import re
+import time
 import boto3 # Added for S3 interaction
 from botocore.exceptions import NoCredentialsError, PartialCredentialsError, ClientError # Added for S3 error handling
 from mangum import Mangum
@@ -503,8 +504,12 @@ async def dequeue(message: MessagePayload, background_tasks: Optional[Background
                         if user_message_count == CORE_THEME_TRIGGER_MESSAGE_COUNT:
                             logger.info(f"{CORE_THEME_TRIGGER_MESSAGE_COUNT}th user message detected for conversation {message.conversation_id}. Triggering core theme extraction.")
                             
+                            # Track timing for core theme extraction
+                            step_start_time = time.time()
                             # Extract core theme
                             core_theme, core_theme_prompt = await extract_core_theme_from_conversation(int(message.conversation_id))
+                            step_duration = time.time() - step_start_time
+                            logger.info(f"Step 'core_theme_extraction' completed in {step_duration:.3f}s")
                             
                             # Create core theme extraction step
                             core_theme_step = {
@@ -513,7 +518,8 @@ async def dequeue(message: MessagePayload, background_tasks: Optional[Background
                                 'prompt': core_theme_prompt if core_theme_prompt else 'Core theme extraction prompt not available',
                                 'result': core_theme if core_theme else 'No core theme extracted',
                                 'core_theme': core_theme,
-                                'extraction_successful': core_theme is not None
+                                'extraction_successful': core_theme is not None,
+                                'time_taken': round(step_duration, 3)
                             }
                             
                             # Add to main steps array
@@ -594,6 +600,8 @@ async def dequeue(message: MessagePayload, background_tasks: Optional[Background
             # Apply chat controller if core theme exis
             if message.conversation_id and response_data:
                 try:
+                    # Track timing for chat controller
+                    step_start_time = time.time()
                     # Apply chat controller
                     print("previous_exploration_directions", previous_exploration_directions)
                     print("%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%")
@@ -604,6 +612,8 @@ async def dequeue(message: MessagePayload, background_tasks: Optional[Background
                         current_conversation=conversation_history_str,
                         exploration_directions=previous_exploration_directions
                     )
+                    step_duration = time.time() - step_start_time
+                    logger.info(f"Step 'chat_controller' completed in {step_duration:.3f}s")
                     print("chat_controller_result", chat_controller_result)
                     print("########################################################")
                     # Update the response with the controlled version
@@ -623,7 +633,8 @@ async def dequeue(message: MessagePayload, background_tasks: Optional[Background
                         'original_response': chat_controller_result.get("original_response", ""),
                         'controlled_response': chat_controller_result.get("controlled_response", ""),
                         'core_theme': chat_controller_result.get("core_theme", ""),
-                        'chat_controller_applied': chat_controller_result.get("chat_controller_applied", False)
+                        'chat_controller_applied': chat_controller_result.get("chat_controller_applied", False),
+                        'time_taken': round(step_duration, 3)
                     }
 
                     # Add to steps array
@@ -639,7 +650,11 @@ async def dequeue(message: MessagePayload, background_tasks: Optional[Background
             
             # Apply 13-year-old simplification to the final response (unconditionally)
             try:
+                # Track timing for 13-year-old simplification
+                step_start_time = time.time()
                 simplify_result = await generate_response_for_13_year_old(response_data.final_response)
+                step_duration = time.time() - step_start_time
+                logger.info(f"Step 'response_for_13_year_old' completed in {step_duration:.3f}s")
                 response_data.final_response = simplify_result.get("simplified_response", response_data.final_response)
 
                 if response_data.pipeline_data is None:
@@ -652,7 +667,8 @@ async def dequeue(message: MessagePayload, background_tasks: Optional[Background
                     'result': simplify_result.get('simplified_response', ''),
                     'original_response': simplify_result.get('original_response', ''),
                     'applied': simplify_result.get('applied', False),
-                    'error': simplify_result.get('error', None)
+                    'error': simplify_result.get('error', None),
+                    'time_taken': round(step_duration, 3)
                 }
                 response_data.steps.append(step)
                 response_data.pipeline_data['response_for_13_year_old'] = simplify_result
@@ -667,6 +683,8 @@ async def dequeue(message: MessagePayload, background_tasks: Optional[Background
 
             # Evaluate curiosity score using dedicated prompt layer
             try:
+                # Track timing for curiosity score evaluation
+                step_start_time = time.time()
                 score_evaluation = await evaluate_curiosity_score(
                     conversation_history=conversation_history_str,
                     latest_user_message=user_input,
@@ -674,9 +692,12 @@ async def dequeue(message: MessagePayload, background_tasks: Optional[Background
                     current_curiosity_score=current_curiosity_score,
                     conversation_id=int(message.conversation_id) if message.conversation_id else None,
                 )
+                step_duration = time.time() - step_start_time
+                logger.info(f"Step 'curiosity_score_evaluation' completed in {step_duration:.3f}s")
 
                 evaluated_score = score_evaluation.get("curiosity_score")
 
+                # Create Pydantic model first (without time_taken as it's not in the schema)
                 curiosity_step = CuriosityScoreEvaluationStepData(
                     name='curiosity_score_evaluation',
                     enabled=True,
@@ -692,8 +713,13 @@ async def dequeue(message: MessagePayload, background_tasks: Optional[Background
                     applied=bool(score_evaluation.get('applied')),
                     error=score_evaluation.get('error'),
                 )
+                
+                # Convert to dict and add time_taken for logging
+                curiosity_step_dict = curiosity_step.model_dump()
+                curiosity_step_dict['time_taken'] = round(step_duration, 3)
 
-                response_data.steps.append(curiosity_step)
+                # Append dict version (with time_taken) to steps for timing logging
+                response_data.steps.append(curiosity_step_dict)
 
                 if response_data.pipeline_data is None:
                     response_data.pipeline_data = {}
@@ -702,7 +728,7 @@ async def dequeue(message: MessagePayload, background_tasks: Optional[Background
 
                 if 'steps' not in response_data.pipeline_data:
                     response_data.pipeline_data['steps'] = []
-                response_data.pipeline_data['steps'].append(curiosity_step.model_dump())
+                response_data.pipeline_data['steps'].append(curiosity_step_dict)
 
                 if isinstance(evaluated_score, int):
                     response_data.curiosity_score = evaluated_score
@@ -728,12 +754,16 @@ async def dequeue(message: MessagePayload, background_tasks: Optional[Background
                             "is_user": False,
                             "content": response_data.final_response
                         })
+                        # Track timing for exploration directions evaluation
+                        step_start_time = time.time()
                         exploration_data = await evaluate_exploration_directions(
                             conversation_id=int(message.conversation_id),
                             core_theme=core_theme,
                             conversation_history=conversation_history_with_latest,
                             current_query=user_input
                         )
+                        step_duration = time.time() - step_start_time
+                        logger.info(f"Step 'exploration_directions_evaluation' completed in {step_duration:.3f}s")
                         if exploration_data:
                             exploration_directions_list = exploration_data.get('directions', [])
                             logger.info(f"Exploration directions: {exploration_directions_list}")
@@ -744,7 +774,8 @@ async def dequeue(message: MessagePayload, background_tasks: Optional[Background
                                 'result': ', '.join(exploration_directions_list or []),
                                 'directions': exploration_directions_list or [],
                                 'core_theme': exploration_data.get('core_theme', ''),
-                                'evaluation_successful': exploration_data.get('evaluation_successful', False)
+                                'evaluation_successful': exploration_data.get('evaluation_successful', False),
+                                'time_taken': round(step_duration, 3)
                             }
                             response_data.steps.append(exploration_step)
                             logger.info(f"Generated {len(exploration_directions_list or [])} exploration directions for conversation {message.conversation_id}")
@@ -790,6 +821,35 @@ async def dequeue(message: MessagePayload, background_tasks: Optional[Background
                         "curiosity_score": curiosity_score,
                         # DON'T send prompt_version_id - conversation already has correct prompt assigned
                     }
+
+            # Log step timings summary before sending response
+            if response_data and hasattr(response_data, 'steps') and response_data.steps:
+                logger.info("=== Response Timing Summary (Before Sending) ===")
+                logger.info(f"Conversation ID: {message.conversation_id}, Message ID: {message.message_id}")
+                
+                total_time = 0.0
+                for step in response_data.steps:
+                    step_name = step.get('name', 'unknown') if isinstance(step, dict) else getattr(step, 'name', 'unknown')
+                    step_time = step.get('time_taken', 0) if isinstance(step, dict) else getattr(step, 'time_taken', 0)
+                    enabled = step.get('enabled', False) if isinstance(step, dict) else getattr(step, 'enabled', False)
+                    
+                    if step_time and step_time > 0:
+                        total_time += step_time
+                        status = "executed"
+                    else:
+                        status = "skipped" if not enabled else "no timing"
+                    
+                    logger.info(f"  Step '{step_name}': {step_time:.3f}s ({status})")
+                
+                # Also check pipeline_data for total_processing_time
+                if hasattr(response_data, 'pipeline_data') and isinstance(response_data.pipeline_data, dict):
+                    pipeline_total = response_data.pipeline_data.get('total_processing_time', 0)
+                    if pipeline_total:
+                        logger.info(f"Total processing time (from pipeline_data): {pipeline_total:.3f}s")
+                    elif total_time > 0:
+                        logger.info(f"Total processing time (sum of steps): {total_time:.3f}s")
+                
+                logger.info("=================================================")
 
             # Schedule callback
             if background_tasks:

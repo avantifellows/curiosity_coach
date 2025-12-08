@@ -61,9 +61,17 @@ class SimplifiedConversationStepData(BaseModel):
     name: Literal["simplified_conversation"]
     enabled: bool
     prompt: Optional[str] = None
+    prompt_template: Optional[str] = None  # Original template with placeholders
+    formatted_prompt: Optional[str] = None  # What actually went to the LLM
     result: Optional[str] = None
     response_data: Optional[Dict[str, Any]] = None
     needs_clarification: bool = False
+    prompt_name: Optional[str] = None  # Track actual prompt purpose (visit_1, visit_2, etc.)
+    prompt_version: Optional[int] = None  # Include version for debugging
+    time_taken: Optional[float] = None  # Time taken in seconds
+    
+    class Config:
+        extra = "allow"  # Allow extra fields that might be added in the future
 
 class CuriosityScoreEvaluationStepData(BaseModel):
     name: Literal["curiosity_score_evaluation"]
