@@ -201,7 +201,7 @@ async def generate_ai_first_message(
     
     timeout = settings.OPENING_MESSAGE_TIMEOUT
     
-    logger.info(f"Requesting opening message for conversation {conversation_id}, visit {visit_number}")
+    logger.info(f"Requesting opening message for conversation {conversation_id}, visit {visit_number}, brain endpoint: {brain_endpoint}")
     
     try:
         async with httpx.AsyncClient() as client:
