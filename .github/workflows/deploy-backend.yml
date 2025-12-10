@@ -64,6 +64,13 @@ jobs:
         run: |
           aws lambda update-function-code --function-name $LAMBDA_FUNCTION_NAME --image-uri ${{ steps.build-image.outputs.image }}
 
+      - name: Wait for Lambda update to complete
+        env:
+          LAMBDA_FUNCTION_NAME: ${{ steps.find_lambda.outputs.function_name }}
+        run: |
+          echo "Waiting for function update to complete..."
+          aws lambda wait function-updated --function-name $LAMBDA_FUNCTION_NAME
+
       - name: Create Lambda Function URL if not exists
         env:
           LAMBDA_FUNCTION_NAME: ${{ steps.find_lambda.outputs.function_name }}
@@ -75,4 +82,42 @@ jobs:
               --function-name $LAMBDA_FUNCTION_NAME \
               --auth-type NONE \
               --region ap-south-1
-          fi 
+          fi
+
+      - name: Get Backend API Gateway URL
+        id: get_backend_url
+        run: |
+          API_NAME="curiosity-coach-backend-dev-api"
+          API_URL=$(aws apigatewayv2 get-apis --region ap-south-1 --query "Items[?Name=='$API_NAME'].ApiEndpoint" --output text)
+          if [ -z "$API_URL" ]; then
+            echo "Error: Could not find API Gateway with name $API_NAME"
+            exit 1
+          fi
+          echo "Found Backend API URL: $API_URL"
+          echo "::set-output name=url::$API_URL"
+
+      - name: Get Brain API Gateway URL
+        id: get_brain_url
+        run: |
+          API_NAME="curiosity-coach-brain-lambda-api"
+          API_URL=$(aws apigatewayv2 get-apis --region ap-south-1 --query "Items[?Name=='$API_NAME'].ApiEndpoint" --output text)
+          if [ -z "$API_URL" ]; then
+            echo "Error: Could not find API Gateway with name $API_NAME"
+            exit 1
+          fi
+          echo "Found Brain API URL: $API_URL"
+          echo "::set-output name=url::$API_URL"
+
+      - name: Update Lambda environment variables
+        env:
+          LAMBDA_FUNCTION_NAME: ${{ steps.find_lambda.outputs.function_name }}
+          DB_NAME: ${{ secrets.PROD_DB_NAME }}
+          BACKEND_URL: ${{ steps.get_backend_url.outputs.url }}
+          BRAIN_URL: ${{ steps.get_brain_url.outputs.url }}
+        run: |
+          EXISTING_VARS=$(aws lambda get-function-configuration --function-name $LAMBDA_FUNCTION_NAME --query 'Environment.Variables' --output json)
+          if [ -z "$EXISTING_VARS" ] || [ "$EXISTING_VARS" == "null" ]; then
+            EXISTING_VARS='{}'
+          fi
+          UPDATED_VARS=$(echo $EXISTING_VARS | jq --arg db_name "$DB_NAME" --arg backend_url "$BACKEND_URL" --arg brain_url "$BRAIN_URL" '. + {"DB_NAME": $db_name, "APP_ENV": "production", "BACKEND_CALLBACK_BASE_URL": $backend_url, "BRAIN_ENDPOINT_URL": $brain_url}')
+          aws lambda update-function-configuration --function-name $LAMBDA_FUNCTION_NAME --environment "{\"Variables\":$UPDATED_VARS}"

@@ -88,6 +88,7 @@ jobs:
         env:
           BRAIN_LAMBDA_FUNCTION_NAME: ${{ steps.find_lambda.outputs.function_name }}
           BACKEND_URL: ${{ steps.get_backend_url.outputs.url }}
+          APP_ENVIRONMENT: production
         run: |
           echo "Updating environment variables for $BRAIN_LAMBDA_FUNCTION_NAME with Backend URL: $BACKEND_URL"
           # Get current environment variables JSON
@@ -103,9 +104,9 @@ jobs:
           # Use jq to merge the current variables with the new BACKEND_CALLBACK_BASE_URL
           # This handles cases where Environment.Variables might not exist initially (null)
           if [ "$CURRENT_ENV_VARS" == "null" ]; then
-            UPDATED_ENV_VARS=$(jq -n --arg url "$BACKEND_URL" '{"BACKEND_CALLBACK_BASE_URL": $url}')
+            UPDATED_ENV_VARS=$(jq -n --arg url "$BACKEND_URL" --arg app_env "$APP_ENVIRONMENT" '{"BACKEND_CALLBACK_BASE_URL": $url, "APP_ENV": $app_env}')
           else
-            UPDATED_ENV_VARS=$(echo $CURRENT_ENV_VARS | jq --arg url "$BACKEND_URL" '. + {BACKEND_CALLBACK_BASE_URL: $url}')
+            UPDATED_ENV_VARS=$(echo $CURRENT_ENV_VARS | jq --arg url "$BACKEND_URL" --arg app_env "$APP_ENVIRONMENT" '. + {BACKEND_CALLBACK_BASE_URL: $url, APP_ENV: $app_env}')
           fi
 
           echo "New environment variables JSON: $UPDATED_ENV_VARS"
