@@ -4,11 +4,6 @@ from src.core.final_response_generator import generate_initial_response, Respons
 from src.core.learning_enhancement import generate_enhanced_response, LearningEnhancementError
 from src.utils.logger import logger
 import os
-<<<<<<< HEAD
-=======
-import json
-import time
->>>>>>> 19272150e8ad8591993fc62068b2a76868920788
 from typing import Optional, Dict, Any, List, Tuple
 from src.config_models import FlowConfig, StepConfig
 from src.schemas import ProcessQueryResponse, PipelineData
@@ -302,7 +297,6 @@ async def generate_simplified_response(
         ]
         
         response_text = llm_service.get_completion(messages, call_type="simplified_conversation")
-<<<<<<< HEAD
         return (
             response_text,
             prompt_template,
@@ -316,40 +310,6 @@ async def generate_simplified_response(
             prompt_version_used,
         )
 
-=======
-        
-        # Parse the JSON response
-        try:
-            import json
-            import re
-            
-            # Clean up markdown code blocks if present
-            # This handles cases where the LLM returns ```json {... json here...} ```
-            cleaned_response = response_text
-            markdown_match = re.search(r'```(?:json)?\s*([\s\S]*?)\s*```', response_text)
-            if markdown_match:
-                logger.info("Detected markdown code block in LLM response, extracting JSON content")
-                cleaned_response = markdown_match.group(1)
-            
-            response_data = json.loads(cleaned_response)
-            
-            # Check if we need clarification or have a normal response
-            if response_data.get("needs_clarification", False):
-                # Format follow-up questions
-                follow_up_questions = response_data.get("follow_up_questions", [])
-                formatted_response = "\n".join(follow_up_questions)
-            else:
-                # Get the normal response
-                formatted_response = response_data.get("response", "")
-                
-            return formatted_response, prompt_template, formatted_prompt, response_data, prompt_name_used, prompt_version_used
-            
-        except json.JSONDecodeError:
-            # Fallback in case response isn't valid JSON
-            logger.error(f"Failed to parse JSON response: {response_text}")
-            return response_text, prompt_template, formatted_prompt, {"response": response_text, "needs_clarification": False}, prompt_name_used, prompt_version_used
-            
->>>>>>> 19272150e8ad8591993fc62068b2a76868920788
     except Exception as e:
         logger.error(f"Error in generate_simplified_response: {str(e)}", exc_info=True)
         raise
@@ -495,13 +455,6 @@ async def process_query(
         if is_simplified_mode:
             logger.info("Using simplified conversation mode")
             
-<<<<<<< HEAD
-=======
-            # Track timing for simplified conversation step
-            overall_start_time = time.time()
-            step_start_time = time.time()
-            
->>>>>>> 19272150e8ad8591993fc62068b2a76868920788
             # Generate simplified response
             response, prompt_template, formatted_prompt, response_data, prompt_name_used, prompt_version_used = await generate_simplified_response(
                 query,
@@ -514,12 +467,6 @@ async def process_query(
                 current_curiosity_score=current_curiosity_score,
             )
             
-<<<<<<< HEAD
-=======
-            step_duration = time.time() - step_start_time
-            logger.info(f"Step 'simplified_conversation' completed in {step_duration:.3f}s")
-            
->>>>>>> 19272150e8ad8591993fc62068b2a76868920788
             # Check if we need clarification
             needs_clarification = response_data.get("needs_clarification", False)
             
@@ -541,23 +488,11 @@ async def process_query(
                 'response_data': response_data,
                 'needs_clarification': needs_clarification,
                 'prompt_name': prompt_name_used,  # Track actual prompt purpose (visit_1, visit_2, etc.)
-<<<<<<< HEAD
                 'prompt_version': prompt_version_used  # Include version for debugging
-=======
-                'prompt_version': prompt_version_used,  # Include version for debugging
-                'time_taken': round(step_duration, 3)  # Add timing in seconds
->>>>>>> 19272150e8ad8591993fc62068b2a76868920788
             }
             pipeline_data['steps'].append(simplified_step_data)
             pipeline_data['final_response'] = response
             
-<<<<<<< HEAD
-=======
-            overall_duration = time.time() - overall_start_time
-            pipeline_data['total_processing_time'] = round(overall_duration, 3)
-            logger.info(f"Simplified conversation processing completed - step_time: {step_duration:.3f}s, total_time: {overall_duration:.3f}s")
-            
->>>>>>> 19272150e8ad8591993fc62068b2a76868920788
             return ProcessQueryResponse(**pipeline_data)
         
         # If not in simplified mode, proceed with the original pipeline
@@ -796,13 +731,6 @@ async def process_follow_up(
         if is_simplified_mode:
             logger.info("Using simplified conversation mode for follow-up")
             
-<<<<<<< HEAD
-=======
-            # Track timing for simplified conversation step
-            overall_start_time = time.time()
-            step_start_time = time.time()
-            
->>>>>>> 19272150e8ad8591993fc62068b2a76868920788
             # Create conversation history with original query and response
             enhanced_conversation_history = ""
             if conversation_history:
@@ -822,12 +750,6 @@ async def process_follow_up(
                 current_curiosity_score=current_curiosity_score,
             )
             
-<<<<<<< HEAD
-=======
-            step_duration = time.time() - step_start_time
-            logger.info(f"Step 'simplified_conversation' (follow-up) completed in {step_duration:.3f}s")
-            
->>>>>>> 19272150e8ad8591993fc62068b2a76868920788
             # Check if we need clarification (again)
             needs_clarification = response_data.get("needs_clarification", False)
             
@@ -848,23 +770,11 @@ async def process_follow_up(
                 'response_data': response_data,
                 'needs_clarification': needs_clarification,
                 'prompt_name': prompt_name_used,  # Track actual prompt purpose (visit_1, visit_2, etc.)
-<<<<<<< HEAD
                 'prompt_version': prompt_version_used  # Include version for debugging
-=======
-                'prompt_version': prompt_version_used,  # Include version for debugging
-                'time_taken': round(step_duration, 3)  # Add timing in seconds
->>>>>>> 19272150e8ad8591993fc62068b2a76868920788
             }
             pipeline_data['steps'].append(simplified_step_data)
             pipeline_data['final_response'] = response
             
-<<<<<<< HEAD
-=======
-            overall_duration = time.time() - overall_start_time
-            pipeline_data['total_processing_time'] = round(overall_duration, 3)
-            logger.info(f"Follow-up simplified conversation processing completed - step_time: {step_duration:.3f}s, total_time: {overall_duration:.3f}s")
-            
->>>>>>> 19272150e8ad8591993fc62068b2a76868920788
             return ProcessQueryResponse(**pipeline_data)
         
         # Original follow-up processing logic for non-simplified mode
