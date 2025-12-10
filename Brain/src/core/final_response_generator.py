@@ -224,7 +224,7 @@ async def generate_initial_response(
         if "{{USER_PERSONA" in final_prompt:
             from src.utils.prompt_injection import inject_persona_placeholders
             final_prompt = inject_persona_placeholders(final_prompt, user_persona)
-
+      
         # Inject conversation memory if placeholders exist
         if "{{CONVERSATION_MEMORY" in final_prompt:
             from src.utils.prompt_injection import inject_memory_placeholders

@@ -1,6 +1,6 @@
 # Curiosity Coach - Project Context Document
 
-**Last Updated:** October 2, 2025
+**Last Updated:** October 7, 2025
 
 This document provides a comprehensive technical and non-technical overview of the Curiosity Coach project for AI coding agents and human engineers.
 
@@ -44,7 +44,7 @@ A conversational AI tutoring system for students (grades 5-10) that fosters lear
 3. **Access**:
    - Frontend: http://localhost:3000
    - Backend API: http://localhost:5000/api/docs
-   - Brain: http://localhost:8000
+   - Brain: http://localhost:5001 (default; configurable via PORT in Brain/src/.env)
 
 ### Key Concepts to Understand
 
@@ -56,7 +56,9 @@ A conversational AI tutoring system for students (grades 5-10) that fosters lear
 
 **Message Flow:** User → Backend → SQS/HTTP → Brain (LLM processing) → HTTP callback → Backend → Poll → User
 
-**Placeholders:** `{{CONVERSATION_MEMORY}}`, `{{USER_PERSONA}}` inject dynamic context into prompts.
+**Placeholders:** `{{CONVERSATION_MEMORY}}`, `{{USER_PERSONA}}`, `{{PREVIOUS_CONVERSATIONS_MEMORY}}` inject dynamic context into prompts.
+
+**Onboarding & Visit-based Prompts:** Each new conversation increments a per-user visit counter. The system assigns a prompt purpose by visit number: visit_1, visit_2, visit_3, then steady_state (4+). Conversation creation synchronously generates an opening AI message and may trigger background memory/persona generation.
 
 ### Common Development Tasks
 
@@ -185,7 +187,7 @@ graph TD
     *   `python-dotenv==1.0.0` - Environment variable management
 *   **Core Functionality:**
     *   **Authentication:** Identifier-based (phone or name) with Bearer token (currently uses user_id)
-    *   **User Management:** Create/get users by phone or name (names get unique 3-digit suffixes)
+    *   **User Management:** Create/get users by phone or name (names normalized; no suffixes)
     *   **Conversation CRUD:** Create, read, update titles, delete conversations
     *   **Message Management:** Send messages, poll for AI responses, retrieve conversation history
     *   **Prompt Versioning System:** 
@@ -210,7 +212,7 @@ graph TD
     *   **To Brain:** 
         *   Production: Sends messages via SQS queue
         *   Local Dev: Direct HTTP POST to `LOCAL_BRAIN_ENDPOINT_URL` (e.g., `http://127.0.0.1:8001`)
-    *   **From Brain:** Receives AI responses via HTTP callback at `/api/internal/brain_response`
+    *   **From Brain:** Receives AI responses via HTTP callback at `/api/internal/brain_response`; opening messages via `/api/internal/opening_message`
 *   **Infrastructure:**
     *   **Local:** FastAPI server with direct PostgreSQL connection
     *   **Production:** 
@@ -233,7 +235,7 @@ graph TD
     *   `src/memories/` - Conversation memory endpoints and CRUD
     *   `src/user_personas/` - User persona endpoints and CRUD
     *   `src/tasks/` - Task trigger endpoints
-    *   `src/internal/` - Internal endpoints for Brain service
+    *   `src/internal/` - Internal endpoints for Brain service (includes opening message callback, prompt fetch, messages_for_brain)
     *   `src/feedback/` - User feedback endpoints
     *   `src/health/` - Health check endpoints
     *   `src/queue/` - SQS queue service
@@ -338,6 +340,7 @@ The backend uses a PostgreSQL database with the following tables:
 *   `message_pipeline_data`: Stores additional data about the message processing pipeline from the Brain service.
 *   `prompts`: Stores different types of prompts used by the Brain service.
 *   `prompt_versions`: Stores different versions of each prompt.
+*   `conversation_visits`: Tracks per-user visit numbers per conversation (onboarding)
 
 ### Database Schema Diagram
 ```mermaid
@@ -401,6 +404,7 @@ erDiagram
         int id
         string name "unique"
         text description "nullable"
+        string prompt_purpose "nullable, indexed" "visit_1|visit_2|visit_3|steady_state|general"
         datetime created_at
         datetime updated_at
     }
@@ -426,6 +430,7 @@ erDiagram
     messages ||--|{ message_pipeline_data : "has"
     messages }o--o| messages : "responds to"
     prompts ||--o{ prompt_versions : "has versions"
+    conversations ||--|| conversation_visits : "has one"
 ```
 
 ---
@@ -625,6 +630,7 @@ The `README-cloudflare.md` file provides detailed instructions:
   - GET `/api/conversations/{id}`
   - DELETE `/api/conversations/{id}`
   - PUT `/api/conversations/{id}/title` (body `{ title }`)
+  - GET `/api/conversations/{id}/memory`
 
 - Messages
   - POST `/api/conversations/{conversation_id}/messages` (body `{ content, purpose? }`)
@@ -664,7 +670,9 @@ The `README-cloudflare.md` file provides detailed instructions:
 
 - Internal (Brain only)
   - POST `/api/internal/brain_response` – save AI response and pipeline data
+  - POST `/api/internal/opening_message` – save AI opening message and pipeline data
   - GET `/api/internal/conversations/{conversation_id}/messages_for_brain`
+  - GET `/api/internal/conversations/{conversation_id}/prompt`
   - GET `/api/internal/users/{user_id}/memories`
   - GET `/api/internal/conversations/{conversation_id}/memory` – single conversation memory
   - GET `/api/internal/users/{user_id}/persona` – single user persona
@@ -676,14 +684,16 @@ The `README-cloudflare.md` file provides detailed instructions:
 - POST `/tasks` – `GENERATE_MEMORY_BATCH` and `USER_PERSONA_GENERATION`
 - GET `/get-config` – FlowConfig schema and current values (S3)
 - POST `/set-config` – validate and save FlowConfig to S3
+- POST `/generate-opening-message` – synchronous opening message for a conversation (backend calls with callback_url)
 
-Brain sends HTTP callbacks to backend at `BACKEND_CALLBACK_BASE_URL + BACKEND_CALLBACK_ROUTE` (defaults to `/api/internal/brain_response`).
+Brain sends HTTP callbacks to backend at `BACKEND_CALLBACK_BASE_URL + BACKEND_CALLBACK_ROUTE` (defaults to `/api/internal/brain_response`). Opening messages are sent to `/api/internal/opening_message`.
 
 - Prompt placeholders supported in templates:
   - `{{CONVERSATION_MEMORY}}` injects all validated top-level keys from the conversation's memory (keys derived from `ConversationMemoryData`).
   - `{{CONVERSATION_MEMORY__main_topics__action}}` injects only the specified validated keys.
   - `{{USER_PERSONA}}` injects all validated top-level keys from the user persona (keys derived from `UserPersonaData`, currently only `persona`).
   - `{{USER_PERSONA__persona}}` injects the specified validated keys.
+  - `{{PREVIOUS_CONVERSATIONS_MEMORY}}` injects raw previous memory JSONs (for visit > 1)
   - Missing data renders as `[Not available]`.
 
 ## Message flow (updated)
@@ -701,6 +711,13 @@ graph TD
     H --> I[Brain HTTP callback -> /api/internal/brain_response]
     I --> J[DB save AI message + pipeline]
     J --> K[Client polls /api/messages/{user_message_id}/response]
+
+    %% Opening message on conversation creation (synchronous)
+    subgraph Onboarding
+        X[POST /api/conversations] --> Y[Assign visit-based prompt]
+        Y --> Z[Brain /generate-opening-message]
+        Z --> I
+    end
 ```
 
 ## Environment Variables

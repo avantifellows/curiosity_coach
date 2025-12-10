@@ -1,6 +1,9 @@
 from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.orm import Session
-from src.auth.schemas import PhoneNumberRequest, LoginRequest, LoginResponse, UserResponse
+from src.auth.schemas import (
+    PhoneNumberRequest, LoginRequest, LoginResponse, UserResponse,
+    StudentLoginRequest, StudentLoginResponse, StudentResponse
+)
 from src.auth.service import auth_service
 from src.database import get_db # Import the dependency
 from src.models import User # Import User model for potential type hinting if needed
@@ -61,12 +64,51 @@ async def login_with_phone(request: PhoneNumberRequest, db: Session = Depends(ge
         raise HTTPException(status_code=500, detail=f"Error during login: {str(e)}")
 
 @router.get("/me", response_model=UserResponse)
-async def read_users_me(current_user: User = Depends(get_current_user)):
+async def read_users_me(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """
     Fetch the details of the currently authenticated user.
-    Relies on the get_current_user dependency to validate the token 
-    and retrieve the user.
+    Relies on the get_current_user dependency to validate the token
+    and retrieve the user. Includes student profile if user is a student.
     """
-    # If Depends(get_current_user) succeeds, current_user is the valid User object.
-    # Pydantic will automatically serialize it based on UserResponse schema.
-    return current_user 
+    from src.models import get_student_by_user_id
+
+    # Fetch student profile if exists
+    student = get_student_by_user_id(db, current_user.id)
+
+    # Create response dict
+    user_data = {
+        "id": current_user.id,
+        "phone_number": current_user.phone_number,
+        "name": current_user.name,
+        "created_at": current_user.created_at,
+        "student": student
+    }
+
+    return user_data
+
+@router.post("/student/login", response_model=StudentLoginResponse)
+async def login_with_student(request: StudentLoginRequest, db: Session = Depends(get_db)):
+    """
+    Authenticate a student with their school, grade, section, roll number, and first name.
+    Creates a new user and student profile if the student doesn't exist.
+    """
+    try:
+        # Get or create student
+        user, student = await auth_service.login_with_student(
+            db=db,
+            school=request.school,
+            grade=request.grade,
+            section=request.section,
+            roll_number=request.roll_number,
+            first_name=request.first_name
+        )
+
+        return {
+            'success': True,
+            'message': 'Student login successful',
+            'user': user,
+            'student': student
+        }
+    except Exception as e:
+        print(f"Student login error: {e}")
+        raise HTTPException(status_code=500, detail=f"Error during student login: {str(e)}") 

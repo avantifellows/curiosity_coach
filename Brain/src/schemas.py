@@ -65,13 +65,25 @@ class SimplifiedConversationStepData(BaseModel):
     response_data: Optional[Dict[str, Any]] = None
     needs_clarification: bool = False
 
+class CuriosityScoreEvaluationStepData(BaseModel):
+    name: Literal["curiosity_score_evaluation"]
+    enabled: bool
+    prompt: Optional[str] = None
+    result: Optional[str] = None
+    raw_response: Optional[str] = None
+    curiosity_score: Optional[int] = None
+    reason: Optional[str] = None
+    applied: bool = False
+    error: Optional[str] = None
+
 PipelineStepData = Union[
     IntentGatheringStepData, 
     FollowUpProcessingStepData,
     KnowledgeStepData, 
     InitialResponseStepData, 
     LearningEnhancementStepData,
-    SimplifiedConversationStepData  # Add to the union
+    SimplifiedConversationStepData,
+    CuriosityScoreEvaluationStepData
 ]
 
 class PipelineData(BaseModel):
@@ -91,35 +103,93 @@ class ProcessQueryResponse(BaseModel):
     follow_up_questions: Optional[List[str]] = Field(None, description="List of follow-up questions if clarification is needed")
     needs_clarification: bool = Field(False, description="Whether clarification is needed from the user")
     partial_understanding: Optional[str] = Field(None, description="Partial understanding of the query when clarification is needed")
-
+    pipeline_data: Optional[Dict[str, Any]] = Field(None, description="Additional pipeline metadata and processing information")
+    curiosity_score: Optional[int] = Field(None, description="Curiosity score generated for this response")
 # --- Conversation Memory Schemas ---
 
-class TopicDiscussed(BaseModel):
-    topic: str = Field(..., description="The main educational topic.")
-    keywords: List[str] = Field(..., description="List of key technical or conceptual terms.")
-    student_initial_knowledge: str = Field(..., description="What the student knew or believed at the start.")
-    key_learnings: List[str] = Field(..., description="Main concepts the student learned.")
+class BoosterAttempted(BaseModel):
+    category: str = Field(..., description="Name of the curiosity booster category")
+    ai_evidence: str = Field(..., description="Quote from AI demonstrating the technique")
+    kid_reception: str = Field(..., description="How the kid received it: strong / weak / not received")
+    kid_evidence: str = Field(..., description="Quote from kid showing their response")
 
-class InferredInterest(BaseModel):
-    interest: str = Field(..., description="Inferred underlying interest of the student.")
-    confidence_score: float = Field(..., description="Confidence score (0.0 to 1.0) for the inference.")
-    evidence: str = Field(..., description="Evidence from the conversation supporting the inference.")
+class CuriosityBoosters(BaseModel):
+    boosters_attempted: List[BoosterAttempted] = Field(..., description="List of curiosity boosters the AI tried")
+    not_attempted: List[str] = Field(..., description="List of categories not found in AI responses")
+    comment: str = Field(..., description="Short summary of which strategies resonated most")
 
-class StudentProfileInsights(BaseModel):
-    inferred_interests: List[InferredInterest]
-    learning_patterns: List[str] = Field(..., description="Observations about the student's learning style.")
-    personality_traits: List[str] = Field(..., description="Observed personality traits relevant to learning.")
+class InvitationToComeback(BaseModel):
+    inviting_to_come_back: bool = Field(..., description="Whether the ending encourages the kid to return")
+    category: str = Field(..., description="Type: cliffhanger / mini_challenge / kid_choice / none")
+    evidence: str = Field(..., description="Exact quote from chat if found, else empty")
+    comment: str = Field(..., description="Short explanation")
 
-class FutureConversationHook(BaseModel):
-    hook_question: str = Field(..., description="An engaging question to ask in a future conversation.")
-    related_topic: str = Field(..., description="The broader topic related to the hook question.")
+class KnowledgeJourney(BaseModel):
+    initial_knowledge: Dict[str, str] = Field(..., description="Kid's starting knowledge by topic")
+    ai_contributions: Dict[str, str] = Field(..., description="New knowledge added by AI by topic")
+    missing_for_holistic_picture: Dict[str, Any] = Field(..., description="What's still missing for holistic understanding")
+
+class LearningProfileAssessment(BaseModel):
+    assessment: str = Field(..., description="Assessment value")
+    evidence: str = Field(..., description="Quote supporting the assessment")
+    comment: str = Field(..., description="Short explanation")
+
+class KidLearningProfile(BaseModel):
+    attention_span: LearningProfileAssessment = Field(..., description="Assessment of attention span")
+    ability_to_grasp: LearningProfileAssessment = Field(..., description="Assessment of comprehension ability")
+    processing_time: LearningProfileAssessment = Field(..., description="Assessment of processing speed")
+    engagement_patterns: LearningProfileAssessment = Field(..., description="Assessment of engagement style")
 
 class ConversationMemoryData(BaseModel):
-    main_topics: List[str] = Field(..., description="List of topics that are discussed in the discussion")
-    action: List[str] = Field(..., description="List of actions suggested by the AI to explore to kid")
-    typical_observation: str = Field(..., description="Typical and in-depth observation about the kid")
+    curiosity_boosters: Dict[str, Any] = Field(..., description="Analysis of curiosity-building techniques")
+    invitation_to_come_back: Dict[str, Any] = Field(..., description="Analysis of re-engagement strategies")
+    knowledge_journey: Dict[str, Any] = Field(..., description="Analysis of learning progression")
+    kid_learning_profile: Dict[str, Any] = Field(..., description="Assessment of kid's learning characteristics")
+    
+    class Config:
+        # Allow any extra fields for flexibility during testing
+        extra = "allow"
+    
 
 
 # --- User Persona Schema ---
+# Similar structure to ConversationMemoryData but aggregated across all user's conversations
 class UserPersonaData(BaseModel):
-    persona: str = Field(..., description="Compact persona string summarizing the user")
+    curiosity_boosters: Dict[str, Any] = Field(..., description="Aggregated analysis of what teaching techniques work best across all conversations")
+    invitation_to_come_back: Dict[str, Any] = Field(..., description="Aggregated patterns of how conversations ended and re-engagement strategies")
+    knowledge_journey: Dict[str, Any] = Field(..., description="Aggregated topics of interest and learning progression across conversations")
+    kid_learning_profile: Dict[str, Any] = Field(..., description="Overall assessment of kid's learning characteristics and preferences")
+    
+    class Config:
+        # Allow any extra fields for flexibility
+        extra = "allow"
+
+
+# --- Opening Message Request Schema ---
+class OpeningMessageRequest(BaseModel):
+    conversation_id: int = Field(..., description="ID of the conversation to generate opening message for")
+    user_id: int = Field(..., description="ID of the user")
+    visit_number: int = Field(..., description="Visit number (1, 2, 3, or 4+)")
+    callback_url: str = Field(..., description="Backend callback URL to send the opening message")
+
+
+# --- Class Analysis Request/Response Schemas ---
+class ClassAnalysisRequest(BaseModel):
+    all_conversations: str = Field(..., description="The formatted conversations text to replace {{ALL_CONVERSATIONS}} placeholder")
+    call_type: Optional[str] = Field("class_analysis", description="Call type for LLM configuration")
+
+
+class ClassAnalysisResponse(BaseModel):
+    analysis: str = Field(..., description="The generated analysis text")
+    status: str = Field("success", description="Status of the analysis generation")
+
+
+# --- Student Analysis Request/Response Schemas ---
+class StudentAnalysisRequest(BaseModel):
+    all_conversations: str = Field(..., description="The formatted conversations text to replace {{ALL_CONVERSATIONS}} placeholder")
+    call_type: Optional[str] = Field("student_analysis", description="Call type for LLM configuration")
+
+
+class StudentAnalysisResponse(BaseModel):
+    analysis: str = Field(..., description="The generated analysis text")
+    status: str = Field("success", description="Status of the analysis generation")

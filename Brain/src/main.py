@@ -5,16 +5,21 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import uvicorn
 import httpx # Added for callback
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Tuple
 import os
 from dotenv import load_dotenv # Added import
 import json # Added for S3 config parsing
+import re
 import boto3 # Added for S3 interaction
 from botocore.exceptions import NoCredentialsError, PartialCredentialsError, ClientError # Added for S3 error handling
 from mangum import Mangum
 from pathlib import Path
 import asyncio
-
+from src.core.core_theme_extractor import extract_core_theme_from_conversation, update_conversation_theme
+from src.core.core_theme_config import CORE_THEME_EXTRACTION_ENABLED, CORE_THEME_TRIGGER_MESSAGE_COUNT, CORE_THEME_MAX_RETRIES, CORE_THEME_PROMPT_NAME
+# Add these imports at the top of main.py
+from src.core.chat_controller import control_chat_response
+from src.core.age_adapter import generate_response_for_13_year_old
 from src.process_query_entrypoint import process_query, process_follow_up, ProcessQueryResponse
 from src.utils.logger import logger
 # from src.core.conversational_intent_gatherer import gather_initial_intent, process_follow_up_response, ConversationalIntentError
@@ -23,10 +28,12 @@ from src.utils.logger import logger
 from src.config_models import FlowConfig
 from src.services.llm_service import LLMService
 from src.services.api_service import api_service
-from src.schemas import ConversationMemoryData
+from src.schemas import ConversationMemoryData, OpeningMessageRequest, ClassAnalysisRequest, ClassAnalysisResponse, StudentAnalysisRequest, StudentAnalysisResponse
 from src.core.user_persona_generator import generate_persona_for_user
 from pydantic import ValidationError
-
+from src.utils.prompt_injection import inject_core_theme_placeholder
+from src.core.exploration_directions_config import EXPLORATION_DIRECTIONS_ENABLED
+from src.analytics_agent import runner as analytics_runner
 # Load environment variables from .env file
 load_dotenv()
 
@@ -34,6 +41,95 @@ BACKEND_CALLBACK_BASE_URL = os.getenv("BACKEND_CALLBACK_BASE_URL", "http://local
 
 BACKEND_CALLBACK_ROUTE = os.getenv("BACKEND_CALLBACK_ROUTE", "/api/internal/brain_response")
 BACKEND_CALLBACK_URL = f"{BACKEND_CALLBACK_BASE_URL}{BACKEND_CALLBACK_ROUTE}"
+
+DEFAULT_CURIOSITY_SCORE_INCREMENT = 4
+
+_CURIOSITY_TAG_PATTERN = re.compile(r"\[\[curiosity_score_signal:(\d{1,3})\]\]", re.IGNORECASE)
+
+
+async def get_current_curiosity_score(
+    conversation_id: Optional[int],
+    prefetched_messages: Optional[List[Dict[str, Any]]] = None,
+) -> int:
+    """Fetch the most recent curiosity score for a conversation."""
+    if conversation_id is None:
+        return 0
+
+    try:
+        conversation_id_int = int(conversation_id)
+    except (TypeError, ValueError):
+        logger.warning(
+            "Invalid conversation_id when retrieving curiosity score",
+            extra={"conversation_id": conversation_id}
+        )
+        return 0
+
+    messages = prefetched_messages
+    if messages is None:
+        try:
+            messages = await api_service.get_conversation_messages(conversation_id_int)
+        except Exception as exc:
+            logger.warning(
+                "Unable to fetch messages while retrieving curiosity score",
+                extra={"conversation_id": conversation_id_int, "error": str(exc)}
+            )
+            return 0
+
+    existing_scores = [
+        m.get("curiosity_score")
+        for m in messages or []
+        if isinstance(m, dict) and isinstance(m.get("curiosity_score"), (int, float))
+    ]
+
+    if not existing_scores:
+        return 0
+
+    return int(max(existing_scores))
+
+
+def strip_curiosity_signal(text: Optional[str]) -> Tuple[Optional[str], Optional[int]]:
+    """Remove curiosity signal tag from text and return the cleaned text and score."""
+    if not text:
+        return text, None
+
+    match = _CURIOSITY_TAG_PATTERN.search(text)
+    print("&&&&&&&SDFDfDF&&&&&&&&&&&&", match)
+    if not match:
+        return text, None
+
+    try:
+        extracted = int(match.group(1))
+    except ValueError:
+        extracted = None
+
+    cleaned = _CURIOSITY_TAG_PATTERN.sub("", text).strip()
+
+    if extracted is None:
+        return cleaned, None
+
+    bounded = max(0, min(100, extracted))
+    print("$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$", cleaned, bounded)
+    return cleaned, bounded
+
+
+async def compute_next_curiosity_score(conversation_id: Optional[int], requested_score: Optional[int] = None) -> int:
+    """Compute the next curiosity score, honoring a requested value when possible."""
+    last_score = await get_current_curiosity_score(conversation_id)
+
+    if conversation_id is None and not isinstance(requested_score, int):
+        return last_score
+
+    if isinstance(requested_score, int):
+        return max(last_score, max(0, min(100, requested_score)))
+
+    increment = max(0, DEFAULT_CURIOSITY_SCORE_INCREMENT)
+    if increment == 0:
+        return last_score
+
+    next_score = min(100, last_score + increment)
+    if next_score < last_score:
+        return last_score
+    return next_score
 
 app = FastAPI()
 
@@ -193,6 +289,9 @@ class BatchTaskRequest(BaseModel):
     task_type: str
     conversation_ids: Optional[List[int]] = None
     user_id: Optional[int] = None
+    conversation_id: Optional[int] = None
+    flows: Optional[List[str]] = None
+    event: Optional[str] = None
 
 # Updated dequeue function containing the core logic
 async def dequeue(message: MessagePayload, background_tasks: Optional[BackgroundTasks] = None):
@@ -240,8 +339,9 @@ async def dequeue(message: MessagePayload, background_tasks: Optional[Background
                 except Exception as e:
                     logger.error(f"An error occurred while fetching user persona: {e}", exc_info=True)
 
-            # Initialize conversation_history_str
+            # Initialize conversation history placeholders
             conversation_history_str: Optional[str] = None
+            prefetched_history: Optional[List[Dict[str, Any]]] = None
             
             # Check if any step wants to use conversation history
             should_fetch_history = False
@@ -251,11 +351,30 @@ async def dequeue(message: MessagePayload, background_tasks: Optional[Background
                         should_fetch_history = True
                         break
             
+            # Always fetch history in simplified mode to maintain conversation context
+            from src.process_query_entrypoint import FORCE_SIMPLIFIED_MODE
+
+            # Check simplified mode even when config is None (e.g., S3 config failed to load)
+            is_simplified_mode = FORCE_SIMPLIFIED_MODE
+            if flow_config_instance:
+                is_simplified_mode = is_simplified_mode or flow_config_instance.use_simplified_mode
+
+            if is_simplified_mode:
+                should_fetch_history = True
+                logger.info("Forcing conversation history fetch for simplified mode")
+            
+            logger.info(f"🔍 History fetch decision: should_fetch={should_fetch_history}, has_conv_id={bool(message.conversation_id)}, is_simplified={is_simplified_mode}")
+
             if should_fetch_history and message.conversation_id:
-                logger.info(f"Fetching conversation history for conversation_id: {message.conversation_id} via internal endpoint")
+                logger.info(
+                    f"Fetching conversation history (with pipeline) for conversation_id: {message.conversation_id}"
+                )
                 try:
-                    # Use the new internal endpoint that does not require auth for Brain service
-                    history_url = f"{BACKEND_CALLBACK_BASE_URL.rstrip('/')}/api/internal/conversations/{message.conversation_id}/messages_for_brain"
+                    # Use the internal endpoint that includes pipeline data for each message
+                    history_url = (
+                        f"{BACKEND_CALLBACK_BASE_URL.rstrip('/')}/api/internal/conversations/"
+                        f"{message.conversation_id}/messages_with_pipeline"
+                    )
                     
                     async with httpx.AsyncClient() as client:
                         response = await client.get(history_url)
@@ -264,6 +383,7 @@ async def dequeue(message: MessagePayload, background_tasks: Optional[Background
                         history_data = response.json()
                         if history_data.get("success") and "messages" in history_data:
                             fetched_messages = history_data["messages"]
+                            prefetched_history = fetched_messages
                             # Filter out the current message being processed, if present
                             # Assuming message.message_id is a string, and history message IDs are int.
                             current_message_id_int: Optional[int] = None
@@ -282,9 +402,15 @@ async def dequeue(message: MessagePayload, background_tasks: Optional[Background
                             else:
                                 logger.info("No prior messages found in history to use.")
                         else:
-                            logger.warning(f"Failed to fetch conversation history: API response indicates failure or malformed data. Response: {response.text}")
+                            logger.warning(
+                                "Failed to fetch conversation history: API response indicates failure or malformed "
+                                f"data. Response: {response.text}"
+                            )
                     else:
-                        logger.error(f"Error fetching conversation history: API responded with status {response.status_code}. Response: {response.text}")
+                        logger.error(
+                            f"Error fetching conversation history: API responded with status {response.status_code}. "
+                            f"Response: {response.text}"
+                        )
                 except httpx.RequestError as e:
                     logger.error(f"HTTPX RequestError fetching conversation history: {e}", exc_info=True)
                 except Exception as e:
@@ -292,6 +418,12 @@ async def dequeue(message: MessagePayload, background_tasks: Optional[Background
 
             # Determine if this is a new query or a follow-up response
             response_data = None
+
+            current_curiosity_score = await get_current_curiosity_score(
+                message.conversation_id,
+                prefetched_messages=prefetched_history,
+            )
+
             if message.is_follow_up_response:
                 # This is a response to a follow-up question
                 logger.info("Processing as a follow-up response")
@@ -305,7 +437,11 @@ async def dequeue(message: MessagePayload, background_tasks: Optional[Background
                     config=flow_config_instance,
                     conversation_history=conversation_history_str,
                     purpose=message.purpose,
-                    user_persona=user_persona
+                    user_persona=user_persona,
+                    conversation_memory=None,  # Can fetch if needed
+                    conversation_id=int(message.conversation_id) if message.conversation_id else None,
+                    user_id=int(message.user_id) if message.user_id else None,
+                    current_curiosity_score=current_curiosity_score,
                 )
             else:
                 # This is a new query
@@ -326,12 +462,361 @@ async def dequeue(message: MessagePayload, background_tasks: Optional[Background
                     conversation_history=conversation_history_str,
                     purpose=message.purpose,
                     user_persona=user_persona,
-                    conversation_memory=conversation_memory
+                    conversation_memory=conversation_memory,
+                    conversation_id=int(message.conversation_id) if message.conversation_id else None,
+                    user_id=int(message.user_id) if message.user_id else None,
+                    current_curiosity_score=current_curiosity_score,
                 )
 
+            # Handle embedded curiosity score tag in the response
+            raw_final_response = response_data.final_response
+            cleaned_response, curiosity_signal = strip_curiosity_signal(raw_final_response)
+
+            if curiosity_signal is not None:
+                response_data.curiosity_score = curiosity_signal
+            else:
+                response_data.curiosity_score = getattr(response_data, "curiosity_score", None)
+
+            if cleaned_response is not None and raw_final_response != cleaned_response:
+                response_data.final_response = cleaned_response
+
+                if isinstance(response_data.pipeline_data, dict):
+                    response_data.pipeline_data['final_response'] = cleaned_response
+                    if curiosity_signal is not None:
+                        response_data.pipeline_data['curiosity_score_signal'] = curiosity_signal
+
+                    pipeline_steps = response_data.pipeline_data.get('steps')
+                    if isinstance(pipeline_steps, list):
+                        for step in pipeline_steps:
+                            if not isinstance(step, dict):
+                                continue
+                            if step.get('result') == raw_final_response:
+                                step['result'] = cleaned_response
+                            if curiosity_signal is not None:
+                                step_payload = step.get('response_data')
+                                if isinstance(step_payload, dict):
+                                    step_payload['curiosity_score_signal'] = curiosity_signal
+
+                if isinstance(response_data.steps, list):
+                    for step in response_data.steps:
+                        if not isinstance(step, dict):
+                            continue
+                        if step.get('result') == raw_final_response:
+                            step['result'] = cleaned_response
+                        if curiosity_signal is not None:
+                            step_payload = step.get('response_data')
+                            if isinstance(step_payload, dict):
+                                step_payload['curiosity_score_signal'] = curiosity_signal
+
+            elif curiosity_signal is not None and isinstance(response_data.pipeline_data, dict):
+                response_data.pipeline_data['curiosity_score_signal'] = curiosity_signal
+
+            # Extract core theme from conversation
+            if message.conversation_id and message.purpose in ["chat", "test-prompt"] and CORE_THEME_EXTRACTION_ENABLED:
+                try:
+                    # Use prefetched history when available to count user messages
+                    conversation_history = prefetched_history or []
+                    if not conversation_history and message.conversation_id:
+                        conversation_history = await api_service.get_conversation_history(int(message.conversation_id)) or []
+
+                    if conversation_history:
+                        user_message_count = len([
+                            msg for msg in conversation_history if msg.get('is_user', False)
+                        ])
+                        
+                        if user_message_count == CORE_THEME_TRIGGER_MESSAGE_COUNT:
+                            logger.info(f"{CORE_THEME_TRIGGER_MESSAGE_COUNT}th user message detected for conversation {message.conversation_id}. Triggering core theme extraction.")
+                            
+                            # Extract core theme
+                            core_theme, core_theme_prompt = await extract_core_theme_from_conversation(
+                                int(message.conversation_id),
+                                conversation_history=prefetched_history,
+                            )
+                            
+                            # Create core theme extraction step
+                            core_theme_step = {
+                                'name': 'core_theme_extraction',
+                                'enabled': True,
+                                'prompt': core_theme_prompt if core_theme_prompt else 'Core theme extraction prompt not available',
+                                'result': core_theme if core_theme else 'No core theme extracted',
+                                'core_theme': core_theme,
+                                'extraction_successful': core_theme is not None
+                            }
+                            
+                            # Add to main steps array
+                            response_data.steps.append(core_theme_step)
+
+                            if core_theme:
+                                # Update conversation with extracted theme
+                                success = await update_conversation_theme(int(message.conversation_id), core_theme)
+                                if success:
+                                    logger.info(f"Successfully updated conversation {message.conversation_id} with core theme: '{core_theme}'")
+                                else:
+                                    logger.error(f"Failed to update conversation {message.conversation_id} with core theme")
+                            else:
+                                logger.warning(f"Core theme extraction failed for conversation {message.conversation_id}")
+                except Exception as e:
+                    logger.error(f"Error in core theme extraction for conversation {message.conversation_id}: {e}", exc_info=True)
+                    # Don't fail the main message processing if theme extraction fails
+
+            # Find previous assistant message's exploration directions to guide the controller
+            previous_exploration_directions = None
+            try:
+                source_messages = prefetched_history or []
+                logger.info(
+                    f"Using {len(source_messages)} prefetched messages for previous exploration directions lookup"
+                )
+                for m in reversed(source_messages):
+                    # Use last assistant message
+                    if m.get("is_user") is True:
+                        continue
+                        
+                    logger.debug(f"Checking assistant message: {m.get('id', 'no-id')}")
+                    pipeline_data = m.get("pipeline_data") or m.get("llm_pipeline_data") or {}
+                    logger.debug(f"Pipeline data keys: {list(pipeline_data.keys())}")
+                    steps = pipeline_data.get("steps") or []
+                    found_dirs = None
+                    
+                    # Method 1: Look in steps array
+                    for step in steps:
+                        if step.get("name") == "exploration_directions_evaluation":
+                            found_dirs = step.get("directions")
+                            logger.debug(f"Found directions in step: {found_dirs}")
+                            if not found_dirs:
+                                # Sometimes step might store directions as comma-separated in 'result'
+                                result_str = step.get("result")
+                                if isinstance(result_str, str):
+                                    found_dirs = [d.strip() for d in result_str.split(",") if d.strip()]
+                                    logger.debug(f"Parsed directions from result: {found_dirs}")
+                            break
+                    
+                    # Method 2: Look in direct pipeline_data key
+                    if not found_dirs:
+                        ede = pipeline_data.get("exploration_directions_evaluation") or {}
+                        found_dirs = ede.get("directions")
+                        logger.debug(f"Found directions in exploration_directions_evaluation: {found_dirs}")
+                    
+                    # Method 3: Look for any exploration-related data
+                    if not found_dirs:
+                        for key, value in pipeline_data.items():
+                            if "exploration" in key.lower() and isinstance(value, dict):
+                                found_dirs = value.get("directions")
+                                if found_dirs:
+                                    logger.debug(f"Found directions in {key}: {found_dirs}")
+                                    break
+                    
+                    if found_dirs and isinstance(found_dirs, list) and len(found_dirs) > 0:
+                        previous_exploration_directions = found_dirs
+                        logger.info(f"Successfully found previous exploration directions: {previous_exploration_directions}")
+                        break
+                    else:
+                        logger.debug(f"No exploration directions found in message {m.get('id', 'no-id')}")
+                        
+            except Exception as e:
+                logger.error(f"Error retrieving previous exploration directions: {e}", exc_info=True)
+                previous_exploration_directions = None
+
+            logger.info(f"Final previous_exploration_directions: {previous_exploration_directions}")
+                        
+            
+            # Apply chat controller if core theme exis
+            if message.conversation_id and response_data:
+                try:
+                    # Apply chat controller
+                    print("previous_exploration_directions", previous_exploration_directions)
+                    print("%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%")
+                    chat_controller_result = await control_chat_response(
+                        conversation_id=int(message.conversation_id),
+                        original_response=response_data.final_response,
+                        user_query=user_input,
+                        current_conversation=conversation_history_str,
+                        exploration_directions=previous_exploration_directions
+                    )
+                    print("chat_controller_result", chat_controller_result)
+                    print("########################################################")
+                    # Update the response with the controlled version
+                    response_data.final_response = chat_controller_result["controlled_response"]
+                    
+                    # Add chat controller data to pipeline data for logging
+                    if response_data.pipeline_data is None:
+                        response_data.pipeline_data = {}
+                    
+                    response_data.pipeline_data["chat_controller"] = chat_controller_result
+                    # ALSO add it as a pipeline step so it shows up in the UI
+                    chat_controller_step = {
+                        'name': 'chat_controller',
+                        'enabled': True,
+                        'prompt': chat_controller_result.get("chat_controller_prompt", ""),
+                        'result': chat_controller_result.get("controlled_response", ""),
+                        'original_response': chat_controller_result.get("original_response", ""),
+                        'controlled_response': chat_controller_result.get("controlled_response", ""),
+                        'core_theme': chat_controller_result.get("core_theme", ""),
+                        'chat_controller_applied': chat_controller_result.get("chat_controller_applied", False)
+                    }
+
+                    # Add to steps array
+                    if 'steps' not in response_data.pipeline_data:
+                        response_data.pipeline_data['steps'] = []
+                    response_data.steps.append(chat_controller_step)
+                                        
+                    logger.info(f"Applied chat controller to conversation {message.conversation_id}. Applied: {chat_controller_result['chat_controller_applied']}")
+                    
+                except Exception as e:
+                    logger.error(f"Error applying chat controller for conversation {message.conversation_id}: {e}", exc_info=True)
+                    # Continue with original response if chat controller fails
+            
+            # Apply 13-year-old simplification to the final response (unconditionally)
+            try:
+                simplify_result = await generate_response_for_13_year_old(response_data.final_response)
+                response_data.final_response = simplify_result.get("simplified_response", response_data.final_response)
+
+                if response_data.pipeline_data is None:
+                    response_data.pipeline_data = {}
+
+                step = {
+                    'name': 'response_for_13_year_old',
+                    'enabled': True,
+                    'prompt': simplify_result.get('prompt', ''),
+                    'result': simplify_result.get('simplified_response', ''),
+                    'original_response': simplify_result.get('original_response', ''),
+                    'applied': simplify_result.get('applied', False),
+                    'error': simplify_result.get('error', None)
+                }
+                response_data.steps.append(step)
+                response_data.pipeline_data['response_for_13_year_old'] = simplify_result
+                # Also ensure it shows in UI lists that read from pipeline_data['steps']
+                if 'steps' not in response_data.pipeline_data:
+                    response_data.pipeline_data['steps'] = []
+                response_data.pipeline_data['steps'].append(step)
+
+                logger.info(f"Applied 13-year-old simplification. Applied={simplify_result.get('applied', False)}")
+            except Exception as e:
+                logger.error(f"Error applying 13-year-old simplification: {e}", exc_info=True)
+
+            # Now evaluate exploration directions with the latest assistant message included
+            exploration_data = None
+            exploration_directions_list = None
+            if message.conversation_id and message.purpose in ["chat", "test-prompt"] and EXPLORATION_DIRECTIONS_ENABLED:
+                try:
+                    from src.core.exploration_directions_evaluator import (
+                        evaluate_exploration_directions,
+                        get_conversation_core_theme
+                    )
+                    core_theme = await get_conversation_core_theme(int(message.conversation_id))
+                    # Use prefetched history and append this turn's assistant response
+                    conversation_history_with_latest = [
+                        {
+                            "is_user": msg.get("is_user", False),
+                            "content": msg.get("content")
+                        }
+                        for msg in (prefetched_history or [])
+                        if msg.get("content") is not None
+                    ]
+
+                    if not conversation_history_with_latest or not (
+                        conversation_history_with_latest[-1].get("is_user", False)
+                        and conversation_history_with_latest[-1].get("content") == user_input
+                    ):
+                        conversation_history_with_latest.append({
+                            "is_user": True,
+                            "content": user_input
+                        })
+
+                    if not conversation_history_with_latest or not (
+                        conversation_history_with_latest[-1].get("is_user") is False
+                        and conversation_history_with_latest[-1].get("content") == response_data.final_response
+                    ):
+                        conversation_history_with_latest.append({
+                            "is_user": False,
+                            "content": response_data.final_response
+                        })
+                    user_message_count = sum(1 for msg in conversation_history_with_latest if msg.get("is_user", False))
+
+                    if user_message_count < 2:
+                        logger.info(
+                            f"Skipping exploration directions for conversation {message.conversation_id}; {user_message_count} user message(s) so far"
+                        )
+                    else:
+                        exploration_data = await evaluate_exploration_directions(
+                            conversation_id=int(message.conversation_id),
+                            core_theme=core_theme,
+                            conversation_history=conversation_history_with_latest,
+                            current_query=user_input,
+                            latest_user_message=user_input,
+                            latest_ai_response=response_data.final_response,
+                            current_curiosity_score=current_curiosity_score
+                        )
+
+                        if exploration_data and (
+                            exploration_data.get('directions')
+                            or exploration_data.get('curiosity_score') is not None
+                        ):
+                            exploration_directions_list = exploration_data.get('directions', [])
+                            logger.info(f"Exploration directions: {exploration_directions_list}")
+
+                            exploration_step = {
+                                'name': 'exploration_directions_evaluation',
+                                'enabled': True,
+                                'prompt': exploration_data.get('prompt', ''),
+                                'result': ', '.join(exploration_directions_list or []),
+                                'directions': exploration_directions_list or [],
+                                'core_theme': exploration_data.get('core_theme', core_theme or ''),
+                                'evaluation_successful': exploration_data.get('evaluation_successful', False),
+                                'curiosity_score': exploration_data.get('curiosity_score'),
+                                'curiosity_reason': exploration_data.get('curiosity_reason'),
+                                'curiosity_error': exploration_data.get('curiosity_error'),
+                            }
+
+                            response_data.steps.append(exploration_step)
+
+                            if response_data.pipeline_data is None:
+                                response_data.pipeline_data = {}
+
+                            pipeline_steps = response_data.pipeline_data.setdefault('steps', [])
+                            pipeline_steps.append(exploration_step)
+                            response_data.pipeline_data['exploration_directions_evaluation'] = exploration_data
+                            response_data.pipeline_data['curiosity_score_evaluation'] = {
+                                'prompt': exploration_data.get('prompt'),
+                                'raw_response': exploration_data.get('raw_response'),
+                                'curiosity_score': exploration_data.get('curiosity_score'),
+                                'reason': exploration_data.get('curiosity_reason'),
+                                'applied': exploration_data.get('curiosity_score') is not None,
+                                'error': exploration_data.get('curiosity_error'),
+                            }
+
+                            logger.info(
+                                f"Generated {len(exploration_directions_list or [])} exploration directions for conversation {message.conversation_id}"
+                            )
+
+                            curiosity_score = exploration_data.get('curiosity_score')
+                            if isinstance(curiosity_score, int):
+                                response_data.curiosity_score = curiosity_score
+                                current_curiosity_score = curiosity_score
+                            elif exploration_data.get('curiosity_error'):
+                                logger.warning(
+                                    f"Curiosity score missing or invalid for conversation {message.conversation_id}: {exploration_data.get('curiosity_error')}"
+                                )
+                        else:
+                            logger.debug(
+                                f"Exploration evaluation returned no actionable data for conversation {message.conversation_id}"
+                            )
+                except Exception as e:
+                    logger.error(f"Error in exploration directions evaluation for conversation {message.conversation_id}: {e}", exc_info=True)
+                        
+                    
             # Create a client for fetching the prompt version ID
             backend_url = os.getenv("BACKEND_CALLBACK_BASE_URL", "http://localhost:5000")
             async with httpx.AsyncClient() as client:
+                if isinstance(response_data.curiosity_score, int):
+                    curiosity_score = max(current_curiosity_score, response_data.curiosity_score)
+                else:
+                    curiosity_score = current_curiosity_score
+
+                response_data.curiosity_score = curiosity_score
+
+                if isinstance(response_data.pipeline_data, dict):
+                    response_data.pipeline_data['curiosity_score'] = curiosity_score
+
                 # Check if the response needs clarification (has follow-up questions)
                 if response_data.needs_clarification and response_data.follow_up_questions:
                     # Prepare and schedule the callback with follow-up questions
@@ -344,7 +829,8 @@ async def dequeue(message: MessagePayload, background_tasks: Optional[Background
                         "needs_clarification": True,
                         "follow_up_questions": response_data.follow_up_questions,
                         "original_query": message.original_query if message.is_follow_up_response else user_input,
-                        "prompt_version_id": await get_prompt_version_id(client, backend_url, "simplified_conversation", message.purpose)
+                        "curiosity_score": curiosity_score,
+                        # DON'T send prompt_version_id - conversation already has correct prompt assigned
                     }
                 else:
                     # Prepare and schedule the callback with the final response
@@ -355,7 +841,8 @@ async def dequeue(message: MessagePayload, background_tasks: Optional[Background
                         "llm_response": response_data.final_response,
                         "pipeline_data": response_data.model_dump(),
                         "needs_clarification": False,
-                        "prompt_version_id": await get_prompt_version_id(client, backend_url, "simplified_conversation", message.purpose)
+                        "curiosity_score": curiosity_score,
+                        # DON'T send prompt_version_id - conversation already has correct prompt assigned
                     }
 
             # Schedule callback
@@ -427,6 +914,11 @@ async def get_prompt_version_id(client, backend_url, prompt_name, purpose="chat"
 
 class QueryRequest(BaseModel):
     query: str
+
+@app.get("/health")
+async def health_check():
+    """Simple health check endpoint"""
+    return {"status": "healthy", "service": "brain"}
 
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
@@ -589,6 +1081,158 @@ async def set_config_values(config: FlowConfig):
         logger.error(f"Failed to save config to s3://{bucket_name}/{object_key}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"An unexpected error occurred while saving configuration: {e}")
 
+@app.post("/generate-opening-message")
+async def generate_opening_message(payload: OpeningMessageRequest):
+    """
+    Generate AI's first message for a new conversation.
+    Uses the conversation's assigned visit-based prompt (visit_1, visit_2, visit_3, or steady_state).
+    Idempotent: Returns existing message if already generated.
+    
+    Payload: {
+        "conversation_id": int,
+        "user_id": int,
+        "visit_number": int,
+        "callback_url": str
+    }
+    """
+    from src.utils.prompt_injection import inject_previous_memories_placeholder, inject_persona_placeholders
+    
+    logger.info(f"Opening message generation requested for conversation {payload.conversation_id}, visit {payload.visit_number}")
+    
+    # 0. Check if opening message already exists (idempotency)
+    existing_messages = await api_service.get_conversation_messages(payload.conversation_id)
+    if existing_messages and len(existing_messages) > 0:
+        logger.info(f"Opening message already exists for conversation {payload.conversation_id}")
+        return {
+            "status": "already_exists",
+            "message": existing_messages[0].get("content", "")
+        }
+    
+    try:
+        # 1. Fetch conversation's assigned prompt (visit-based prompt with opening message instructions)
+        prompt_response = await api_service.get_conversation_prompt(payload.conversation_id)
+        if not prompt_response:
+            raise HTTPException(status_code=404, detail="Conversation prompt not found")
+        
+        prompt_template = prompt_response["prompt_text"]  # Save original template
+        logger.info(f"Fetched prompt for conversation {payload.conversation_id}, version {prompt_response.get('version_number')}")
+        
+        # 2. Fetch previous memories if visit > 1
+        previous_memories = None
+        if payload.visit_number > 1:
+            previous_memories = await api_service.get_previous_memories(
+                payload.user_id, 
+                payload.conversation_id
+            )
+            logger.info(f"Fetched {len(previous_memories)} previous memories for user {payload.user_id}")
+        
+        # 3. Fetch persona if visit >= 4
+        persona = None
+        if payload.visit_number >= 4:
+            persona = await api_service.get_user_persona(payload.user_id)
+            if persona:
+                logger.info(f"Fetched persona for user {payload.user_id}")
+        
+        # 4. Inject placeholders into prompt (create formatted version)
+        formatted_prompt = inject_previous_memories_placeholder(prompt_template, previous_memories)
+        formatted_prompt = inject_persona_placeholders(formatted_prompt, persona)
+        
+        # NEW: Fetch and inject core theme for current conversation
+        core_theme = await api_service.get_conversation_core_theme(payload.conversation_id)
+        formatted_prompt = inject_core_theme_placeholder(formatted_prompt, core_theme)
+                
+        # Replace CONVERSATION_HISTORY and QUERY placeholders (for opening message, both are empty/not applicable)
+        formatted_prompt = formatted_prompt.replace("{{CONVERSATION_HISTORY}}", "No previous conversation.")
+        formatted_prompt = formatted_prompt.replace("{{QUERY}}", "")
+        
+        # 5. Generate opening message with LLM
+        # The visit-based prompt is designed to produce a welcoming opening message
+        # that uses persona/memory context if available
+        llm_service = LLMService()
+        
+        # Use the formatted prompt (with all placeholders injected)
+        llm_response = llm_service.generate_response(
+            final_prompt=formatted_prompt,
+            call_type="opening_message",  # Use opening_message configuration
+            json_mode=False
+        )
+        opening_message = llm_response.get("raw_response", "")
+        
+        if not opening_message:
+            raise HTTPException(status_code=500, detail="LLM failed to generate opening message")
+        
+        logger.info(f"Generated opening message for conversation {payload.conversation_id} (length: {len(opening_message)})")
+        
+        # 6. Send callback to backend with AI message and pipeline data
+        curiosity_score = await compute_next_curiosity_score(payload.conversation_id)
+
+        # Format pipeline data with steps array to match frontend expectations
+        callback_payload = {
+            "conversation_id": payload.conversation_id,
+            "ai_message": opening_message,
+            "is_opening_message": True,
+            "pipeline_data": {
+                "steps": [
+                    {
+                        "name": "Opening Message Generation",
+                        "enabled": True,
+                        "prompt_template": prompt_template,  # Original template with placeholders
+                        "formatted_prompt": formatted_prompt,  # Formatted prompt sent to LLM
+                        "prompt": formatted_prompt,  # Keep for backwards compatibility
+                        "raw_result": opening_message,  # The generated opening message
+                        "result": opening_message,
+                        "prompt_name": f"visit_{payload.visit_number}" if payload.visit_number <= 3 else "steady_state",
+                        "prompt_version": prompt_response.get("version_number"),
+                        "prompt_id": prompt_response.get("prompt_id"),
+                        "visit_number": payload.visit_number,
+                        "had_previous_memories": previous_memories is not None and len(previous_memories) > 0,
+                        "previous_memories_count": len(previous_memories) if previous_memories else 0,
+                        "had_persona": persona is not None,
+                        "llm_model": llm_response.get("model_used", "unknown"),
+                        "opening_message_generation": True
+                    }
+                ]
+            },
+            "curiosity_score": curiosity_score
+        }
+        
+        try:
+            logger.info(f"Sending opening message callback to {payload.callback_url}", extra={
+                "conversation_id": payload.conversation_id,
+                "has_pipeline_data": "pipeline_data" in callback_payload,
+                "steps_count": len(callback_payload.get("pipeline_data", {}).get("steps", []))
+            })
+            
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    payload.callback_url,
+                    json=callback_payload,
+                    timeout=30.0
+                )
+                response.raise_for_status()
+                logger.info(f"Successfully sent opening message callback for conversation {payload.conversation_id}", extra={
+                    "response_status": response.status_code,
+                    "message_id": response.json().get("message_id")
+                })
+        except Exception as callback_error:
+            logger.error(f"Error sending callback for opening message: {callback_error}", extra={
+                "conversation_id": payload.conversation_id,
+                "callback_url": payload.callback_url
+            })
+            raise HTTPException(status_code=500, detail=f"Failed to send callback: {callback_error}")
+        
+        return {
+            "status": "success", 
+            "message": opening_message,
+            "pipeline_data": callback_payload["pipeline_data"]
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error generating opening message: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Internal error: {str(e)}")
+
 @app.post("/query")
 async def handle_query(message: MessagePayload, background_tasks: BackgroundTasks):
     # The /query endpoint now directly accepts the full message payload
@@ -672,7 +1316,7 @@ async def process_memory_generation_batch(conversation_ids: List[int]):
             response_dict = await asyncio.to_thread(
                 llm_service.generate_response,
                 prompt,
-                call_type="response_generation",
+                call_type="memory_generation",
                 json_mode=True
             )
             summary_json_str = response_dict.get("raw_response")
@@ -743,11 +1387,205 @@ async def handle_batch_tasks(task_request: BatchTaskRequest, background_tasks: B
         logger.info(f"Queued background task for user persona generation for user_id: {task_request.user_id}.")
         return {"message": f"Accepted task to generate user persona for user_id: {task_request.user_id}."}
 
+    elif task_request.task_type == "RUN_LM_ANALYTICS_FLOWS":
+        if not task_request.conversation_id or not task_request.flows:
+            raise HTTPException(status_code=400, detail="conversation_id and flows are required")
+        background_tasks.add_task(analytics_runner.run_flows, task_request.conversation_id, task_request.flows)
+        return {"message": f"Accepted analytics flows for conversation_id={task_request.conversation_id}", "flows": task_request.flows}
     else:
         logger.warning(f"Received unknown task type: {task_request.task_type}")
         raise HTTPException(status_code=400, detail=f"Unknown task type: {task_request.task_type}")
 
+
+@app.post("/class-analysis", response_model=ClassAnalysisResponse)
+async def analyze_class_conversations(request: ClassAnalysisRequest):
+    """
+    Analyze class conversations using a prompt template from the database.
+    Fetches the prompt "overall_class_latest_topic_analysis" from the backend,
+    replaces {{ALL_CONVERSATIONS}} with the provided conversations text,
+    and returns analysis text from the LLM.
+    """
+    logger.info(f"Received class analysis request with call_type: {request.call_type}")
+    
+    if not request.all_conversations or not request.all_conversations.strip():
+        raise HTTPException(status_code=400, detail="all_conversations is required and cannot be empty")
+    
+    try:
+        # Fetch prompt from backend database
+        prompt_name = "overall_class_latest_topic_analysis"
+        backend_url = os.getenv("BACKEND_CALLBACK_BASE_URL", "http://localhost:5000")
+        # Use production version for analysis
+        version_url = f"{backend_url}/api/prompts/{prompt_name}/versions/production"
+        
+        logger.info(f"Fetching prompt '{prompt_name}' from backend: {version_url}")
+        
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(version_url)
+            
+            if response.status_code == 200:
+                data = response.json()
+                prompt_template = data.get("prompt_text")
+                if not prompt_template:
+                    raise HTTPException(status_code=500, detail=f"Prompt '{prompt_name}' found but has no prompt_text")
+                logger.info(f"Successfully fetched prompt '{prompt_name}' from backend")
+            elif response.status_code == 404:
+                # Try active version if production not found
+                logger.warning(f"Production version not found for '{prompt_name}', trying active version")
+                active_version_url = f"{backend_url}/api/prompts/{prompt_name}/versions/active"
+                response = await client.get(active_version_url)
+                if response.status_code == 200:
+                    data = response.json()
+                    prompt_template = data.get("prompt_text")
+                    if not prompt_template:
+                        raise HTTPException(status_code=500, detail=f"Prompt '{prompt_name}' found but has no prompt_text")
+                    logger.info(f"Successfully fetched active version of prompt '{prompt_name}' from backend")
+                else:
+                    raise HTTPException(status_code=404, detail=f"Prompt '{prompt_name}' not found in database")
+            else:
+                response.raise_for_status()
+                raise HTTPException(status_code=response.status_code, detail=f"Failed to fetch prompt: {response.text}")
+        
+        # Replace {{ALL_CONVERSATIONS}} placeholder in the prompt
+        formatted_prompt = prompt_template.replace("{{ALL_CONVERSATIONS}}", request.all_conversations)
+        
+        # Initialize LLM service
+        llm_service = LLMService()
+        
+        # Prepare messages for the LLM
+        messages = [
+            {
+                "role": "user",
+                "content": formatted_prompt
+            }
+        ]
+        
+        # Call LLM with the specified call type
+        logger.info(f"Calling LLM for class analysis with call_type: {request.call_type}")
+        analysis_text = llm_service.get_completion(
+            messages=messages,
+            call_type=request.call_type,
+            json_mode=False
+        )
+        
+        logger.info(f"Successfully generated class analysis (length: {len(analysis_text)} characters)")
+        
+        return ClassAnalysisResponse(
+            analysis=analysis_text.strip(),
+            status="success"
+        )
+        
+    except HTTPException:
+        # Re-raise HTTP exceptions
+        raise
+    except httpx.RequestError as e:
+        logger.error(f"Request error fetching prompt from backend: {e}")
+        raise HTTPException(status_code=503, detail=f"Failed to connect to backend to fetch prompt: {str(e)}")
+    except httpx.HTTPStatusError as e:
+        logger.error(f"HTTP error fetching prompt: {e.response.status_code} - {e.response.text}")
+        raise HTTPException(status_code=e.response.status_code, detail=f"Failed to fetch prompt from backend: {e.response.text}")
+    except ValueError as e:
+        logger.error(f"Configuration error in class analysis: {e}")
+        raise HTTPException(status_code=500, detail=f"LLM configuration error: {str(e)}")
+    except Exception as e:
+        logger.error(f"Error generating class analysis: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to generate analysis: {str(e)}")
+
+
+@app.post("/student-analysis", response_model=StudentAnalysisResponse)
+async def analyze_student_conversations(request: StudentAnalysisRequest):
+    """
+    Analyze student conversations using a prompt template from the database.
+    Fetches the prompt "analyse_student_all_conversation" from the backend,
+    replaces {{ALL_CONVERSATIONS}} with the provided conversations text,
+    and returns analysis text from the LLM.
+    """
+    logger.info(f"Received student analysis request with call_type: {request.call_type}")
+    
+    if not request.all_conversations or not request.all_conversations.strip():
+        raise HTTPException(status_code=400, detail="all_conversations is required and cannot be empty")
+    
+    try:
+        # Fetch prompt from backend database
+        prompt_name = "analyse_student_all_conversation"
+        backend_url = os.getenv("BACKEND_CALLBACK_BASE_URL", "http://localhost:5000")
+        # Use production version for analysis
+        version_url = f"{backend_url}/api/prompts/{prompt_name}/versions/production"
+        
+        logger.info(f"Fetching prompt '{prompt_name}' from backend: {version_url}")
+        
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(version_url)
+            
+            if response.status_code == 200:
+                data = response.json()
+                prompt_template = data.get("prompt_text")
+                if not prompt_template:
+                    raise HTTPException(status_code=500, detail=f"Prompt '{prompt_name}' found but has no prompt_text")
+                logger.info(f"Successfully fetched prompt '{prompt_name}' from backend")
+            elif response.status_code == 404:
+                # Try active version if production not found
+                logger.warning(f"Production version not found for '{prompt_name}', trying active version")
+                active_version_url = f"{backend_url}/api/prompts/{prompt_name}/versions/active"
+                response = await client.get(active_version_url)
+                if response.status_code == 200:
+                    data = response.json()
+                    prompt_template = data.get("prompt_text")
+                    if not prompt_template:
+                        raise HTTPException(status_code=500, detail=f"Prompt '{prompt_name}' found but has no prompt_text")
+                    logger.info(f"Successfully fetched active version of prompt '{prompt_name}' from backend")
+                else:
+                    raise HTTPException(status_code=404, detail=f"Prompt '{prompt_name}' not found in database")
+            else:
+                response.raise_for_status()
+                raise HTTPException(status_code=response.status_code, detail=f"Failed to fetch prompt: {response.text}")
+        
+        # Replace {{ALL_CONVERSATIONS}} placeholder in the prompt
+        formatted_prompt = prompt_template.replace("{{ALL_CONVERSATIONS}}", request.all_conversations)
+        
+        # Initialize LLM service
+        llm_service = LLMService()
+        
+        # Prepare messages for the LLM
+        messages = [
+            {
+                "role": "user",
+                "content": formatted_prompt
+            }
+        ]
+        
+        # Call LLM with the specified call type
+        logger.info(f"Calling LLM for student analysis with call_type: {request.call_type}")
+        analysis_text = llm_service.get_completion(
+            messages=messages,
+            call_type=request.call_type,
+            json_mode=False
+        )
+        
+        logger.info(f"Successfully generated student analysis (length: {len(analysis_text)} characters)")
+        
+        return StudentAnalysisResponse(
+            analysis=analysis_text.strip(),
+            status="success"
+        )
+        
+    except HTTPException:
+        # Re-raise HTTP exceptions
+        raise
+    except httpx.RequestError as e:
+        logger.error(f"Request error fetching prompt from backend: {e}")
+        raise HTTPException(status_code=503, detail=f"Failed to connect to backend to fetch prompt: {str(e)}")
+    except httpx.HTTPStatusError as e:
+        logger.error(f"HTTP error fetching prompt: {e.response.status_code} - {e.response.text}")
+        raise HTTPException(status_code=e.response.status_code, detail=f"Failed to fetch prompt from backend: {e.response.text}")
+    except ValueError as e:
+        logger.error(f"Configuration error in student analysis: {e}")
+        raise HTTPException(status_code=500, detail=f"LLM configuration error: {str(e)}")
+    except Exception as e:
+        logger.error(f"Error generating student analysis: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to generate analysis: {str(e)}")
+
+
 if __name__ == '__main__':
     # Use uvicorn to run the app
     # reload=True enables auto-reloading for development
-    uvicorn.run("src.main:app", host="127.0.0.1", port=int(os.getenv("PORT", "8001")), reload=True) 
+    uvicorn.run("src.main:app", host="127.0.0.1", port=int(os.getenv("PORT", "5001")), reload=True) 

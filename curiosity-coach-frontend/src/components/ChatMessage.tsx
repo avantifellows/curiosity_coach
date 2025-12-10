@@ -1,6 +1,22 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Message } from '../types';
 import { SmartToy } from '@mui/icons-material';
+import parse from 'html-react-parser';
+
+const escapeHtml = (raw: string): string =>
+  raw
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+
+const formatMessageContent = (content: string): React.ReactNode => {
+  const safe = escapeHtml(content);
+  const withLineBreaks = safe.replace(/\n/g, '<br />');
+  const withBold = withLineBreaks.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  return parse(withBold);
+};
 
 interface ChatMessageProps {
   message: Message;
@@ -10,6 +26,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
   const { content, is_user, status } = message;
   const [ellipsis, setEllipsis] = useState('.');
   const [isVisible, setIsVisible] = useState(false);
+  const formattedContent = useMemo(() => formatMessageContent(content), [content]);
 
   useEffect(() => {
     // Animation effect when message appears
@@ -31,7 +48,6 @@ const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
 
   // Improved alignment with spacing from edges
   const alignment = is_user ? 'justify-end' : 'justify-start';
-  const margin = is_user ? 'mr-2 sm:mr-4' : 'ml-2 sm:ml-4';
   
   // Gradient backgrounds
   const bgGradient = is_user 
@@ -50,7 +66,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
   const animationTiming = is_user ? 'transition-all duration-300 ease-out' : 'transition-all duration-300 ease-out delay-100';
 
   return (
-    <div className={`flex ${alignment} ${opacity} px-1 sm:px-0 ${animationTiming} ${appearAnimation}`}>
+    <div className={`flex ${alignment} ${opacity} px-4 sm:px-6 lg:px-8 ${animationTiming} ${appearAnimation}`}>
       {/* AI Avatar for non-user messages */}
       {!is_user && (
         <div className="flex-shrink-0 h-8 w-8 rounded-full bg-indigo-100 flex items-center justify-center mr-2">
@@ -58,8 +74,8 @@ const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
         </div>
       )}
       
-      <div className={`rounded-xl px-3 sm:px-4 py-2 max-w-[85%] sm:max-w-xs lg:max-w-md shadow ${bgGradient} ${textColor} ${errorStyle} ${hoverEffect} whitespace-pre-wrap break-words ${margin} min-w-[120px]`}>
-        {content}
+      <div className={`rounded-xl px-3 sm:px-4 py-2 max-w-[75%] sm:max-w-md lg:max-w-lg shadow ${bgGradient} ${textColor} ${errorStyle} ${hoverEffect} whitespace-pre-wrap break-words min-w-[120px]`}>
+        {formattedContent}
         {status === 'sending' && (
           <span className="text-xs italic ml-2 block opacity-80">
             sending{ellipsis}
