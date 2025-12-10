@@ -20,8 +20,6 @@ from src.core.core_theme_config import CORE_THEME_EXTRACTION_ENABLED, CORE_THEME
 # Add these imports at the top of main.py
 from src.core.chat_controller import control_chat_response
 from src.core.age_adapter import generate_response_for_13_year_old
-from src.core.curiosity_score_adapter import evaluate_curiosity_score
-from src.schemas import CuriosityScoreEvaluationStepData
 from src.process_query_entrypoint import process_query, process_follow_up, ProcessQueryResponse
 from src.utils.logger import logger
 # from src.core.conversational_intent_gatherer import gather_initial_intent, process_follow_up_response, ConversationalIntentError
@@ -49,7 +47,10 @@ DEFAULT_CURIOSITY_SCORE_INCREMENT = 4
 _CURIOSITY_TAG_PATTERN = re.compile(r"\[\[curiosity_score_signal:(\d{1,3})\]\]", re.IGNORECASE)
 
 
-async def get_current_curiosity_score(conversation_id: Optional[int]) -> int:
+async def get_current_curiosity_score(
+    conversation_id: Optional[int],
+    prefetched_messages: Optional[List[Dict[str, Any]]] = None,
+) -> int:
     """Fetch the most recent curiosity score for a conversation."""
     if conversation_id is None:
         return 0
@@ -63,14 +64,16 @@ async def get_current_curiosity_score(conversation_id: Optional[int]) -> int:
         )
         return 0
 
-    try:
-        messages = await api_service.get_conversation_messages(conversation_id_int)
-    except Exception as exc:
-        logger.warning(
-            "Unable to fetch messages while retrieving curiosity score",
-            extra={"conversation_id": conversation_id_int, "error": str(exc)}
-        )
-        return 0
+    messages = prefetched_messages
+    if messages is None:
+        try:
+            messages = await api_service.get_conversation_messages(conversation_id_int)
+        except Exception as exc:
+            logger.warning(
+                "Unable to fetch messages while retrieving curiosity score",
+                extra={"conversation_id": conversation_id_int, "error": str(exc)}
+            )
+            return 0
 
     existing_scores = [
         m.get("curiosity_score")
@@ -336,8 +339,9 @@ async def dequeue(message: MessagePayload, background_tasks: Optional[Background
                 except Exception as e:
                     logger.error(f"An error occurred while fetching user persona: {e}", exc_info=True)
 
-            # Initialize conversation_history_str
+            # Initialize conversation history placeholders
             conversation_history_str: Optional[str] = None
+            prefetched_history: Optional[List[Dict[str, Any]]] = None
             
             # Check if any step wants to use conversation history
             should_fetch_history = False
@@ -362,10 +366,15 @@ async def dequeue(message: MessagePayload, background_tasks: Optional[Background
             logger.info(f"🔍 History fetch decision: should_fetch={should_fetch_history}, has_conv_id={bool(message.conversation_id)}, is_simplified={is_simplified_mode}")
 
             if should_fetch_history and message.conversation_id:
-                logger.info(f"Fetching conversation history for conversation_id: {message.conversation_id} via internal endpoint")
+                logger.info(
+                    f"Fetching conversation history (with pipeline) for conversation_id: {message.conversation_id}"
+                )
                 try:
-                    # Use the new internal endpoint that does not require auth for Brain service
-                    history_url = f"{BACKEND_CALLBACK_BASE_URL.rstrip('/')}/api/internal/conversations/{message.conversation_id}/messages_for_brain"
+                    # Use the internal endpoint that includes pipeline data for each message
+                    history_url = (
+                        f"{BACKEND_CALLBACK_BASE_URL.rstrip('/')}/api/internal/conversations/"
+                        f"{message.conversation_id}/messages_with_pipeline"
+                    )
                     
                     async with httpx.AsyncClient() as client:
                         response = await client.get(history_url)
@@ -374,6 +383,7 @@ async def dequeue(message: MessagePayload, background_tasks: Optional[Background
                         history_data = response.json()
                         if history_data.get("success") and "messages" in history_data:
                             fetched_messages = history_data["messages"]
+                            prefetched_history = fetched_messages
                             # Filter out the current message being processed, if present
                             # Assuming message.message_id is a string, and history message IDs are int.
                             current_message_id_int: Optional[int] = None
@@ -392,9 +402,15 @@ async def dequeue(message: MessagePayload, background_tasks: Optional[Background
                             else:
                                 logger.info("No prior messages found in history to use.")
                         else:
-                            logger.warning(f"Failed to fetch conversation history: API response indicates failure or malformed data. Response: {response.text}")
+                            logger.warning(
+                                "Failed to fetch conversation history: API response indicates failure or malformed "
+                                f"data. Response: {response.text}"
+                            )
                     else:
-                        logger.error(f"Error fetching conversation history: API responded with status {response.status_code}. Response: {response.text}")
+                        logger.error(
+                            f"Error fetching conversation history: API responded with status {response.status_code}. "
+                            f"Response: {response.text}"
+                        )
                 except httpx.RequestError as e:
                     logger.error(f"HTTPX RequestError fetching conversation history: {e}", exc_info=True)
                 except Exception as e:
@@ -403,7 +419,10 @@ async def dequeue(message: MessagePayload, background_tasks: Optional[Background
             # Determine if this is a new query or a follow-up response
             response_data = None
 
-            current_curiosity_score = await get_current_curiosity_score(message.conversation_id)
+            current_curiosity_score = await get_current_curiosity_score(
+                message.conversation_id,
+                prefetched_messages=prefetched_history,
+            )
 
             if message.is_follow_up_response:
                 # This is a response to a follow-up question
@@ -495,16 +514,24 @@ async def dequeue(message: MessagePayload, background_tasks: Optional[Background
             # Extract core theme from conversation
             if message.conversation_id and message.purpose in ["chat", "test-prompt"] and CORE_THEME_EXTRACTION_ENABLED:
                 try:
-                    # Get conversation history to count user messages
-                    conversation_history = await api_service.get_conversation_history(int(message.conversation_id))
+                    # Use prefetched history when available to count user messages
+                    conversation_history = prefetched_history or []
+                    if not conversation_history and message.conversation_id:
+                        conversation_history = await api_service.get_conversation_history(int(message.conversation_id)) or []
+
                     if conversation_history:
-                        user_message_count = len([msg for msg in conversation_history if msg.get('is_user', False)])
+                        user_message_count = len([
+                            msg for msg in conversation_history if msg.get('is_user', False)
+                        ])
                         
                         if user_message_count == CORE_THEME_TRIGGER_MESSAGE_COUNT:
                             logger.info(f"{CORE_THEME_TRIGGER_MESSAGE_COUNT}th user message detected for conversation {message.conversation_id}. Triggering core theme extraction.")
                             
                             # Extract core theme
-                            core_theme, core_theme_prompt = await extract_core_theme_from_conversation(int(message.conversation_id))
+                            core_theme, core_theme_prompt = await extract_core_theme_from_conversation(
+                                int(message.conversation_id),
+                                conversation_history=prefetched_history,
+                            )
                             
                             # Create core theme extraction step
                             core_theme_step = {
@@ -535,10 +562,11 @@ async def dequeue(message: MessagePayload, background_tasks: Optional[Background
             # Find previous assistant message's exploration directions to guide the controller
             previous_exploration_directions = None
             try:
-                messages_for_brain = await api_service.get_conversation_messages_with_pipeline(int(message.conversation_id))
-                logger.info(f"Retrieved {len(messages_for_brain or [])} messages for previous exploration directions lookup")
-                
-                for m in reversed(messages_for_brain or []):
+                source_messages = prefetched_history or []
+                logger.info(
+                    f"Using {len(source_messages)} prefetched messages for previous exploration directions lookup"
+                )
+                for m in reversed(source_messages):
                     # Use last assistant message
                     if m.get("is_user") is True:
                         continue
@@ -665,51 +693,6 @@ async def dequeue(message: MessagePayload, background_tasks: Optional[Background
             except Exception as e:
                 logger.error(f"Error applying 13-year-old simplification: {e}", exc_info=True)
 
-            # Evaluate curiosity score using dedicated prompt layer
-            try:
-                score_evaluation = await evaluate_curiosity_score(
-                    conversation_history=conversation_history_str,
-                    latest_user_message=user_input,
-                    latest_ai_response=response_data.final_response,
-                    current_curiosity_score=current_curiosity_score,
-                    conversation_id=int(message.conversation_id) if message.conversation_id else None,
-                )
-
-                evaluated_score = score_evaluation.get("curiosity_score")
-
-                curiosity_step = CuriosityScoreEvaluationStepData(
-                    name='curiosity_score_evaluation',
-                    enabled=True,
-                    prompt=score_evaluation.get('prompt'),
-                    result=(
-                        str(evaluated_score)
-                        if evaluated_score is not None
-                        else score_evaluation.get('error')
-                    ),
-                    raw_response=score_evaluation.get('raw_response'),
-                    curiosity_score=evaluated_score,
-                    reason=score_evaluation.get('reason'),
-                    applied=bool(score_evaluation.get('applied')),
-                    error=score_evaluation.get('error'),
-                )
-
-                response_data.steps.append(curiosity_step)
-
-                if response_data.pipeline_data is None:
-                    response_data.pipeline_data = {}
-
-                response_data.pipeline_data['curiosity_score_evaluation'] = score_evaluation
-
-                if 'steps' not in response_data.pipeline_data:
-                    response_data.pipeline_data['steps'] = []
-                response_data.pipeline_data['steps'].append(curiosity_step.model_dump())
-
-                if isinstance(evaluated_score, int):
-                    response_data.curiosity_score = evaluated_score
-                    current_curiosity_score = evaluated_score
-            except Exception as e:
-                logger.error(f"Error evaluating curiosity score: {e}", exc_info=True)
-
             # Now evaluate exploration directions with the latest assistant message included
             exploration_data = None
             exploration_directions_list = None
@@ -720,36 +703,103 @@ async def dequeue(message: MessagePayload, background_tasks: Optional[Background
                         get_conversation_core_theme
                     )
                     core_theme = await get_conversation_core_theme(int(message.conversation_id))
-                    if core_theme:
-                        # Fetch current history and append this turn's assistant response
-                        conversation_history = await api_service.get_conversation_history(int(message.conversation_id)) or []
-                        conversation_history_with_latest = list(conversation_history)
+                    # Use prefetched history and append this turn's assistant response
+                    conversation_history_with_latest = [
+                        {
+                            "is_user": msg.get("is_user", False),
+                            "content": msg.get("content")
+                        }
+                        for msg in (prefetched_history or [])
+                        if msg.get("content") is not None
+                    ]
+
+                    if not conversation_history_with_latest or not (
+                        conversation_history_with_latest[-1].get("is_user", False)
+                        and conversation_history_with_latest[-1].get("content") == user_input
+                    ):
+                        conversation_history_with_latest.append({
+                            "is_user": True,
+                            "content": user_input
+                        })
+
+                    if not conversation_history_with_latest or not (
+                        conversation_history_with_latest[-1].get("is_user") is False
+                        and conversation_history_with_latest[-1].get("content") == response_data.final_response
+                    ):
                         conversation_history_with_latest.append({
                             "is_user": False,
                             "content": response_data.final_response
                         })
+                    user_message_count = sum(1 for msg in conversation_history_with_latest if msg.get("is_user", False))
+
+                    if user_message_count < 2:
+                        logger.info(
+                            f"Skipping exploration directions for conversation {message.conversation_id}; {user_message_count} user message(s) so far"
+                        )
+                    else:
                         exploration_data = await evaluate_exploration_directions(
                             conversation_id=int(message.conversation_id),
                             core_theme=core_theme,
                             conversation_history=conversation_history_with_latest,
-                            current_query=user_input
+                            current_query=user_input,
+                            latest_user_message=user_input,
+                            latest_ai_response=response_data.final_response,
+                            current_curiosity_score=current_curiosity_score
                         )
-                        if exploration_data:
+
+                        if exploration_data and (
+                            exploration_data.get('directions')
+                            or exploration_data.get('curiosity_score') is not None
+                        ):
                             exploration_directions_list = exploration_data.get('directions', [])
                             logger.info(f"Exploration directions: {exploration_directions_list}")
+
                             exploration_step = {
                                 'name': 'exploration_directions_evaluation',
                                 'enabled': True,
                                 'prompt': exploration_data.get('prompt', ''),
                                 'result': ', '.join(exploration_directions_list or []),
                                 'directions': exploration_directions_list or [],
-                                'core_theme': exploration_data.get('core_theme', ''),
-                                'evaluation_successful': exploration_data.get('evaluation_successful', False)
+                                'core_theme': exploration_data.get('core_theme', core_theme or ''),
+                                'evaluation_successful': exploration_data.get('evaluation_successful', False),
+                                'curiosity_score': exploration_data.get('curiosity_score'),
+                                'curiosity_reason': exploration_data.get('curiosity_reason'),
+                                'curiosity_error': exploration_data.get('curiosity_error'),
                             }
+
                             response_data.steps.append(exploration_step)
-                            logger.info(f"Generated {len(exploration_directions_list or [])} exploration directions for conversation {message.conversation_id}")
-                    else:
-                        logger.debug(f"No core theme found for conversation {message.conversation_id}, skipping exploration directions")
+
+                            if response_data.pipeline_data is None:
+                                response_data.pipeline_data = {}
+
+                            pipeline_steps = response_data.pipeline_data.setdefault('steps', [])
+                            pipeline_steps.append(exploration_step)
+                            response_data.pipeline_data['exploration_directions_evaluation'] = exploration_data
+                            response_data.pipeline_data['curiosity_score_evaluation'] = {
+                                'prompt': exploration_data.get('prompt'),
+                                'raw_response': exploration_data.get('raw_response'),
+                                'curiosity_score': exploration_data.get('curiosity_score'),
+                                'reason': exploration_data.get('curiosity_reason'),
+                                'applied': exploration_data.get('curiosity_score') is not None,
+                                'error': exploration_data.get('curiosity_error'),
+                            }
+
+                            logger.info(
+                                f"Generated {len(exploration_directions_list or [])} exploration directions for conversation {message.conversation_id}"
+                            )
+
+                            curiosity_score = exploration_data.get('curiosity_score')
+                            if isinstance(curiosity_score, int):
+                                response_data.curiosity_score = curiosity_score
+                                current_curiosity_score = curiosity_score
+                            elif exploration_data.get('curiosity_error'):
+                                logger.warning(
+                                    f"Curiosity score missing or invalid for conversation {message.conversation_id}: {exploration_data.get('curiosity_error')}"
+                                )
+                        else:
+                            logger.debug(
+                                f"Exploration evaluation returned no actionable data for conversation {message.conversation_id}"
+                            )
                 except Exception as e:
                     logger.error(f"Error in exploration directions evaluation for conversation {message.conversation_id}: {e}", exc_info=True)
                         
@@ -757,7 +807,11 @@ async def dequeue(message: MessagePayload, background_tasks: Optional[Background
             # Create a client for fetching the prompt version ID
             backend_url = os.getenv("BACKEND_CALLBACK_BASE_URL", "http://localhost:5000")
             async with httpx.AsyncClient() as client:
-                curiosity_score = await compute_next_curiosity_score(message.conversation_id, getattr(response_data, "curiosity_score", None))
+                if isinstance(response_data.curiosity_score, int):
+                    curiosity_score = max(current_curiosity_score, response_data.curiosity_score)
+                else:
+                    curiosity_score = current_curiosity_score
+
                 response_data.curiosity_score = curiosity_score
 
                 if isinstance(response_data.pipeline_data, dict):

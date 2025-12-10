@@ -4,7 +4,6 @@ from src.core.final_response_generator import generate_initial_response, Respons
 from src.core.learning_enhancement import generate_enhanced_response, LearningEnhancementError
 from src.utils.logger import logger
 import os
-import json
 from typing import Optional, Dict, Any, List, Tuple
 from src.config_models import FlowConfig, StepConfig
 from src.schemas import ProcessQueryResponse, PipelineData
@@ -298,38 +297,19 @@ async def generate_simplified_response(
         ]
         
         response_text = llm_service.get_completion(messages, call_type="simplified_conversation")
-        
-        # Parse the JSON response
-        try:
-            import json
-            import re
-            
-            # Clean up markdown code blocks if present
-            # This handles cases where the LLM returns ```json {... json here...} ```
-            cleaned_response = response_text
-            markdown_match = re.search(r'```(?:json)?\s*([\s\S]*?)\s*```', response_text)
-            if markdown_match:
-                logger.info("Detected markdown code block in LLM response, extracting JSON content")
-                cleaned_response = markdown_match.group(1)
-            
-            response_data = json.loads(cleaned_response)
-            
-            # Check if we need clarification or have a normal response
-            if response_data.get("needs_clarification", False):
-                # Format follow-up questions
-                follow_up_questions = response_data.get("follow_up_questions", [])
-                formatted_response = "\n".join(follow_up_questions)
-            else:
-                # Get the normal response
-                formatted_response = response_data.get("response", "")
-                
-            return formatted_response, prompt_template, formatted_prompt, response_data, prompt_name_used, prompt_version_used
-            
-        except json.JSONDecodeError:
-            # Fallback in case response isn't valid JSON
-            logger.error(f"Failed to parse JSON response: {response_text}")
-            return response_text, prompt_template, formatted_prompt, {"response": response_text, "needs_clarification": False}, prompt_name_used, prompt_version_used
-            
+        return (
+            response_text,
+            prompt_template,
+            formatted_prompt,
+            {
+                "response": response_text,
+                "needs_clarification": False,
+                "follow_up_questions": [],
+            },
+            prompt_name_used,
+            prompt_version_used,
+        )
+
     except Exception as e:
         logger.error(f"Error in generate_simplified_response: {str(e)}", exc_info=True)
         raise

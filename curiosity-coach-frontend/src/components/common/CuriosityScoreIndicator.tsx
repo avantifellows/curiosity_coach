@@ -9,10 +9,14 @@ const CuriosityScoreIndicator: React.FC<CuriosityScoreIndicatorProps> = ({ score
   const radius = 28;
   const circumference = 2 * Math.PI * radius;
   const strokeDashoffset = circumference - (safeScore / 100) * circumference;
+  const tips = [
+    "Add one more detail by responding to questions!",
+    "Ask a follow-up or toss in a fresh idea!",
+  ];
 
   return (
     <div className="fixed top-20 right-4 z-40">
-      <div className="bg-white/90 backdrop-blur-sm shadow-lg rounded-xl px-4 py-3 flex flex-col items-center">
+      <div className="bg-white/90 backdrop-blur-sm shadow-lg rounded-xl px-5 py-4 flex flex-col items-center w-60">
         <div className="relative">
           <svg width={72} height={72} role="img" aria-label={`Curiosity score ${safeScore} out of 100`}>
             <circle
@@ -41,6 +45,14 @@ const CuriosityScoreIndicator: React.FC<CuriosityScoreIndicatorProps> = ({ score
           </div>
         </div>
         <span className="mt-2 text-xs font-medium text-gray-600 tracking-wide uppercase">Score</span>
+        <div className="mt-3 w-full text-left space-y-1.5">
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Try this</p>
+          {tips.map((tip, index) => (
+            <p key={index} className="text-sm text-gray-700 leading-snug">
+              {index + 1}. {tip}
+            </p>
+          ))}
+        </div>
       </div>
     </div>
   );

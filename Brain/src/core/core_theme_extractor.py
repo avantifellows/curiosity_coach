@@ -1,7 +1,7 @@
 import json
 import os
 import httpx
-from typing import Optional
+from typing import Optional, List, Dict, Any, Tuple
 from src.services.llm_service import LLMService
 from src.services.api_service import api_service
 from src.utils.logger import logger
@@ -38,21 +38,28 @@ async def _format_conversation_for_prompt(conversation_history: list) -> str:
     
     return "\n".join(formatted_messages)
 
-async def extract_core_theme_from_conversation(conversation_id: int) -> Optional[str]:
+async def extract_core_theme_from_conversation(
+    conversation_id: int,
+    conversation_history: Optional[List[Dict[str, Any]]] = None,
+) -> Tuple[Optional[str], Optional[str]]:
     """
     Extracts the core theme from a conversation.
     Returns the (core theme, final prompt) tuple.
     """
     logger.info(f"Starting core theme extraction for conversation {conversation_id}")
     
+    final_prompt: Optional[str] = None
+
     try:
-        # 1. Fetch conversation history
-        history = await api_service.get_conversation_history(conversation_id)
+        # 1. Fetch conversation history if not provided
+        history = conversation_history
+        if history is None:
+            history = await api_service.get_conversation_history(conversation_id)
         print("history", history)
         print("########################################################")
         if not history:
             logger.warning(f"No conversation history found for conversation {conversation_id}")
-            return None
+            return None, None
         
         # 2. Filter to get only user messages
         user_messages = [msg for msg in history if msg.get('is_user', False)]
@@ -61,7 +68,7 @@ async def extract_core_theme_from_conversation(conversation_id: int) -> Optional
         # 3. Check if we have enough messages
         if len(user_messages) < CORE_THEME_TRIGGER_MESSAGE_COUNT:
             logger.info(f"Conversation {conversation_id} has only {len(user_messages)} user messages. Need at least {CORE_THEME_TRIGGER_MESSAGE_COUNT} for theme extraction.")
-            return None
+            return None, None
         
         # 4. Format conversation for prompt
         formatted_conversation = await _format_conversation_for_prompt(history)
@@ -71,7 +78,7 @@ async def extract_core_theme_from_conversation(conversation_id: int) -> Optional
         prompt_template = await _get_prompt_from_backend(CORE_THEME_PROMPT_NAME)
         if not prompt_template:
             logger.error(f"Could not fetch prompt template for {CORE_THEME_PROMPT_NAME}")
-            return None
+            return None, None
         
         # 6. Format the final prompt with conversation history
         final_prompt = prompt_template.replace("{{CONVERSATION_HISTORY}}", formatted_conversation)
