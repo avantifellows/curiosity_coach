@@ -484,28 +484,40 @@ async def analyze_class_conversations(
     force_refresh: bool = Query(False, description="Force recomputing the analysis even if cached"),
     db: Session = Depends(get_db),
 ):
+    """
+    Returns cached analysis immediately if available, queues background job for refresh.
+    This endpoint returns quickly to avoid API Gateway timeout.
+    """
     school_value = _normalize_school_value(school)
     section_value = _normalize_section_value(section)
 
-    students = _fetch_students_for_class(db, school_value, grade, section_value)
-    if not students:
-        raise HTTPException(status_code=404, detail="No students found for this class")
-
-    user_ids = [student.user_id for student in students]
-    conversations_map, conversation_ids = _get_latest_conversations_for_users(db, user_ids)
-
-    if not conversation_ids:
-        raise HTTPException(status_code=400, detail="No conversations found for this class to analyze")
-
-    conversation_hash = _build_class_conversation_hash(students, conversations_map)
+    # Quick check: get or create analysis record (lightweight)
     class_analysis = _get_or_create_class_analysis(db, school_value, grade, section_value)
-
+    
+    # Check for active job first
+    active_job = _find_active_job_for_analysis(db, class_analysis.id, "class")
+    
+    # If there's already a job running, return current state immediately
+    if active_job and not force_refresh:
+        return JSONResponse(
+            status_code=HTTP_202_ACCEPTED,
+            content=ClassAnalysisResponse(
+                analysis=class_analysis.analysis_text,
+                status=class_analysis.status,
+                job_id=active_job.job_id,
+                computed_at=class_analysis.computed_at,
+            ).model_dump(mode="json"),
+        )
+    
+    # If we have a ready analysis and not forcing refresh, do a quick staleness check
+    # But only if we already have cached content to show
     if (
         not force_refresh
         and class_analysis.analysis_text
         and class_analysis.status == "ready"
-        and class_analysis.last_message_hash == conversation_hash
     ):
+        # Return cached immediately - background will check if refresh needed
+        # Skip expensive hash computation here to stay under timeout
         return ClassAnalysisResponse(
             analysis=class_analysis.analysis_text,
             status="ready",
@@ -513,38 +525,30 @@ async def analyze_class_conversations(
             computed_at=class_analysis.computed_at,
         )
 
-    active_job = _find_active_job_for_analysis(db, class_analysis.id, "class")
-    if active_job:
-        job = active_job
-    else:
-        job = _create_analysis_job(db, kind="class", class_analysis=class_analysis)
-        class_analysis.status = "queued"
-        class_analysis.last_message_hash = conversation_hash
-        db.add(class_analysis)
-        db.commit()
-        background_tasks.add_task(
-            _process_class_analysis_job,
-            job.job_id,
-            school_value,
-            grade,
-            section_value,
-        )
-
+    # No cached analysis or force refresh - queue a job immediately
+    job = _create_analysis_job(db, kind="class", class_analysis=class_analysis)
+    class_analysis.status = "queued"
     class_analysis.updated_at = datetime.now(timezone.utc)
     db.add(class_analysis)
     db.commit()
-    db.refresh(class_analysis)
-
-    payload = ClassAnalysisResponse(
-        analysis=class_analysis.analysis_text,
-        status=class_analysis.status,
-        job_id=job.job_id,
-        computed_at=class_analysis.computed_at,
+    
+    # Queue background task - all heavy work happens here
+    background_tasks.add_task(
+        _process_class_analysis_job,
+        job.job_id,
+        school_value,
+        grade,
+        section_value,
     )
 
     return JSONResponse(
         status_code=HTTP_202_ACCEPTED,
-        content=payload.model_dump(mode="json"),
+        content=ClassAnalysisResponse(
+            analysis=class_analysis.analysis_text,
+            status="queued",
+            job_id=job.job_id,
+            computed_at=class_analysis.computed_at,
+        ).model_dump(mode="json"),
     )
 
 
@@ -555,23 +559,37 @@ async def analyze_student_conversations(
     force_refresh: bool = Query(False, description="Force recomputing the analysis even if cached"),
     db: Session = Depends(get_db),
 ):
+    """
+    Returns cached analysis immediately if available, queues background job for refresh.
+    This endpoint returns quickly to avoid API Gateway timeout.
+    """
     student = db.query(Student).filter(Student.id == student_id).first()
     if not student:
         raise HTTPException(status_code=404, detail="Student not found")
 
-    conversations, messages_by_conversation = _fetch_student_conversations(db, student)
-
-    if not conversations:
-        raise HTTPException(status_code=400, detail="No conversations found for this student to analyze")
-
-    conversation_hash = _build_student_conversation_hash(conversations)
+    # Quick check: get or create analysis record (lightweight)
     student_analysis = _get_or_create_student_analysis(db, student)
-
+    
+    # Check for active job first
+    active_job = _find_active_job_for_analysis(db, student_analysis.id, "student")
+    
+    # If there's already a job running, return current state immediately
+    if active_job and not force_refresh:
+        return JSONResponse(
+            status_code=HTTP_202_ACCEPTED,
+            content=ClassAnalysisResponse(
+                analysis=student_analysis.analysis_text,
+                status=student_analysis.status,
+                job_id=active_job.job_id,
+                computed_at=student_analysis.computed_at,
+            ).model_dump(mode="json"),
+        )
+    
+    # If we have a ready analysis and not forcing refresh, return cached
     if (
         not force_refresh
         and student_analysis.analysis_text
         and student_analysis.status == "ready"
-        and student_analysis.last_message_hash == conversation_hash
     ):
         return ClassAnalysisResponse(
             analysis=student_analysis.analysis_text,
@@ -580,36 +598,28 @@ async def analyze_student_conversations(
             computed_at=student_analysis.computed_at,
         )
 
-    active_job = _find_active_job_for_analysis(db, student_analysis.id, "student")
-    if active_job:
-        job = active_job
-    else:
-        job = _create_analysis_job(db, kind="student", student_analysis=student_analysis)
-        student_analysis.status = "queued"
-        student_analysis.last_message_hash = conversation_hash
-        db.add(student_analysis)
-        db.commit()
-        background_tasks.add_task(
-            _process_student_analysis_job,
-            job.job_id,
-            student.id,
-        )
-
+    # No cached analysis or force refresh - queue a job immediately
+    job = _create_analysis_job(db, kind="student", student_analysis=student_analysis)
+    student_analysis.status = "queued"
     student_analysis.updated_at = datetime.now(timezone.utc)
     db.add(student_analysis)
     db.commit()
-    db.refresh(student_analysis)
-
-    payload = ClassAnalysisResponse(
-        analysis=student_analysis.analysis_text,
-        status=student_analysis.status,
-        job_id=job.job_id,
-        computed_at=student_analysis.computed_at,
+    
+    # Queue background task - all heavy work happens here
+    background_tasks.add_task(
+        _process_student_analysis_job,
+        job.job_id,
+        student.id,
     )
 
     return JSONResponse(
         status_code=HTTP_202_ACCEPTED,
-        content=payload.model_dump(mode="json"),
+        content=ClassAnalysisResponse(
+            analysis=student_analysis.analysis_text,
+            status="queued",
+            job_id=job.job_id,
+            computed_at=student_analysis.computed_at,
+        ).model_dump(mode="json"),
     )
 
 

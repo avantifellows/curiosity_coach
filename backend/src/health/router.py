@@ -73,7 +73,8 @@ async def check_onboarding_health(db: Session = Depends(get_db)):
         local_brain = os.getenv('LOCAL_BRAIN_ENDPOINT_URL')
         brain_endpoint = local_brain if local_brain else settings.BRAIN_ENDPOINT_URL
         if brain_endpoint:
-            response = httpx.get(f"{brain_endpoint}/health", timeout=5.0)
+            async with httpx.AsyncClient() as client:
+                response = await client.get(f"{brain_endpoint}/health", timeout=30.0)
             health_status["checks"]["brain_connectivity"] = {
                 "reachable": response.status_code == 200,
                 "endpoint": brain_endpoint,
