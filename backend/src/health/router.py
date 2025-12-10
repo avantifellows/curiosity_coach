@@ -1,8 +1,10 @@
+import os
 import time
 import logging
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
+from sqlalchemy import text
 from datetime import datetime
 from src.health.schemas import HealthResponse
 from src.config.settings import settings
@@ -67,7 +69,9 @@ async def check_onboarding_health(db: Session = Depends(get_db)):
     
     # Check 2: Brain connectivity
     try:
-        brain_endpoint = settings.LOCAL_BRAIN_ENDPOINT_URL or settings.BRAIN_ENDPOINT_URL
+        # Use LOCAL_BRAIN_ENDPOINT_URL only if explicitly set (not default), otherwise use BRAIN_ENDPOINT_URL
+        local_brain = os.getenv('LOCAL_BRAIN_ENDPOINT_URL')
+        brain_endpoint = local_brain if local_brain else settings.BRAIN_ENDPOINT_URL
         if brain_endpoint:
             response = httpx.get(f"{brain_endpoint}/health", timeout=5.0)
             health_status["checks"]["brain_connectivity"] = {
@@ -90,7 +94,7 @@ async def check_onboarding_health(db: Session = Depends(get_db)):
     
     # Check 3: Database connectivity
     try:
-        db.execute("SELECT 1")
+        db.execute(text("SELECT 1"))
         health_status["checks"]["database"] = {"connected": True}
     except Exception as e:
         health_status["checks"]["database"] = {"connected": False, "error": str(e)}
