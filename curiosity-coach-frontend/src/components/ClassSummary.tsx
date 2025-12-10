@@ -2,6 +2,22 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { StudentWithConversation, ConversationWithMessages } from '../types';
 import { getStudentsForClass, analyzeClassConversations } from '../services/api';
+import parse from 'html-react-parser';
+
+// AnalysisLoading component (inline to avoid module resolution issues)
+const AnalysisLoading: React.FC<{ message?: string }> = ({ 
+  message = "PROCESSING, IT TAKES AROUND 2 MINS......."
+}) => {
+  return (
+    <div className="flex flex-col items-center justify-center py-12 px-4">
+      <div className="text-center">
+        <p className="text-lg font-medium text-slate-700 animate-pulse">
+          {message}
+        </p>
+      </div>
+    </div>
+  );
+};
 
 interface ClassSummaryState {
   school?: string;
@@ -92,10 +108,13 @@ const ClassSummary: React.FC = () => {
     const fetchAnalysis = async () => {
       setIsAnalyzing(true);
       setAnalysisError(null);
+      setAnalysis(null); // Clear previous analysis
       try {
         const data = await analyzeClassConversations(school, gradeNumber, section);
+        console.log('Analysis response received:', data);
         if (isMounted) {
-          setAnalysis(data.analysis);
+          setAnalysis(data.analysis || '');
+          console.log('Analysis set to state:', data.analysis);
         }
       } catch (err) {
         console.error('Failed to analyze class conversations:', err);
@@ -105,6 +124,7 @@ const ClassSummary: React.FC = () => {
       } finally {
         if (isMounted) {
           setIsAnalyzing(false);
+          console.log('isAnalyzing set to false');
         }
       }
     };
@@ -172,23 +192,26 @@ const ClassSummary: React.FC = () => {
                 ) : (
                   <>
                     {isAnalyzing && (
-                      <div className="rounded-lg bg-blue-50 p-4">
-                        <p className="text-sm text-blue-700">Generating analysis...</p>
-                      </div>
+                      <AnalysisLoading key="analysis-loading" />
                     )}
                     {analysisError && (
                       <div className="rounded-lg bg-red-50 p-4">
                         <p className="text-sm text-red-700">{analysisError}</p>
                       </div>
                     )}
-                    {analysis && !isAnalyzing && (
+                    {!isAnalyzing && analysis && (
                       <div className="space-y-4">
                         <h2 className="text-2xl font-semibold text-slate-900">Class Analysis</h2>
                         <div className="rounded-lg bg-slate-50 p-6">
-                          <p className="text-slate-700 whitespace-pre-wrap leading-relaxed">
-                            {analysis}
-                          </p>
+                          <div className="text-slate-700 leading-relaxed">
+                            {parse(analysis)}
+                          </div>
                         </div>
+                      </div>
+                    )}
+                    {!isAnalyzing && !analysis && !analysisError && (
+                      <div className="rounded-lg bg-yellow-50 p-4">
+                        <p className="text-sm text-yellow-700">Analysis completed but no content received.</p>
                       </div>
                     )}
                   </>

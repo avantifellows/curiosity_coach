@@ -147,6 +147,18 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ mode }) => {
     }
   };
 
+  // Calculate total processing time from steps (sum of all time_taken values)
+  const totalProcessingTime = React.useMemo(() => {
+    if (!pipelineSteps || pipelineSteps.length === 0) return null;
+    const total = pipelineSteps.reduce((sum, step) => {
+      if (step.time_taken !== null && step.time_taken !== undefined) {
+        return sum + step.time_taken;
+      }
+      return sum;
+    }, 0);
+    return total > 0 ? total : null;
+  }, [pipelineSteps]);
+
   const handleViewMemory = async () => {
     if (!currentConversationId) return;
     setIsLoadingMemory(true);
@@ -300,6 +312,8 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ mode }) => {
         isLoadingSteps={isLoadingSteps}
         pipelineError={pipelineError}
         pipelineSteps={pipelineSteps}
+        isDebugMode={isDebugMode}
+        totalProcessingTime={totalProcessingTime}
         showMemoryModal={showMemoryModal}
         onCloseMemoryModal={() => {
           setShowMemoryModal(false);

@@ -2,6 +2,22 @@ import React, { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Student } from '../types';
 import { analyzeStudentConversations } from '../services/api';
+import parse from 'html-react-parser';
+
+// AnalysisLoading component (inline to avoid module resolution issues)
+const AnalysisLoading: React.FC<{ message?: string }> = ({ 
+  message = "PROCESSING, IT TAKES AROUND 2 MINS......."
+}) => {
+  return (
+    <div className="flex flex-col items-center justify-center py-12 px-4">
+      <div className="text-center">
+        <p className="text-lg font-medium text-slate-700 animate-pulse">
+          {message}
+        </p>
+      </div>
+    </div>
+  );
+};
 
 interface StudentAnalysisState {
   student?: Student;
@@ -27,10 +43,13 @@ const StudentAnalysis: React.FC = () => {
     const fetchAnalysis = async () => {
       setIsAnalyzing(true);
       setAnalysisError(null);
+      setAnalysis(null); // Clear previous analysis
       try {
         const data = await analyzeStudentConversations(student.id);
+        console.log('Student analysis response received:', data);
         if (isMounted) {
-          setAnalysis(data.analysis);
+          setAnalysis(data.analysis || '');
+          console.log('Student analysis set to state:', data.analysis);
         }
       } catch (err) {
         console.error('Failed to analyze student conversations:', err);
@@ -40,6 +59,7 @@ const StudentAnalysis: React.FC = () => {
       } finally {
         if (isMounted) {
           setIsAnalyzing(false);
+          console.log('isAnalyzing set to false');
         }
       }
     };
@@ -66,9 +86,7 @@ const StudentAnalysis: React.FC = () => {
 
           <section className="space-y-6">
             {isAnalyzing && (
-              <div className="text-center py-8">
-                <p className="text-sm text-slate-500">Analyzing conversations...</p>
-              </div>
+              <AnalysisLoading key="analysis-loading" />
             )}
             
             {analysisError && (
@@ -78,15 +96,15 @@ const StudentAnalysis: React.FC = () => {
             )}
 
             {!isAnalyzing && !analysisError && analysis && (
-              <div className="prose prose-slate max-w-none">
-                <div className="whitespace-pre-wrap text-slate-700 leading-relaxed">
-                  {analysis}
-                </div>
+              <div className="text-slate-700 leading-relaxed">
+                {parse(analysis)}
               </div>
             )}
 
             {!isAnalyzing && !analysisError && !analysis && (
-              <p className="text-sm text-slate-500">No analysis available.</p>
+              <div className="rounded-lg bg-yellow-50 p-4">
+                <p className="text-sm text-yellow-700">Analysis completed but no content received.</p>
+              </div>
             )}
           </section>
 

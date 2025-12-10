@@ -26,6 +26,11 @@ export interface PipelineStep {
   // Add exploration directions specific fields
   directions?: string[];
   evaluation_successful?: boolean;
+<<<<<<< HEAD
+=======
+  // Add timing fields
+  time_taken?: number | null; // Time taken in seconds
+>>>>>>> 19272150e8ad8591993fc62068b2a76868920788
 }
 
 interface PipelineStepsModalProps {
@@ -34,6 +39,11 @@ interface PipelineStepsModalProps {
   isLoading: boolean;
   error: string | null;
   steps: PipelineStep[];
+<<<<<<< HEAD
+=======
+  isDebugMode?: boolean; // Optional debug mode flag
+  totalProcessingTime?: number | null; // Optional total processing time
+>>>>>>> 19272150e8ad8591993fc62068b2a76868920788
 }
 
 const PipelineStepsModal: React.FC<PipelineStepsModalProps> = ({
@@ -42,6 +52,11 @@ const PipelineStepsModal: React.FC<PipelineStepsModalProps> = ({
   isLoading,
   error,
   steps,
+<<<<<<< HEAD
+=======
+  isDebugMode = false,
+  totalProcessingTime = null,
+>>>>>>> 19272150e8ad8591993fc62068b2a76868920788
 }) => {
   const [collapsedSteps, setCollapsedSteps] = useState<{ [key: number]: boolean }>({});
 
@@ -107,6 +122,17 @@ const PipelineStepsModal: React.FC<PipelineStepsModalProps> = ({
 
           {!isLoading && !error && steps.length > 0 && (
             <div className="text-sm sm:text-base text-gray-700">
+<<<<<<< HEAD
+=======
+              {/* Debug Mode: Show Total Processing Time */}
+              {isDebugMode && totalProcessingTime !== null && (
+                <div className="mb-4 p-3 bg-blue-50 border-l-4 border-blue-400 rounded">
+                  <p className="font-semibold text-blue-800">
+                    Total Processing Time: <span className="font-mono">{totalProcessingTime.toFixed(3)}s</span>
+                  </p>
+                </div>
+              )}
+>>>>>>> 19272150e8ad8591993fc62068b2a76868920788
               <ul className="space-y-3 sm:space-y-4">
                 {steps.map((step, idx) => (
                   <li key={idx} className="p-3 sm:p-4 bg-gray-50 rounded-md shadow-sm">
@@ -115,9 +141,23 @@ const PipelineStepsModal: React.FC<PipelineStepsModalProps> = ({
                       onClick={() => toggleStepCollapse(idx)}
                     >
                       <div className="min-w-0 flex-1 pr-2">
+<<<<<<< HEAD
                         <p className="text-base sm:text-lg font-bold text-gray-900 break-words">
                           Step {idx + 1}: {step.prompt_name || step.name}
                         </p>
+=======
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="text-base sm:text-lg font-bold text-gray-900 break-words">
+                            Step {idx + 1}: {step.prompt_name || step.name}
+                          </p>
+                          {/* Debug Mode: Show timing in header */}
+                          {isDebugMode && step.time_taken !== null && step.time_taken !== undefined && (
+                            <span className="text-xs sm:text-sm font-mono bg-blue-100 text-blue-800 px-2 py-1 rounded">
+                              {step.time_taken.toFixed(3)}s
+                            </span>
+                          )}
+                        </div>
+>>>>>>> 19272150e8ad8591993fc62068b2a76868920788
                         {step.prompt_name && step.prompt_version && (
                           <p className="text-sm text-gray-600 break-words">
                             Version {step.prompt_version}
@@ -131,6 +171,18 @@ const PipelineStepsModal: React.FC<PipelineStepsModalProps> = ({
                     
                     {!collapsedSteps[idx] && (
                       <div className="mt-2 space-y-2 sm:space-y-3">
+<<<<<<< HEAD
+=======
+                        {/* Debug Mode: Show timing information */}
+                        {isDebugMode && step.time_taken !== null && step.time_taken !== undefined && (
+                          <div className="bg-blue-50 p-2 rounded border-l-4 border-blue-400">
+                            <p className="text-sm sm:text-base">
+                              <strong className="text-blue-800">Time Taken:</strong>{' '}
+                              <span className="font-mono text-blue-900">{step.time_taken.toFixed(3)}s</span>
+                            </p>
+                          </div>
+                        )}
+>>>>>>> 19272150e8ad8591993fc62068b2a76868920788
                         {step.enabled !== undefined && (
                           <p className="text-sm sm:text-base">
                             <strong className="text-gray-700">Enabled:</strong> {step.enabled ? 'Yes' : 'No'}

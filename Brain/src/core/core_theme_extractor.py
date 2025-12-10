@@ -1,7 +1,11 @@
 import json
 import os
 import httpx
+<<<<<<< HEAD
 from typing import Optional, List, Dict, Any, Tuple
+=======
+from typing import Optional
+>>>>>>> 19272150e8ad8591993fc62068b2a76868920788
 from src.services.llm_service import LLMService
 from src.services.api_service import api_service
 from src.utils.logger import logger
@@ -38,16 +42,21 @@ async def _format_conversation_for_prompt(conversation_history: list) -> str:
     
     return "\n".join(formatted_messages)
 
+<<<<<<< HEAD
 async def extract_core_theme_from_conversation(
     conversation_id: int,
     conversation_history: Optional[List[Dict[str, Any]]] = None,
 ) -> Tuple[Optional[str], Optional[str]]:
+=======
+async def extract_core_theme_from_conversation(conversation_id: int) -> Optional[str]:
+>>>>>>> 19272150e8ad8591993fc62068b2a76868920788
     """
     Extracts the core theme from a conversation.
     Returns the (core theme, final prompt) tuple.
     """
     logger.info(f"Starting core theme extraction for conversation {conversation_id}")
     
+<<<<<<< HEAD
     final_prompt: Optional[str] = None
 
     try:
@@ -55,11 +64,20 @@ async def extract_core_theme_from_conversation(
         history = conversation_history
         if history is None:
             history = await api_service.get_conversation_history(conversation_id)
+=======
+    try:
+        # 1. Fetch conversation history
+        history = await api_service.get_conversation_history(conversation_id)
+>>>>>>> 19272150e8ad8591993fc62068b2a76868920788
         print("history", history)
         print("########################################################")
         if not history:
             logger.warning(f"No conversation history found for conversation {conversation_id}")
+<<<<<<< HEAD
             return None, None
+=======
+            return None
+>>>>>>> 19272150e8ad8591993fc62068b2a76868920788
         
         # 2. Filter to get only user messages
         user_messages = [msg for msg in history if msg.get('is_user', False)]
@@ -68,7 +86,11 @@ async def extract_core_theme_from_conversation(
         # 3. Check if we have enough messages
         if len(user_messages) < CORE_THEME_TRIGGER_MESSAGE_COUNT:
             logger.info(f"Conversation {conversation_id} has only {len(user_messages)} user messages. Need at least {CORE_THEME_TRIGGER_MESSAGE_COUNT} for theme extraction.")
+<<<<<<< HEAD
             return None, None
+=======
+            return None
+>>>>>>> 19272150e8ad8591993fc62068b2a76868920788
         
         # 4. Format conversation for prompt
         formatted_conversation = await _format_conversation_for_prompt(history)
@@ -78,7 +100,11 @@ async def extract_core_theme_from_conversation(
         prompt_template = await _get_prompt_from_backend(CORE_THEME_PROMPT_NAME)
         if not prompt_template:
             logger.error(f"Could not fetch prompt template for {CORE_THEME_PROMPT_NAME}")
+<<<<<<< HEAD
             return None, None
+=======
+            return None
+>>>>>>> 19272150e8ad8591993fc62068b2a76868920788
         
         # 6. Format the final prompt with conversation history
         final_prompt = prompt_template.replace("{{CONVERSATION_HISTORY}}", formatted_conversation)
@@ -124,4 +150,8 @@ async def update_conversation_theme(conversation_id: int, core_theme: str) -> bo
             return True
     except Exception as e:
         logger.error(f"Error updating core theme for conversation {conversation_id}: {e}")
+<<<<<<< HEAD
         return False
+=======
+        return False
+>>>>>>> 19272150e8ad8591993fc62068b2a76868920788

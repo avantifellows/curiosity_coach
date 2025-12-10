@@ -1,4 +1,8 @@
+<<<<<<< HEAD
 import json
+=======
+from pickle import FALSE
+>>>>>>> 19272150e8ad8591993fc62068b2a76868920788
 import httpx
 import os
 from typing import Optional, List, Dict, Any
@@ -39,6 +43,7 @@ async def _format_conversation_for_prompt(conversation_history: List[Dict[str, A
     return "\n".join(formatted_messages)
 
 async def evaluate_exploration_directions(
+<<<<<<< HEAD
     conversation_id: int,
     core_theme: Optional[str],
     conversation_history: List[Dict[str, Any]],
@@ -46,11 +51,18 @@ async def evaluate_exploration_directions(
     latest_user_message: Optional[str] = None,
     latest_ai_response: Optional[str] = None,
     current_curiosity_score: int = 0,
+=======
+    conversation_id: int, 
+    core_theme: Optional[str],
+    conversation_history: List[Dict[str, Any]],
+    current_query: Optional[str] = None
+>>>>>>> 19272150e8ad8591993fc62068b2a76868920788
 ) -> Optional[Dict[str, Any]]:
     """
     Evaluates possible exploration directions based on core theme and conversation.
     Returns dict with 'directions' list and metadata, or None on failure.
     """
+<<<<<<< HEAD
     core_theme_value = core_theme if core_theme else "No core theme identified yet."
 
     if not core_theme:
@@ -58,12 +70,19 @@ async def evaluate_exploration_directions(
             f"No core theme available for conversation {conversation_id}; proceeding with placeholder"
         )
 
+=======
+    if not core_theme:
+        logger.info(f"No core theme for conversation {conversation_id}, skipping exploration evaluation")
+        return None
+    
+>>>>>>> 19272150e8ad8591993fc62068b2a76868920788
     logger.info(f"Starting exploration directions evaluation for conversation {conversation_id}")
     
     try:
         # Get prompt template from DB
         prompt_template = await _get_exploration_prompt_template()
         if not prompt_template:
+<<<<<<< HEAD
             logger.warning("Could not fetch exploration directions prompt template from DB")
             return None
 
@@ -73,10 +92,22 @@ async def evaluate_exploration_directions(
         # Use the injection system to replace placeholders
         # First inject core theme
         formatted_prompt = inject_core_theme_placeholder(prompt_template, core_theme_value)
+=======
+            logger.warning(f"Could not fetch exploration directions prompt template from DB")
+            return None
+        
+        # Format conversation history
+        formatted_history = await _format_conversation_for_prompt(conversation_history)
+        
+        # Use the injection system to replace placeholders
+        # First inject core theme
+        formatted_prompt = inject_core_theme_placeholder(prompt_template, core_theme)
+>>>>>>> 19272150e8ad8591993fc62068b2a76868920788
         
         # Then inject conversation history (simple replace since no special injection function exists)
         if "{{CONVERSATION_HISTORY}}" in formatted_prompt:
             formatted_prompt = formatted_prompt.replace("{{CONVERSATION_HISTORY}}", formatted_history)
+<<<<<<< HEAD
 
         if "{{QUERY}}" in formatted_prompt:
             query_text = current_query if current_query else "No current query available"
@@ -96,6 +127,15 @@ async def evaluate_exploration_directions(
             formatted_prompt = formatted_prompt.replace("{{CONVERSATION_ID}}", str(conversation_id))
         logger.debug(f"Final formatted prompt (first 200 chars): {formatted_prompt[:200]}...")
 
+=======
+        
+              # Inject current user query
+        if "{{QUERY}}" in formatted_prompt:
+            query_text = current_query if current_query else "No current query available"
+            formatted_prompt = formatted_prompt.replace("{{QUERY}}", query_text)
+        logger.debug(f"Final formatted prompt (first 200 chars): {formatted_prompt[:200]}...")
+        
+>>>>>>> 19272150e8ad8591993fc62068b2a76868920788
         # Call LLM
         llm_service = LLMService()
         logger.debug(f"Calling LLM for exploration directions evaluation")
@@ -106,6 +146,7 @@ async def evaluate_exploration_directions(
             json_mode=False
         )
 
+<<<<<<< HEAD
         raw_response = (response.get("raw_response", "") or "").strip()
 
         if not raw_response:
@@ -164,6 +205,32 @@ async def evaluate_exploration_directions(
             'curiosity_reason': curiosity_reason,
             'curiosity_error': curiosity_error,
         }
+=======
+        # Parse comma-separated string response
+        raw_response = response.get("raw_response", "").strip()
+        try:
+            if raw_response:
+                # Split by comma and clean up each direction
+                directions = [d.strip() for d in raw_response.split('#') if d.strip()]
+                if len(directions) > 0:
+                    logger.info(f"Generated {len(directions)} exploration directions for conversation {conversation_id}")
+                    return {
+                        'directions': directions,
+                        'core_theme': core_theme,
+                        'prompt': formatted_prompt,
+                        'evaluation_successful': True
+                    }
+                else:
+                    logger.warning(f"Empty directions after parsing for conversation {conversation_id}")
+                    return None
+            else:
+                logger.warning(f"Empty response from LLM for conversation {conversation_id}")
+                return None
+        except Exception as e:
+            logger.error(f"Failed to parse directions string for conversation {conversation_id}: {e}")
+            logger.debug(f"Raw response: {raw_response}")
+            return None
+>>>>>>> 19272150e8ad8591993fc62068b2a76868920788
     except Exception as e:
         logger.error(f"Error evaluating exploration directions for conversation {conversation_id}: {e}", exc_info=True)
         return None
@@ -175,4 +242,8 @@ async def get_conversation_core_theme(conversation_id: int) -> Optional[str]:
         return core_theme
     except Exception as e:
         logger.warning(f"Could not fetch core theme from API: {e}")
+<<<<<<< HEAD
         return None
+=======
+        return None
+>>>>>>> 19272150e8ad8591993fc62068b2a76868920788
