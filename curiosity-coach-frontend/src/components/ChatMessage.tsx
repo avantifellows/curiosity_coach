@@ -1,6 +1,22 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Message } from '../types';
 import { SmartToy } from '@mui/icons-material';
+import parse from 'html-react-parser';
+
+const escapeHtml = (raw: string): string =>
+  raw
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+
+const formatMessageContent = (content: string): React.ReactNode => {
+  const safe = escapeHtml(content);
+  const withLineBreaks = safe.replace(/\n/g, '<br />');
+  const withBold = withLineBreaks.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  return parse(withBold);
+};
 
 interface ChatMessageProps {
   message: Message;
@@ -10,6 +26,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
   const { content, is_user, status } = message;
   const [ellipsis, setEllipsis] = useState('.');
   const [isVisible, setIsVisible] = useState(false);
+  const formattedContent = useMemo(() => formatMessageContent(content), [content]);
 
   useEffect(() => {
     // Animation effect when message appears
@@ -58,7 +75,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
       )}
       
       <div className={`rounded-xl px-3 sm:px-4 py-2 max-w-[75%] sm:max-w-md lg:max-w-lg shadow ${bgGradient} ${textColor} ${errorStyle} ${hoverEffect} whitespace-pre-wrap break-words min-w-[120px]`}>
-        {content}
+        {formattedContent}
         {status === 'sending' && (
           <span className="text-xs italic ml-2 block opacity-80">
             sending{ellipsis}

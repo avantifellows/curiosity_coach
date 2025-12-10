@@ -1,7 +1,12 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { StudentWithConversation, ConversationWithMessages } from '../types';
-import { getStudentsForClass, analyzeClassConversations } from '../services/api';
+import {
+  getStudentsForClass,
+  analyzeClassConversations,
+  getAnalysisJobStatus,
+} from '../services/api';
+import { AnalysisStatus } from '../types';
 import parse from 'html-react-parser';
 
 // AnalysisLoading component (inline to avoid module resolution issues)
@@ -41,8 +46,89 @@ const ClassSummary: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [analysis, setAnalysis] = useState<string | null>(null);
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
+  const [analysisStatus, setAnalysisStatus] = useState<AnalysisStatus>('ready');
+  const [jobId, setJobId] = useState<string | null>(null);
+  const [computedAt, setComputedAt] = useState<string | null>(null);
+
+  const isAnalysisInProgress = analysisStatus === 'queued' || analysisStatus === 'running';
+  const showAnalysisLoading = isAnalysisInProgress && !analysis;
+
+  const isMountedRef = useRef(true);
+  const pollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      if (pollTimeoutRef.current) {
+        clearTimeout(pollTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  const stopPolling = useCallback(() => {
+    if (pollTimeoutRef.current) {
+      clearTimeout(pollTimeoutRef.current);
+      pollTimeoutRef.current = null;
+    }
+  }, []);
+
+  const pollJob = useCallback(
+    async (job: string) => {
+      if (!isMountedRef.current) {
+        return;
+      }
+
+      try {
+        const data = await getAnalysisJobStatus(job);
+        if (!isMountedRef.current) {
+          return;
+        }
+
+        const nextStatus: AnalysisStatus =
+          data.analysis_status ?? (data.status === 'failed' ? 'failed' : data.status === 'completed' ? 'ready' : 'running');
+
+        if (data.analysis !== undefined) {
+          setAnalysis(data.analysis ?? null);
+        }
+        if (data.computed_at) {
+          setComputedAt(data.computed_at);
+        }
+
+        if (data.status === 'failed' || nextStatus === 'failed') {
+          setAnalysisStatus('failed');
+          setAnalysisError(data.error_message ?? 'Analysis failed. Please try again.');
+          setJobId(null);
+          stopPolling();
+          return;
+        }
+
+        if (data.status === 'completed' || nextStatus === 'ready') {
+          setAnalysisStatus('ready');
+          setAnalysisError(null);
+          setJobId(null);
+          stopPolling();
+          return;
+        }
+
+        setAnalysisStatus(nextStatus);
+        pollTimeoutRef.current = setTimeout(() => {
+          pollJob(job);
+        }, 4000);
+      } catch (err) {
+        if (!isMountedRef.current) {
+          return;
+        }
+        console.error('Failed to poll class analysis job:', err);
+        setAnalysisStatus('failed');
+        setAnalysisError(err instanceof Error ? err.message : 'Failed to fetch analysis status.');
+        setJobId(null);
+        stopPolling();
+      }
+    },
+    [stopPolling]
+  );
 
   const gradeNumber = useMemo(() => {
     if (typeof grade === 'number') {
@@ -89,52 +175,75 @@ const ClassSummary: React.FC = () => {
     };
   }, [school, gradeNumber, section, navigate]);
 
-  // Fetch analysis when students are loaded
-  useEffect(() => {
-    if (!students || students.length === 0 || !school || !gradeNumber || !section) {
-      return;
-    }
+  const fetchAnalysis = useCallback(
+    async (forceRefresh = false) => {
+      if (!school || !gradeNumber || !section) {
+        return;
+      }
 
-    // Check if any students have conversations
-    const hasConversations = students.some(
-      ({ latest_conversation }) => latest_conversation !== null && latest_conversation !== undefined
-    );
+      if (!isMountedRef.current) {
+        return;
+      }
 
-    if (!hasConversations) {
-      return;
-    }
-
-    let isMounted = true;
-    const fetchAnalysis = async () => {
-      setIsAnalyzing(true);
       setAnalysisError(null);
-      setAnalysis(null); // Clear previous analysis
+      setAnalysisStatus(forceRefresh ? 'queued' : 'running');
+
       try {
-        const data = await analyzeClassConversations(school, gradeNumber, section);
-        console.log('Analysis response received:', data);
-        if (isMounted) {
-          setAnalysis(data.analysis || '');
-          console.log('Analysis set to state:', data.analysis);
+        const data = await analyzeClassConversations(school, gradeNumber, section, forceRefresh);
+
+        if (!isMountedRef.current) {
+          return;
+        }
+
+        if (data.analysis !== undefined) {
+          setAnalysis(data.analysis ?? null);
+        }
+        setComputedAt(data.computed_at ?? null);
+
+        const shouldPoll = Boolean(data.job_id && (data.status === 'queued' || data.status === 'running'));
+        const nextStatus: AnalysisStatus =
+          data.status === 'failed'
+            ? 'failed'
+            : shouldPoll
+            ? data.status
+            : 'ready';
+
+        setAnalysisStatus(nextStatus);
+        if (shouldPoll) {
+          const job = data.job_id as string;
+          setJobId(job);
+          stopPolling();
+          pollJob(job);
+        } else {
+          setJobId(null);
+          stopPolling();
+        }
+        
+        if (nextStatus === 'failed') {
+          setAnalysisError('Analysis failed. Please try again.');
         }
       } catch (err) {
         console.error('Failed to analyze class conversations:', err);
-        if (isMounted) {
-          setAnalysisError(err instanceof Error ? err.message : 'Failed to generate analysis. Please try again.');
+        if (!isMountedRef.current) {
+          return;
         }
-      } finally {
-        if (isMounted) {
-          setIsAnalyzing(false);
-          console.log('isAnalyzing set to false');
-        }
+        setAnalysisStatus('failed');
+        setJobId(null);
+        setAnalysisError(err instanceof Error ? err.message : 'Failed to generate analysis. Please try again.');
+        stopPolling();
       }
-    };
+    },
+    [school, gradeNumber, section, pollJob, stopPolling]
+  );
+
+  // Trigger analysis whenever class identifiers change
+  useEffect(() => {
+    if (!school || !gradeNumber || !section) {
+      return;
+    }
 
     fetchAnalysis();
-
-    return () => {
-      isMounted = false;
-    };
-  }, [students, school, gradeNumber, section]);
+  }, [school, gradeNumber, section, fetchAnalysis]);
 
   // Flatten the latest conversations with student info
   const conversations: ConversationWithStudent[] = useMemo(() => {
@@ -191,17 +300,37 @@ const ClassSummary: React.FC = () => {
                   <p className="text-sm text-slate-500">No conversations found for this class.</p>
                 ) : (
                   <>
-                    {isAnalyzing && (
-                      <AnalysisLoading key="analysis-loading" />
+                    {showAnalysisLoading && (
+                      <AnalysisLoading key="analysis-loading" message={`Analysis ${analysisStatus === 'queued' ? 'queued' : 'running'}...`} />
                     )}
                     {analysisError && (
                       <div className="rounded-lg bg-red-50 p-4">
                         <p className="text-sm text-red-700">{analysisError}</p>
                       </div>
                     )}
-                    {!isAnalyzing && analysis && (
-                      <div className="space-y-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
                         <h2 className="text-2xl font-semibold text-slate-900">Class Analysis</h2>
+                        {computedAt && (
+                          <p className="text-xs text-slate-500">
+                            Last updated {new Date(computedAt).toLocaleString()}
+                          </p>
+                        )}
+                        {analysis && jobId && (analysisStatus === 'queued' || analysisStatus === 'running') && (
+                          <p className="text-xs text-indigo-600 font-medium">Refreshing analysis…</p>
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => fetchAnalysis(true)}
+                        className="inline-flex items-center justify-center rounded-full bg-slate-900 px-4 py-2 text-xs font-semibold text-white shadow transition hover:bg-slate-800 disabled:opacity-60"
+                        disabled={isAnalysisInProgress && !analysis}
+                      >
+                        Refresh Analysis
+                      </button>
+                    </div>
+                    {analysis && (
+                      <div className="space-y-4">
                         <div className="rounded-lg bg-slate-50 p-6">
                           <div className="text-slate-700 leading-relaxed">
                             {parse(analysis)}
@@ -209,7 +338,7 @@ const ClassSummary: React.FC = () => {
                         </div>
                       </div>
                     )}
-                    {!isAnalyzing && !analysis && !analysisError && (
+                    {!analysis && !analysisError && analysisStatus === 'ready' && (
                       <div className="rounded-lg bg-yellow-50 p-4">
                         <p className="text-sm text-yellow-700">Analysis completed but no content received.</p>
                       </div>
@@ -233,4 +362,3 @@ const ClassSummary: React.FC = () => {
 };
 
 export default ClassSummary;
-

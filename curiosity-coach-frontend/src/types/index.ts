@@ -37,6 +37,9 @@ export interface ApiError {
   status?: number;
 }
 
+export type AnalysisStatus = 'ready' | 'queued' | 'running' | 'failed';
+export type JobStatus = 'queued' | 'running' | 'completed' | 'failed';
+
 // --- Conversation Types ---
 
 /**

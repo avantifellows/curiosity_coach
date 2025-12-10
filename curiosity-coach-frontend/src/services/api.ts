@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { LoginResponse, Message, ChatHistory, SendMessageResponse, ConversationSummary, Conversation, ConversationCreateResponse, User, StudentLoginResponse, StudentLoginRequest, StudentOptions, StudentWithConversation, PaginatedStudentConversations, ConversationWithMessages } from '../types';
+import { LoginResponse, Message, ChatHistory, SendMessageResponse, ConversationSummary, Conversation, ConversationCreateResponse, User, StudentLoginResponse, StudentLoginRequest, StudentOptions, StudentWithConversation, PaginatedStudentConversations, ConversationWithMessages, AnalysisStatus, JobStatus } from '../types';
 
 const API = axios.create({
   baseURL: process.env.REACT_APP_BACKEND_BASE_URL + '/api' || '/api',
@@ -98,22 +98,37 @@ export const getAllStudentConversations = async (
 };
 
 export interface ClassAnalysisResponse {
-  analysis: string;
-  status: string;
+  analysis?: string | null;
+  status: AnalysisStatus;
+  job_id?: string | null;
+  computed_at?: string | null;
+}
+
+export interface AnalysisJobStatusResponse {
+  job_id: string;
+  status: JobStatus;
+  analysis?: string | null;
+  computed_at?: string | null;
+  error_message?: string | null;
+  analysis_status?: AnalysisStatus | null;
 }
 
 export const analyzeClassConversations = async (
   school: string,
   grade: number,
-  section?: string | null
+  section?: string | null,
+  forceRefresh = false
 ): Promise<ClassAnalysisResponse> => {
   try {
-    const params: Record<string, string | number> = {
+    const params: Record<string, string | number | boolean> = {
       school,
       grade,
     };
     if (section) {
       params.section = section;
+    }
+    if (forceRefresh) {
+      params.force_refresh = true;
     }
     const response = await API.post<ClassAnalysisResponse>('/students/class-analysis', {}, { params });
     return response.data;
@@ -124,19 +139,36 @@ export const analyzeClassConversations = async (
 };
 
 export interface StudentAnalysisResponse {
-  analysis: string;
-  status: string;
+  analysis?: string | null;
+  status: AnalysisStatus;
+  job_id?: string | null;
+  computed_at?: string | null;
 }
 
 export const analyzeStudentConversations = async (
-  studentId: number
+  studentId: number,
+  forceRefresh = false
 ): Promise<StudentAnalysisResponse> => {
   try {
-    const response = await API.post<StudentAnalysisResponse>(`/students/${studentId}/analysis`);
+    const params: Record<string, boolean> = {};
+    if (forceRefresh) {
+      params.force_refresh = true;
+    }
+    const response = await API.post<StudentAnalysisResponse>(`/students/${studentId}/analysis`, {}, { params });
     return response.data;
   } catch (error: any) {
     console.error("Error analyzing student conversations:", error.response?.data || error.message);
     throw new Error(error.response?.data?.detail || 'Failed to analyze student conversations');
+  }
+};
+
+export const getAnalysisJobStatus = async (jobId: string): Promise<AnalysisJobStatusResponse> => {
+  try {
+    const response = await API.get<AnalysisJobStatusResponse>(`/students/analysis-jobs/${jobId}`);
+    return response.data;
+  } catch (error: any) {
+    console.error(`Error fetching analysis job ${jobId} status:`, error.response?.data || error.message);
+    throw new Error(error.response?.data?.detail || 'Failed to fetch analysis status');
   }
 };
 
