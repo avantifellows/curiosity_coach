@@ -88,6 +88,7 @@ async def check_onboarding_health(db: Session = Depends(get_db)):
     except Exception as e:
         health_status["checks"]["brain_connectivity"] = {
             "reachable": False,
+            "endpoint": brain_endpoint,
             "error": str(e)
         }
         health_status["status"] = "unhealthy"
