@@ -1,7 +1,8 @@
 import time
 import logging
+import asyncio
 from sqlalchemy.orm import Session
-from src.models import save_message, get_conversation_history, Message
+from src.models import save_message, get_conversation_history, Message, get_conversation, update_conversation_title
 from src.queue import queue_service
 from src.database import get_db
 from fastapi import Depends
@@ -9,6 +10,29 @@ from typing import List, Dict
 
 # Set up logger for this module
 logger = logging.getLogger(__name__)
+
+
+def generate_title_from_message(content: str, max_length: int = 50) -> str:
+    """
+    Generate a concise title from message content.
+    Takes first sentence or first N characters.
+    
+    Args:
+        content: The message content
+        max_length: Maximum length for the title
+        
+    Returns:
+        A title string
+    """
+    # Simple implementation: take first sentence up to max_length
+    sentences = content.split('.')
+    title = sentences[0].strip()
+    
+    # Truncate if too long
+    if len(title) > max_length:
+        title = title[:max_length].rsplit(' ', 1)[0] + "..."
+    
+    return title if title else "New Chat"
 
 class MessageService:
     """Service for handling message operations within conversations."""
@@ -57,38 +81,62 @@ class MessageService:
             
             logger.info(f"User message saved successfully - message_id: {saved_message_obj.id}")
             
+            # Auto-generate title from user's first message
+            try:
+                conversation = get_conversation(db, conversation_id)
+                if conversation and conversation.title == "New Chat":
+                    # Count user messages in this conversation
+                    user_message_count = db.query(Message).filter(
+                        Message.conversation_id == conversation_id,
+                        Message.is_user == True
+                    ).count()
+                    
+                    if user_message_count == 1:  # This is the first user message
+                        new_title = generate_title_from_message(content)
+                        logger.info(f"Auto-generating title for conversation {conversation_id}: '{new_title}'")
+                        update_conversation_title(db, conversation_id, new_title, user_id)
+            except Exception as title_error:
+                # Don't fail the message send if title generation fails
+                logger.warning(f"Failed to auto-generate title for conversation {conversation_id}: {title_error}")
+            
             # Convert SQLAlchemy object to dict before sending to queue or returning
             saved_message = {c.name: getattr(saved_message_obj, c.name) for c in saved_message_obj.__table__.columns}
             
             logger.debug(f"Message object converted to dict - message_id: {saved_message['id']}")
 
-            # Trigger asynchronous message processing via queue
-            logger.info(f"About to send message to queue service - message_id: {saved_message['id']}")
-            try:
-                logger.info(f"Calling queue_service.send_message - message_id: {saved_message['id']}")
-                queue_response = await queue_service.send_message(
-                    conversation_id=conversation_id,
-                    message_id=saved_message['id'], 
-                    message_content=content,
-                    user_id=user_id,
-                    purpose=purpose
-                )
-                logger.info(f"Queue service call completed - message_id: {saved_message['id']}")
-
-                if isinstance(queue_response, dict) and queue_response.get('error'):
-                    logger.warning(
-                        f"Queue service reported an error for message_id {saved_message['id']}: "
-                        f"{queue_response['error']}. Message is saved but processing may be delayed."
+            async def _queue_and_log():
+                try:
+                    logger.info(f"Calling queue_service.send_message - message_id: {saved_message['id']}")
+                    queue_response = await queue_service.send_message(
+                        conversation_id=conversation_id,
+                        message_id=saved_message['id'], 
+                        message_content=content,
+                        user_id=user_id,
+                        purpose=purpose
                     )
-                else:
-                    logger.info(f"Message successfully queued for processing - message_id: {saved_message['id']}")
+                    logger.info(f"Queue service call completed - message_id: {saved_message['id']}")
 
-            except Exception as queue_error:
-                logger.error(
-                    f"Queue service failed for message_id {saved_message['id']}: "
-                    f"{str(queue_error)}. Message is saved but processing may be delayed."
-                )
-                # Continue execution even if queue fails - user message is already saved
+                    if isinstance(queue_response, dict) and queue_response.get('error'):
+                        logger.warning(
+                            f"Queue service reported an error for message_id {saved_message['id']}: "
+                            f"{queue_response['error']}. Message is saved but processing may be delayed."
+                        )
+                    else:
+                        logger.info(f"Message successfully queued for processing - message_id: {saved_message['id']}")
+
+                except Exception as queue_error:
+                    logger.error(
+                        f"Queue service failed for message_id {saved_message['id']}: "
+                        f"{str(queue_error)}. Message is saved but processing may be delayed."
+                    )
+
+            logger.info(f"Dispatching message to queue service in background - message_id: {saved_message['id']}")
+            try:
+                asyncio.get_running_loop()
+                asyncio.create_task(_queue_and_log())
+            except RuntimeError:
+                # No running loop (e.g. during CLI scripts/tests); fall back to direct await
+                await _queue_and_log()
 
             processing_time = time.time() - start_time
             logger.info(

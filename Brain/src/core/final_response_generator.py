@@ -184,7 +184,9 @@ async def generate_initial_response(
     intent_data: Optional[Dict[str, Any]], 
     context_info: Optional[str] = None, 
     get_prompt_template_only: bool = False,
-    prompt_name: str = "response_generation"
+    prompt_name: str = "response_generation",
+    conversation_memory: Optional[Dict[str, Any]] = None,
+    user_persona: Optional[Dict[str, Any]] = None,
 ) -> Tuple[str, str]:
     """
     Generates the initial response based on the query, identified intents, and retrieved context.
@@ -217,6 +219,16 @@ async def generate_initial_response(
             context_info if context_info else "",
             prompt_template
         )
+
+        # Inject persona placeholders if present
+        if "{{USER_PERSONA" in final_prompt:
+            from src.utils.prompt_injection import inject_persona_placeholders
+            final_prompt = inject_persona_placeholders(final_prompt, user_persona)
+      
+        # Inject conversation memory if placeholders exist
+        if "{{CONVERSATION_MEMORY" in final_prompt:
+            from src.utils.prompt_injection import inject_memory_placeholders
+            final_prompt = inject_memory_placeholders(final_prompt, conversation_memory)
         
         # Initialize LLM service
         logger.debug("Initializing LLM service for initial response generation")

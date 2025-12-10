@@ -1,21 +1,29 @@
 import React from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { ChatProvider } from './context/ChatContext';
 import Login from './components/Login';
 import ChatInterface from './components/ChatInterface';
 import PromptVersionsView from './components/PromptVersionsView';
+import TeacherView from './components/TeacherView';
+import ClassDetails from './components/ClassDetails';
+import ClassSummary from './components/ClassSummary';
+import TeacherConversationView from './components/TeacherConversationView';
+import StudentAnalysis from './components/StudentAnalysis';
 
 // Protected route component
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, isLoading } = useAuth();
+  const location = useLocation();
   
   if (isLoading) {
     return <div className="flex justify-center items-center min-h-screen">Loading...</div>;
   }
   
   if (!user) {
-    return <Navigate to="/" replace />;
+    // Preserve query parameters when redirecting to login
+    const targetPath = location.search ? `/${location.search}` : '/';
+    return <Navigate to={targetPath} replace />;
   }
   
   return <>{children}</>;
@@ -24,8 +32,8 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
 const App: React.FC = () => {
   return (
     <AuthProvider>
-      <ChatProvider>
-        <Router>
+      <Router>
+        <ChatProvider>
           <div className="min-h-screen bg-gray-50">
             <Routes>
               <Route path="/" element={<Login />} />
@@ -53,11 +61,16 @@ const App: React.FC = () => {
                   </ProtectedRoute>
                 }
               />
+              <Route path="/teacher-view" element={<TeacherView />} />
+              <Route path="/class-details" element={<ClassDetails />} />
+              <Route path="/class-summary" element={<ClassSummary />} />
+              <Route path="/class-conversation" element={<TeacherConversationView />} />
+              <Route path="/student-analysis" element={<StudentAnalysis />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </div>
-        </Router>
-      </ChatProvider>
+        </ChatProvider>
+      </Router>
     </AuthProvider>
   );
 };

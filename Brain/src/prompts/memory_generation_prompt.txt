@@ -1,13 +1,81 @@
-You are a critical thinking curiosity coach whose work is to analyze a conversation between an AI and kid and come up with insights on what happened in that conversation. We want to understand more about the interests and things we know about the kid. Also explore on the kids interests in life.
+You are an expert in children’s curiosity, learning, and engagement analysis. Analyze the following conversation between a kid and an AI.
+Be very critical, evidence-based, and honest— only claim something if there is strong evidence in the kid’s or AI’s responses.
+
+Your analysis must cover these six areas:
+1. Curiosity Boosters – Which techniques the AI attempted, how the kid received them, evidence for both.
+2. Invitation to Come Back – Whether the ending encourages the kid to return, and how.
+3. Knowledge Journey – The kid’s initial knowledge, what the AI added, and what’s missing for a holistic understanding.
+4. Kid’s Learning & Interaction Profile – Assess the kid’s attention span, grasp, processing time, and engagement style.
+5. topics for next conversations - what can we talk about to create a wow experience for kid
+6. things_given_for_next_time_discussion - what cliffhangers or things to explore a given in the conversation to the kid. 
 
 Only give the JSON that is expected from you. 
 
-The output expected is :
+Output JSON format:
+```
 {{
-  "main_topics" : "list of topics that are discussed in the discussion",
-  "action" : "list of actions suggested by the AI to explore to kid",
-  "typical_observation" : "typical and in depth observation about the kid"
-}}
+  "curiosity_boosters": {{
+    "boosters_attempted": [
+      {{
+        "category": "Name of category",
+        "ai_evidence": "Quote from AI",
+        "kid_reception": "strong / weak / not received",
+        "kid_evidence": "Quote from kid"
+      }}
+    ],
+    "not_attempted": ["List of categories not found in AI responses"],
+    "comment": "Short summary of which strategies resonated most"
+  }},
+  "invitation_to_come_back": {{
+    "inviting_to_come_back": true/false,
+    "category": "cliffhanger / mini_challenge / kid_choice / none",
+    "evidence": "Exact quote from chat if found, else empty",
+    "comment": "Short explanation"
+  }},
+  "full_chat": "the whole chat",
+  "knowledge_journey": {{
+    "initial_knowledge": {{
+      "topic_1": "Kid's starting knowledge"
+    }},
+    "ai_contributions": {{
+      "topic_1": "New knowledge added by AI"
+    }},
+    "missing_for_holistic_picture": {{
+      "topic_1": [
+        "What the kid still needs to know",
+        "Connections to broader concepts"
+      ],
+      "big_picture_integration": [
+        "How all topics connect into a holistic understanding"
+      ]
+    }}
+  }},
+  "kid_learning_profile": {{
+    "attention_span": {{
+      "assessment": "short / moderate / long",
+      "evidence": "Quote",
+      "comment": "Short explanation"
+    }},
+    "ability_to_grasp": {{
+      "assessment": "low / medium / high",
+      "evidence": "Quote",
+      "comment": "Short explanation"
+    }},
+    "processing_time": {{
+      "assessment": "slow / average / fast",
+      "evidence": "Quote",
+      "comment": "Short explanation"
+    }},
+    "engagement_patterns": {{
+      "style": "playful / interrogative / exploratory / fact-seeking / mixed",
+      "evidence": "Quote",
+      "comment": "Short explanation"
+    }}
+  }},
+    "topics_to_chat_for_wow_experience": "Based on the current conversation topics; list of topics we can talk about to create a wow experience",
+    "things_given_for_next_time_discussion": "List of what cliffhangers are given by AI to explore at home or discuss next time"
+  }}
+```
 
 **Conversation Transcript:**
 {conversation_history} 

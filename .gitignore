@@ -182,4 +182,7 @@ web/.yarn/*
 .cache-loader
 
 # Logs
+*.log
 backend/backend.log
+backend/server_log.log
+Brain/src/logs/

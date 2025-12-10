@@ -1,11 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 
 from src.database import get_db
 from src.auth.dependencies import get_current_user
-from src.models import User
+from src.models import User, PromptVersion
 from . import schemas, service
+from .placeholder_parser import get_placeholder_metadata_for_prompt
 
 router = APIRouter(
     prefix="/api",
@@ -45,6 +46,27 @@ def list_prompts(
         active_version_text = p.active_prompt_version.prompt_text if p.active_prompt_version else None
         results.append(schemas.PromptSimple(
             id=p.id, name=p.name, description=p.description, 
+            prompt_purpose=p.prompt_purpose,
+            created_at=p.created_at, updated_at=p.updated_at,
+            active_version_number=active_version_number,
+            active_version_text=active_version_text
+        ))
+    return results
+
+@router.get("/prompts/by-purpose/{purpose}", response_model=List[schemas.PromptSimple])
+def get_prompts_by_purpose(
+    purpose: str,
+    db: Session = Depends(get_db)
+):
+    """Get all prompts with a specific purpose (visit_1, visit_2, visit_3, steady_state, general)."""
+    prompts = service.prompt_service.get_prompts_by_purpose(db=db, purpose=purpose)
+    results = []
+    for p in prompts:
+        active_version_number = p.active_prompt_version.version_number if p.active_prompt_version else None
+        active_version_text = p.active_prompt_version.prompt_text if p.active_prompt_version else None
+        results.append(schemas.PromptSimple(
+            id=p.id, name=p.name, description=p.description,
+            prompt_purpose=p.prompt_purpose,
             created_at=p.created_at, updated_at=p.updated_at,
             active_version_number=active_version_number,
             active_version_text=active_version_text
@@ -253,6 +275,59 @@ def list_prompt_versions(
     if db_prompt is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Prompt '{prompt_id_or_name}' not found")
     
-    # Return user-specific versions (user's own + global versions)
-    versions = service.prompt_service.get_prompt_versions_for_user(db, db_prompt.id, current_user.id)
-    return versions 
+    # Return ALL versions for the prompt (no user filtering)
+    # This allows all users to see and manage all prompt versions
+    versions = db.query(PromptVersion).filter(
+        PromptVersion.prompt_id == db_prompt.id
+    ).order_by(PromptVersion.version_number.desc()).all()
+    return versions
+
+
+# --- Placeholder Metadata Endpoints ---
+@router.get("/prompts/{prompt_id_or_name}/placeholder-metadata")
+def get_placeholder_metadata(prompt_id_or_name: str, db: Session = Depends(get_db)) -> Dict[str, Any]:
+    """
+    Get placeholder metadata for a prompt.
+
+    Parses the active prompt version's text to extract available placeholder fields
+    that can be used in the prompt text (e.g., {{CONVERSATION_MEMORY__field_name}}).
+
+    Returns metadata for all applicable placeholder variables based on the prompt's purpose.
+    """
+    # Get the prompt
+    db_prompt = None
+    if prompt_id_or_name.isdigit():
+        db_prompt = service.prompt_service.get_prompt_by_id(db, int(prompt_id_or_name))
+    else:
+        db_prompt = service.prompt_service.get_prompt_by_name(db, prompt_id_or_name)
+
+    if db_prompt is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Prompt not found")
+
+    # Get active version
+    active_version = db_prompt.active_prompt_version
+    if not active_version:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No active prompt version found"
+        )
+
+    # Parse the prompt text to get placeholder metadata
+    metadata = get_placeholder_metadata_for_prompt(
+        prompt_name=db_prompt.name,
+        prompt_text=active_version.prompt_text
+    )
+
+    if "error" in metadata:
+        return {
+            "prompt_name": db_prompt.name,
+            "prompt_id": db_prompt.id,
+            "error": metadata["error"],
+            "variables": []
+        }
+
+    return {
+        "prompt_name": db_prompt.name,
+        "prompt_id": db_prompt.id,
+        "variables": metadata
+    } 

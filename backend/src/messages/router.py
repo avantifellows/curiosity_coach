@@ -267,12 +267,14 @@ async def receive_brain_response(payload: BrainResponsePayload, db: Session = De
         
         # Update conversation's prompt_version_id if provided
         if payload.prompt_version_id is not None:
-            logger.debug(f"Updating conversation prompt_version_id - conversation_id: {payload.conversation_id}, prompt_version_id: {payload.prompt_version_id}")
+            logger.info(f"🔄 BACKEND: Brain wants to update prompt_version_id from {conversation.prompt_version_id} to {payload.prompt_version_id}")
             conversation.prompt_version_id = payload.prompt_version_id
             db.add(conversation)
             db.commit()
             db.refresh(conversation)
-            logger.info(f"Updated conversation with prompt_version_id: {payload.prompt_version_id}")
+            logger.info(f"✅ BACKEND: Updated conversation with prompt_version_id: {payload.prompt_version_id}")
+        else:
+            logger.info(f"✅ BACKEND: Keeping existing prompt_version_id={conversation.prompt_version_id} (Brain didn't request update)")
             
         pipeline_data_to_save = None
         if payload.pipeline_data:
@@ -287,6 +289,7 @@ async def receive_brain_response(payload: BrainResponsePayload, db: Session = De
             content=payload.llm_response, # Use llm_response from the payload
             is_user=False,
             responds_to_message_id=payload.original_message_id,
+            curiosity_score=payload.curiosity_score,
         )
         logger.info(f"Brain response message saved successfully - message_id: {saved_response.id}")
 

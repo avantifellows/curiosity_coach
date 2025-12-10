@@ -9,6 +9,8 @@ interface ChatModalsProps {
   isLoadingSteps: boolean;
   pipelineError: string | null;
   pipelineSteps: PipelineStep[];
+  isDebugMode?: boolean;
+  totalProcessingTime?: number | null;
   
   // Memory modal props
   showMemoryModal: boolean;
@@ -24,6 +26,8 @@ const ChatModals: React.FC<ChatModalsProps> = ({
   isLoadingSteps,
   pipelineError,
   pipelineSteps,
+  isDebugMode = false,
+  totalProcessingTime = null,
   showMemoryModal,
   onCloseMemoryModal,
   isLoadingMemory,
@@ -39,6 +43,8 @@ const ChatModals: React.FC<ChatModalsProps> = ({
         isLoading={isLoadingSteps}
         error={pipelineError}
         steps={pipelineSteps}
+        isDebugMode={isDebugMode}
+        totalProcessingTime={totalProcessingTime}
       />
 
       {/* Memory View Modal */}

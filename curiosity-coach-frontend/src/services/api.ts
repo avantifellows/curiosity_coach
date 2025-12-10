@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { LoginResponse, Message, ChatHistory, SendMessageResponse, ConversationSummary, Conversation, User } from '../types';
+import { LoginResponse, Message, ChatHistory, SendMessageResponse, ConversationSummary, Conversation, ConversationCreateResponse, User, StudentLoginResponse, StudentLoginRequest, StudentOptions, StudentWithConversation, PaginatedStudentConversations, ConversationWithMessages, AnalysisStatus, JobStatus } from '../types';
 
 const API = axios.create({
   baseURL: process.env.REACT_APP_BACKEND_BASE_URL + '/api' || '/api',
@@ -25,6 +25,150 @@ export const loginUser = async (identifier: string): Promise<LoginResponse> => {
   } catch (error: any) {
     console.error("Login error:", error.response?.data || error.message);
     throw new Error(error.response?.data?.detail || 'Login failed');
+  }
+};
+
+export const loginStudent = async (studentData: StudentLoginRequest): Promise<StudentLoginResponse> => {
+  try {
+    const response = await API.post('/auth/student/login', studentData);
+    return response.data;
+  } catch (error: any) {
+    console.error("Student login error:", error.response?.data || error.message);
+    throw new Error(error.response?.data?.detail || 'Student login failed');
+  }
+};
+
+export const getStudentOptions = async (): Promise<StudentOptions> => {
+  try {
+    const response = await API.get('/config/student-options');
+    return response.data;
+  } catch (error: any) {
+    console.error("Error fetching student options:", error.response?.data || error.message);
+    throw new Error(error.response?.data?.detail || 'Failed to get student options');
+  }
+};
+
+export const getStudentsForClass = async (
+  school: string,
+  grade: number,
+  section?: string | null
+): Promise<StudentWithConversation[]> => {
+  try {
+    const params: Record<string, string | number> = {
+      school,
+      grade,
+    };
+    if (section) {
+      params.section = section;
+    }
+    const response = await API.get<StudentWithConversation[]>('/students', { params });
+    return response.data;
+  } catch (error: any) {
+    console.error("Error fetching students for class:", error.response?.data || error.message);
+    throw new Error(error.response?.data?.detail || 'Failed to fetch students');
+  }
+};
+
+export const getStudentConversations = async (
+  studentId: number,
+  limit = 3,
+  offset = 0
+): Promise<PaginatedStudentConversations> => {
+  try {
+    const response = await API.get<PaginatedStudentConversations>(`/students/${studentId}/conversations`, {
+      params: { limit, offset },
+    });
+    return response.data;
+  } catch (error: any) {
+    console.error(`Error fetching conversations for student ${studentId}:`, error.response?.data || error.message);
+    throw new Error(error.response?.data?.detail || 'Failed to fetch conversations');
+  }
+};
+
+export const getAllStudentConversations = async (
+  studentId: number
+): Promise<ConversationWithMessages[]> => {
+  try {
+    const response = await API.get<ConversationWithMessages[]>(`/students/${studentId}/conversations/all`);
+    return response.data;
+  } catch (error: any) {
+    console.error(`Error fetching all conversations for student ${studentId}:`, error.response?.data || error.message);
+    throw new Error(error.response?.data?.detail || 'Failed to fetch all conversations');
+  }
+};
+
+export interface ClassAnalysisResponse {
+  analysis?: string | null;
+  status: AnalysisStatus;
+  job_id?: string | null;
+  computed_at?: string | null;
+}
+
+export interface AnalysisJobStatusResponse {
+  job_id: string;
+  status: JobStatus;
+  analysis?: string | null;
+  computed_at?: string | null;
+  error_message?: string | null;
+  analysis_status?: AnalysisStatus | null;
+}
+
+export const analyzeClassConversations = async (
+  school: string,
+  grade: number,
+  section?: string | null,
+  forceRefresh = false
+): Promise<ClassAnalysisResponse> => {
+  try {
+    const params: Record<string, string | number | boolean> = {
+      school,
+      grade,
+    };
+    if (section) {
+      params.section = section;
+    }
+    if (forceRefresh) {
+      params.force_refresh = true;
+    }
+    const response = await API.post<ClassAnalysisResponse>('/students/class-analysis', {}, { params });
+    return response.data;
+  } catch (error: any) {
+    console.error("Error analyzing class conversations:", error.response?.data || error.message);
+    throw new Error(error.response?.data?.detail || 'Failed to analyze class conversations');
+  }
+};
+
+export interface StudentAnalysisResponse {
+  analysis?: string | null;
+  status: AnalysisStatus;
+  job_id?: string | null;
+  computed_at?: string | null;
+}
+
+export const analyzeStudentConversations = async (
+  studentId: number,
+  forceRefresh = false
+): Promise<StudentAnalysisResponse> => {
+  try {
+    const params: Record<string, boolean> = {};
+    if (forceRefresh) {
+      params.force_refresh = true;
+    }
+    const response = await API.post<StudentAnalysisResponse>(`/students/${studentId}/analysis`, {}, { params });
+    return response.data;
+  } catch (error: any) {
+    console.error("Error analyzing student conversations:", error.response?.data || error.message);
+    throw new Error(error.response?.data?.detail || 'Failed to analyze student conversations');
+  }
+};
+
+export const getAnalysisJobStatus = async (jobId: string): Promise<AnalysisJobStatusResponse> => {
+  try {
+    const response = await API.get<AnalysisJobStatusResponse>(`/students/analysis-jobs/${jobId}`);
+    return response.data;
+  } catch (error: any) {
+    console.error(`Error fetching analysis job ${jobId} status:`, error.response?.data || error.message);
+    throw new Error(error.response?.data?.detail || 'Failed to fetch analysis status');
   }
 };
 
@@ -75,14 +219,17 @@ export const listConversations = async (): Promise<ConversationSummary[]> => {
   }
 };
 
-export const createConversation = async (title?: string): Promise<Conversation> => {
+export const createConversation = async (title?: string): Promise<ConversationCreateResponse> => {
   try {
     const payload = title ? { title } : {};
-    const response = await API.post<Conversation>('/conversations', payload);
+    const response = await API.post<ConversationCreateResponse>('/conversations', payload);
     return response.data;
   } catch (error: any) {
     console.error("Error creating conversation:", error.response?.data || error.message);
-    throw new Error(error.response?.data?.detail || 'Failed to create conversation');
+    // Preserve status code for 503 errors (preparation timeout)
+    const err: any = new Error(error.response?.data?.detail || 'Failed to create conversation');
+    err.status = error.response?.status;
+    throw err;
   }
 };
 
@@ -134,6 +281,37 @@ export const getPrompts = async () => {
   } catch (error) {
     console.error("Error fetching prompts:", error);
     throw new Error("Failed to fetch prompts");
+  }
+};
+
+// Create a new prompt
+export const createPrompt = async (name: string, description?: string, promptPurpose?: string | null) => {
+  try {
+    const response = await API.post('/prompts', {
+      name,
+      description: description || null,
+      prompt_purpose: promptPurpose || null
+    });
+    return response.data;
+  } catch (error) {
+    console.error("Error creating prompt:", error);
+    throw new Error("Failed to create prompt");
+  }
+};
+
+// Update an existing prompt
+export const updatePrompt = async (promptId: number, name?: string, description?: string, promptPurpose?: string | null) => {
+  try {
+    const payload: any = {};
+    if (name !== undefined) payload.name = name;
+    if (description !== undefined) payload.description = description;
+    if (promptPurpose !== undefined) payload.prompt_purpose = promptPurpose;
+    
+    const response = await API.put(`/prompts/${promptId}`, payload);
+    return response.data;
+  } catch (error) {
+    console.error(`Error updating prompt ${promptId}:`, error);
+    throw new Error(`Failed to update prompt ${promptId}`);
   }
 };
 
@@ -193,6 +371,28 @@ export const setActivePromptVersion = async (promptId: number | string, versionI
   } catch (error) {
     console.error(`Error setting active version ${versionId} for prompt ${promptId}:`, error);
     throw new Error(`Failed to set active version for prompt ${promptId}`);
+  }
+};
+
+// Set a specific version as production
+export const setProductionPromptVersion = async (promptId: number | string, versionNumber: number) => {
+  try {
+    const response = await API.post(`/prompts/${promptId}/versions/${versionNumber}/set-production`);
+    return response.data;
+  } catch (error) {
+    console.error(`Error setting production version ${versionNumber} for prompt ${promptId}:`, error);
+    throw new Error(`Failed to set production version for prompt ${promptId}`);
+  }
+};
+
+// Unset production flag from a version
+export const unsetProductionPromptVersion = async (promptId: number | string, versionNumber: number) => {
+  try {
+    const response = await API.delete(`/prompts/${promptId}/versions/${versionNumber}/unset-production`);
+    return response.data;
+  } catch (error) {
+    console.error(`Error unsetting production version ${versionNumber} for prompt ${promptId}:`, error);
+    throw new Error(`Failed to unset production version for prompt ${promptId}`);
   }
 };
 

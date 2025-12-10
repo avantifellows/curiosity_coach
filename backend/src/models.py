@@ -20,6 +20,35 @@ class User(Base):
     conversations = relationship("Conversation", back_populates="user", cascade="all, delete-orphan")
     persona = relationship("UserPersona", back_populates="user", uselist=False, cascade="all, delete-orphan")
     feedbacks = relationship("UserFeedback", back_populates="user", cascade="all, delete-orphan")
+    student_profile = relationship("Student", back_populates="user", uselist=False, cascade="all, delete-orphan")
+
+class Student(Base):
+    """
+    Student profile data linked to User.
+    A student is a user with additional profile information.
+    """
+    __tablename__ = "students"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), unique=True, nullable=False, index=True)
+    school = Column(String(100), nullable=False, index=True)
+    grade = Column(Integer, nullable=False, index=True)
+    section = Column(String(10), nullable=True, index=True)  # Optional: A, B, C, etc.
+    roll_number = Column(Integer, nullable=False, index=True)
+    first_name = Column(String(50), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    # Relationship back to User
+    user = relationship("User", back_populates="student_profile")
+
+    # Composite unique constraint: school + grade + section + roll_number uniquely identifies a student
+    __table_args__ = (
+        UniqueConstraint('school', 'grade', 'section', 'roll_number',
+                        name='uq_student_identifier'),
+    )
+
+    def __repr__(self):
+        return f"<Student(id={self.id}, user_id={self.user_id}, school='{self.school}', grade={self.grade}, section='{self.section}', roll={self.roll_number}, name='{self.first_name}')>"
 
 class UserFeedback(Base):
     __tablename__ = "user_feedback"
@@ -56,6 +85,7 @@ class Conversation(Base):
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     title = Column(String, nullable=True, default="New Chat")
     prompt_version_id = Column(Integer, ForeignKey("prompt_versions.id", ondelete="SET NULL"), nullable=True)
+    core_chat_theme = Column(String, nullable=True, default=None)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
@@ -63,6 +93,25 @@ class Conversation(Base):
     messages = relationship("Message", back_populates="conversation", cascade="all, delete-orphan", order_by="Message.timestamp")
     prompt_version = relationship("PromptVersion")
     memory = relationship("ConversationMemory", back_populates="conversation", uselist=False, cascade="all, delete-orphan")
+    visit = relationship("ConversationVisit", back_populates="conversation", uselist=False, cascade="all, delete-orphan")
+
+class ConversationVisit(Base):
+    __tablename__ = "conversation_visits"
+
+    id = Column(Integer, primary_key=True, index=True)
+    conversation_id = Column(Integer, ForeignKey("conversations.id", ondelete="CASCADE"), unique=True, nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    visit_number = Column(Integer, nullable=False, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    conversation = relationship("Conversation", back_populates="visit")
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "visit_number", name="uq_user_visit"),
+    )
+
+    def __repr__(self):
+        return f"<ConversationVisit(id={self.id}, user_id={self.user_id}, visit_number={self.visit_number})>"
 
 class ConversationMemory(Base):
     __tablename__ = "conversation_memories"
@@ -84,6 +133,7 @@ class Message(Base):
     is_user = Column(Boolean, nullable=False)
     timestamp = Column(DateTime(timezone=True), server_default=func.now())
     responds_to_message_id = Column(Integer, ForeignKey("messages.id", ondelete="SET NULL"), nullable=True)
+    curiosity_score = Column(Integer, nullable=True)
 
     conversation = relationship("Conversation", back_populates="messages")
     pipeline_info = relationship("MessagePipelineData", back_populates="message", uselist=False, cascade="all, delete-orphan")
@@ -99,6 +149,114 @@ class MessagePipelineData(Base):
 
     message = relationship("Message", back_populates="pipeline_info")
 
+
+class LMHomework(Base):
+    __tablename__ = "lm_homework"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+
+    # Conversation where homework was generated
+    conversation_id_generated = Column(Integer, ForeignKey("conversations.id", ondelete="SET NULL"), nullable=True, index=True)
+
+    content = Column(Text, nullable=False)
+
+    # Allowed: 'Complete', 'Incomplete', 'Active'
+    status = Column(String(20), nullable=False, index=True, server_default="Active")
+
+    remark = Column(Text, nullable=True)
+    response_of_kid = Column(Text, nullable=True)
+
+    # Conversation where the homework was discussed later
+    conversation_id_discussed = Column(Integer, ForeignKey("conversations.id", ondelete="SET NULL"), nullable=True, index=True)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    user = relationship("User")
+    conversation_generated = relationship("Conversation", foreign_keys=[conversation_id_generated])
+    conversation_discussed = relationship("Conversation", foreign_keys=[conversation_id_discussed])
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('Complete','Incomplete','Active')",
+            name="ck_lm_homework_status_valid"
+        ),
+    )
+
+
+class LMUserKnowledge(Base):
+    __tablename__ = "lm_user_knowledge"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    remark = Column(Text, nullable=True)
+    conversation_id = Column(Integer, ForeignKey("conversations.id", ondelete="SET NULL"), nullable=True, index=True)
+    summary = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    user = relationship("User")
+    conversation = relationship("Conversation")
+    
+    __table_args__ = (
+        UniqueConstraint("user_id", "conversation_id", name="uq_user_conversation"),
+    )
+
+
+class ClassAnalysis(Base):
+    __tablename__ = "class_analyses"
+
+    id = Column(Integer, primary_key=True, index=True)
+    school = Column(String(100), nullable=False, index=True)
+    grade = Column(Integer, nullable=False, index=True)
+    section = Column(String(10), nullable=True, index=True)
+    analysis_text = Column(Text, nullable=True)
+    status = Column(String(20), nullable=False, default="ready")
+    computed_at = Column(DateTime(timezone=True), nullable=True)
+    last_message_hash = Column(String(64), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    jobs = relationship("AnalysisJob", back_populates="class_analysis", cascade="all, delete-orphan")
+
+    __table_args__ = (
+        UniqueConstraint("school", "grade", "section", name="uq_class_analysis_identifier"),
+    )
+
+
+class StudentAnalysis(Base):
+    __tablename__ = "student_analyses"
+
+    id = Column(Integer, primary_key=True, index=True)
+    student_id = Column(Integer, ForeignKey("students.id", ondelete="CASCADE"), nullable=False, unique=True, index=True)
+    analysis_text = Column(Text, nullable=True)
+    status = Column(String(20), nullable=False, default="ready")
+    computed_at = Column(DateTime(timezone=True), nullable=True)
+    last_message_hash = Column(String(64), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    student = relationship("Student")
+    jobs = relationship("AnalysisJob", back_populates="student_analysis", cascade="all, delete-orphan")
+
+
+class AnalysisJob(Base):
+    __tablename__ = "analysis_jobs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    job_id = Column(String(36), nullable=False, unique=True, index=True)
+    analysis_kind = Column(String(20), nullable=False)
+    status = Column(String(20), nullable=False, default="queued")
+    error_message = Column(Text, nullable=True)
+    class_analysis_id = Column(Integer, ForeignKey("class_analyses.id", ondelete="CASCADE"), nullable=True, index=True)
+    student_analysis_id = Column(Integer, ForeignKey("student_analyses.id", ondelete="CASCADE"), nullable=True, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    completed_at = Column(DateTime(timezone=True), nullable=True)
+
+    class_analysis = relationship("ClassAnalysis", back_populates="jobs")
+    student_analysis = relationship("StudentAnalysis", back_populates="jobs")
+
+
 # --- Prompt Versioning Models ---
 
 class Prompt(Base):
@@ -107,6 +265,7 @@ class Prompt(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, unique=True, index=True, nullable=False)
     description = Column(Text, nullable=True)
+    prompt_purpose = Column(String(50), nullable=True, index=True)  # visit_1, visit_2, visit_3, steady_state, general
     
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
@@ -121,7 +280,7 @@ class Prompt(Base):
     )
 
     def __repr__(self):
-        return f"<Prompt(id={self.id}, name='{self.name}')>"
+        return f"<Prompt(id={self.id}, name='{self.name}', purpose='{self.prompt_purpose}')>"
 
 class PromptVersion(Base):
     __tablename__ = "prompt_versions"
@@ -152,20 +311,22 @@ class PromptVersion(Base):
 
 # --- CRUD Helper Functions ---
 
-def generate_unique_name(db: Session, base_name: str) -> str:
-    """Generate a unique name by appending 3 random digits to the base name."""
-    base_name = base_name.strip().title()  # "surya" -> "Surya"
-    
-    # Try 5 times to find a unique name
-    for _ in range(5):
-        suffix = random.randint(100, 999)  # 3 digits: 100-999
-        candidate_name = f"{base_name}{suffix}"
-        if not db.query(User).filter(User.name == candidate_name).first():
-            return candidate_name
-    
-    # Fallback to timestamp if all attempts fail
-    timestamp = int(time.time()) % 1000
-    return f"{base_name}{timestamp}"
+# DEPRECATED: No longer using unique name suffixes
+# Names are now treated like phone numbers - consistent identifiers
+# def generate_unique_name(db: Session, base_name: str) -> str:
+#     """Generate a unique name by appending 3 random digits to the base name."""
+#     base_name = base_name.strip().title()  # "surya" -> "Surya"
+#     
+#     # Try 5 times to find a unique name
+#     for _ in range(5):
+#         suffix = random.randint(100, 999)  # 3 digits: 100-999
+#         candidate_name = f"{base_name}{suffix}"
+#         if not db.query(User).filter(User.name == candidate_name).first():
+#             return candidate_name
+#     
+#     # Fallback to timestamp if all attempts fail
+#     timestamp = int(time.time()) % 1000
+#     return f"{base_name}{timestamp}"
 
 def get_or_create_user_by_phone(db: Session, phone_number: str) -> User:
     """Get a user by phone number or create if not exists."""
@@ -205,19 +366,19 @@ def get_or_create_user_by_identifier(db: Session, identifier: str) -> tuple[User
         user = get_or_create_user_by_phone(db, identifier)
         return user, None
     else:
-        # Generate unique name for name-based login
-        unique_name = generate_unique_name(db, identifier)
-        user = get_or_create_user_by_name(db, unique_name)
-        return user, unique_name
+        # Use name directly without suffix (consistent like phone numbers)
+        normalized_name = identifier.strip().title()  # "surya" -> "Surya"
+        user = get_or_create_user_by_name(db, normalized_name)
+        return user, None  # No generated name, use original identifier
 
 # Keep old function for backward compatibility
 def get_or_create_user(db: Session, phone_number: str) -> User:
     """Get a user by phone number or create if not exists. (Backward compatibility)"""
     return get_or_create_user_by_phone(db, phone_number)
 
-def create_conversation(db: Session, user_id: int, title: Optional[str] = "New Chat", prompt_version_id: Optional[int] = None) -> Conversation:
+def create_conversation(db: Session, user_id: int, title: Optional[str] = "New Chat", prompt_version_id: Optional[int] = None, core_chat_theme: Optional[str] = None) -> Conversation:
     """Creates a new conversation for a user."""
-    conversation = Conversation(user_id=user_id, title=title, prompt_version_id=prompt_version_id)
+    conversation = Conversation(user_id=user_id, title=title, prompt_version_id=prompt_version_id, core_chat_theme=core_chat_theme)
     db.add(conversation)
     db.commit()
     db.refresh(conversation)
@@ -268,7 +429,14 @@ def delete_conversation(db: Session, conversation_id: int, user_id: int) -> bool
     db.commit()
     return True
 
-def save_message(db: Session, conversation_id: int, content: str, is_user: bool, responds_to_message_id: Optional[int] = None) -> Message:
+def save_message(
+    db: Session,
+    conversation_id: int,
+    content: str,
+    is_user: bool,
+    responds_to_message_id: Optional[int] = None,
+    curiosity_score: Optional[int] = None
+) -> Message:
     """Save a message to a specific conversation."""
     conversation = get_conversation(db, conversation_id)
     if not conversation:
@@ -278,7 +446,8 @@ def save_message(db: Session, conversation_id: int, content: str, is_user: bool,
         conversation_id=conversation_id,
         content=content,
         is_user=is_user,
-        responds_to_message_id=responds_to_message_id
+        responds_to_message_id=responds_to_message_id,
+        curiosity_score=curiosity_score
     )
     db.add(message)
     db.commit()
@@ -342,6 +511,41 @@ def get_conversations_needing_memory(db: Session) -> List[int]:
     
     return [c.id for c in conversations_to_process]
 
+def get_conversations_needing_memory_for_user(
+    db: Session,
+    user_id: int,
+    only_needing: bool = True,
+    include_empty: bool = False,
+) -> List[int]:
+    """
+    Returns conversation IDs for a user based on filters.
+    - only_needing: if True, include only conversations that either don't have a memory
+      or whose memory is older than the conversation update, and that are inactive beyond threshold
+      (mirrors get_conversations_needing_memory logic).
+    - include_empty: if False, exclude conversations with zero messages (heuristic: updated_at > created_at).
+    """
+    inactivity_threshold = datetime.utcnow() - timedelta(hours=settings.MEMORY_INACTIVITY_THRESHOLD_HOURS)
+
+    query = (
+        db.query(Conversation)
+        .outerjoin(ConversationMemory, Conversation.id == ConversationMemory.conversation_id)
+        .filter(Conversation.user_id == user_id)
+    )
+
+    if only_needing:
+        query = query.filter(
+            Conversation.updated_at < inactivity_threshold,
+            (ConversationMemory.id == None) | (ConversationMemory.updated_at < Conversation.updated_at),
+        )
+        if not include_empty:
+            query = query.filter(Conversation.updated_at > Conversation.created_at)
+    else:
+        if not include_empty:
+            query = query.filter(Conversation.updated_at > Conversation.created_at)
+
+    conversations = query.all()
+    return [c.id for c in conversations]
+
 def get_users_needing_persona_generation(db: Session) -> List[int]:
     """
     Returns a list of user IDs who need their persona generated or updated.
@@ -381,3 +585,222 @@ def save_message_pipeline_data(db: Session, message_id: int, pipeline_data_dict:
     db.commit()
     db.refresh(db_pipeline_data)
     return db_pipeline_data
+
+# --- Onboarding System Helper Functions ---
+
+def count_user_conversations(db: Session, user_id: int) -> int:
+    """Count the number of conversations for a user."""
+    return db.query(Conversation).filter(Conversation.user_id == user_id).count()
+
+def select_prompt_purpose_for_visit(visit_number: int) -> str:
+    """
+    Returns the prompt PURPOSE to query by based on visit number.
+    Visit 1 = 'visit_1', Visit 2 = 'visit_2', Visit 3 = 'visit_3', Visit 4+ = 'steady_state'
+    """
+    if visit_number == 1:
+        return "visit_1"
+    elif visit_number == 2:
+        return "visit_2"
+    elif visit_number == 3:
+        return "visit_3"
+    else:
+        return "steady_state"
+
+def get_production_prompt_by_purpose(db: Session, prompt_purpose: str) -> Optional['PromptVersion']:
+    """
+    Get production prompt version by purpose.
+    Falls back to simplified_conversation if purpose-specific prompt not found.
+    """
+    from src.models import Prompt, PromptVersion
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    prompt = db.query(Prompt).filter(Prompt.prompt_purpose == prompt_purpose).first()
+    
+    if not prompt:
+        logger.warning(f"No prompt found for purpose {prompt_purpose}, falling back to simplified_conversation")
+        prompt = db.query(Prompt).filter(Prompt.name == "simplified_conversation").first()
+        if not prompt:
+            logger.error("No valid prompt found (including fallback)")
+            return None
+    
+    # Get production version
+    production_version = db.query(PromptVersion).filter(
+        PromptVersion.prompt_id == prompt.id,
+        PromptVersion.is_production == True
+    ).first()
+    
+    if not production_version:
+        # Fallback to latest version if no production version set
+        production_version = db.query(PromptVersion).filter(
+            PromptVersion.prompt_id == prompt.id
+        ).order_by(PromptVersion.version_number.desc()).first()
+    
+    return production_version
+
+def has_messages(db: Session, conversation_id: int) -> bool:
+    """
+    Check if a conversation has any messages.
+    """
+    message_count = db.query(Message).filter(
+        Message.conversation_id == conversation_id
+    ).count()
+    return message_count > 0
+
+def record_conversation_visit(db: Session, conversation_id: int, user_id: int, visit_number: int) -> ConversationVisit:
+    """
+    Record visit number for a conversation.
+    Raises IntegrityError if (user_id, visit_number) already exists (race condition).
+    Note: Don't commit here - let caller handle transaction.
+    """
+    visit_record = ConversationVisit(
+        conversation_id=conversation_id,
+        user_id=user_id,
+        visit_number=visit_number
+    )
+    db.add(visit_record)
+    # Note: Caller should handle commit and IntegrityError for race conditions
+    return visit_record
+
+def get_conversation_visit(db: Session, conversation_id: int) -> Optional[ConversationVisit]:
+    """Get visit information for a conversation."""
+    return db.query(ConversationVisit).filter(
+        ConversationVisit.conversation_id == conversation_id
+    ).first()
+
+def get_user_conversations_list(db: Session, user_id: int) -> List[Conversation]:
+    """
+    Get all conversations for a user, ordered chronologically.
+    Used for memory generation across multiple conversations.
+    """
+    return db.query(Conversation).filter(
+        Conversation.user_id == user_id
+    ).order_by(Conversation.created_at.asc()).all()
+
+def get_conversation_with_visit(db: Session, conversation_id: int) -> Optional[dict]:
+    """
+    Get conversation with visit number included.
+    Returns a dictionary with conversation data and visit_number.
+    """
+    conversation = get_conversation(db, conversation_id)
+    if not conversation:
+        return None
+    
+    visit_record = db.query(ConversationVisit).filter(
+        ConversationVisit.conversation_id == conversation_id
+    ).first()
+    
+    # Convert to dict and add visit_number
+    conv_dict = {
+        "id": conversation.id,
+        "user_id": conversation.user_id,
+        "title": conversation.title,
+        "visit_number": visit_record.visit_number if visit_record else None,
+        "created_at": conversation.created_at,
+        "updated_at": conversation.updated_at,
+        "core_chat_theme": conversation.core_chat_theme
+    }
+    
+    return conv_dict
+
+def get_user_conversations_with_visits(db: Session, user_id: int, limit: int = 50, offset: int = 0) -> List[dict]:
+    """
+    Get conversations with visit numbers for a user.
+    Returns list of dictionaries with conversation data and visit_number.
+    """
+    conversations = list_user_conversations(db, user_id, limit, offset)
+    
+    result = []
+    for conv in conversations:
+        visit_record = db.query(ConversationVisit).filter(
+            ConversationVisit.conversation_id == conv.id
+        ).first()
+        
+        conv_dict = {
+            "id": conv.id,
+            "title": conv.title,
+            "visit_number": visit_record.visit_number if visit_record else None,
+            "updated_at": conv.updated_at,
+            "core_chat_theme": conv.core_chat_theme
+        }
+        result.append(conv_dict)
+    
+    return result
+
+
+def update_conversation_core_chat_theme(db: Session, conversation_id: int, new_core_chat_theme: Optional[str], user_id: int) -> Optional[Conversation]:
+    """Updates the core_chat_theme of a specific conversation for a user."""
+    conversation = db.query(Conversation).filter(Conversation.id == conversation_id).first()
+
+    if not conversation:
+        return None # Conversation not found
+
+    if conversation.user_id != user_id:
+        return None # Not authorized to update this conversation
+
+    conversation.core_chat_theme = new_core_chat_theme
+    # conversation.updated_at = func.now() # This is handled by onupdate=func.now() in the model
+    db.add(conversation)
+    db.commit()
+    db.refresh(conversation)
+    return conversation
+
+# --- Student CRUD Functions ---
+
+def get_or_create_student(
+    db: Session,
+    school: str,
+    grade: int,
+    section: Optional[str],
+    roll_number: int,
+    first_name: str
+) -> User:
+    """
+    Get or create a student by their unique identifier (school, grade, section, roll_number).
+    Returns the associated User object.
+    """
+    # Normalize inputs
+    school = school.strip()
+    first_name = first_name.strip().title()
+    section = section.strip().upper() if section else None
+
+    # Check if student already exists
+    student = db.query(Student).filter(
+        Student.school == school,
+        Student.grade == grade,
+        Student.section == section,
+        Student.roll_number == roll_number
+    ).first()
+
+    if student:
+        # Student exists, return the associated user
+        return student.user
+
+    # Student doesn't exist, create new user and student profile
+    # Create a unique name for the user table (composite identifier)
+    section_part = f"_{section}" if section else ""
+    # Replace spaces in school name with underscores for cleaner username
+    school_normalized = school.replace(" ", "_")
+    user_name = f"{first_name}_{school_normalized}_{grade}{section_part}_{roll_number}"
+
+    user = User(name=user_name)
+    db.add(user)
+    db.flush()  # Get user.id without committing
+
+    student = Student(
+        user_id=user.id,
+        school=school,
+        grade=grade,
+        section=section,
+        roll_number=roll_number,
+        first_name=first_name
+    )
+    db.add(student)
+    db.commit()
+    db.refresh(user)
+
+    return user
+
+def get_student_by_user_id(db: Session, user_id: int) -> Optional[Student]:
+    """Get student profile by user_id."""
+    return db.query(Student).filter(Student.user_id == user_id).first()

@@ -9,6 +9,8 @@ interface MessageInputProps {
   isSendingMessage: boolean;
   isConfigViewActive: boolean;
   isLoadingMessages: boolean;
+  isDisabled?: boolean;
+  shouldShowSidebar?: boolean; // For conditional sidebar offset
 }
 
 const MessageInput: React.FC<MessageInputProps> = ({
@@ -18,6 +20,8 @@ const MessageInput: React.FC<MessageInputProps> = ({
   isSendingMessage,
   isConfigViewActive,
   isLoadingMessages,
+  isDisabled = false,
+  shouldShowSidebar = true,
 }) => {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -40,8 +44,11 @@ const MessageInput: React.FC<MessageInputProps> = ({
     return null;
   }
 
+  // Conditionally apply sidebar offset only when sidebar is shown
+  const sidebarOffsetClass = shouldShowSidebar ? 'lg:left-72' : 'left-0';
+
   return (
-    <div className="floating-input-container">
+    <div className={`fixed bottom-0 right-0 z-50 ${sidebarOffsetClass}`}>
       <div className="floating-input-bg">
         <form onSubmit={onSubmit} className="flex items-center space-x-3 w-full max-w-4xl">
           <textarea
@@ -57,12 +64,12 @@ const MessageInput: React.FC<MessageInputProps> = ({
                 onSubmit(e);
               }
             }}
-            disabled={isSendingMessage}
+            disabled={isSendingMessage || isDisabled}
           />
           <button
             type="submit"
             className={`btn-gradient-primary ${isSendingMessage ? 'animate-pulse' : ''}`}
-            disabled={!newMessage.trim() || isSendingMessage}
+            disabled={!newMessage.trim() || isSendingMessage || isDisabled}
           >
             {isSendingMessage ? (
                 <CircularProgress size={24} color="inherit" />

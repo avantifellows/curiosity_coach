@@ -1,4 +1,5 @@
 import React, { createContext, useState, useContext, useEffect, ReactNode, useCallback, useRef } from 'react';
+import { useLocation } from 'react-router-dom';
 import {
   listConversations,
   createConversation,
@@ -7,7 +8,7 @@ import {
   getAiResponseForUserMessage,
   updateConversationTitleApi
 } from '../services/api';
-import { ConversationSummary, Message, ChatHistory } from '../types';
+import { ConversationSummary, Message, ChatHistory, ConversationCreateResponse } from '../types';
 import { useAuth } from './AuthContext'; // Assuming AuthContext provides user info
 
 // Helper function to extract first 10 words from text
@@ -20,6 +21,8 @@ const extractFirstTenWords = (text: string): string => {
 interface ChatContextState {
   conversations: ConversationSummary[];
   currentConversationId: number | null;
+  currentVisitNumber: number | null;
+  currentPromptVersionId: number | undefined;
   messages: Message[];
   isLoadingConversations: boolean;
   isLoadingMessages: boolean;
@@ -49,6 +52,11 @@ interface ChatContextState {
   isUpdatingConversationTitle: boolean;
   updateConversationTitleError: string | null;
   handleUpdateConversationTitle: (conversationId: number, newTitle: string) => Promise<void>;
+
+  // Onboarding-related state
+  preparationStatus: string | null;
+  isPreparingConversation: boolean;
+  isInitializingForNewUser: boolean; // New state for initial onboarding setup
 }
 
 const ChatContext = createContext<ChatContextState | undefined>(undefined);
@@ -56,12 +64,19 @@ const ChatContext = createContext<ChatContextState | undefined>(undefined);
 export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [currentConversationId, setCurrentConversationId] = useState<number | null>(null);
+  const [currentVisitNumber, setCurrentVisitNumber] = useState<number | null>(null);
+  const [currentPromptVersionId, setCurrentPromptVersionId] = useState<number | undefined>(undefined);
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoadingConversations, setIsLoadingConversations] = useState(false);
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
   const [isSendingMessage, setIsSendingMessage] = useState(false);
   const [isBrainProcessing, setIsBrainProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Onboarding-related state
+  const [preparationStatus, setPreparationStatus] = useState<string | null>(null);
+  const [isPreparingConversation, setIsPreparingConversation] = useState(false);
+  const [isInitializingForNewUser, setIsInitializingForNewUser] = useState(false);
 
   // New state for Brain Config
   const [isConfigViewActive, setIsConfigViewActive] = useState(false);
@@ -78,7 +93,9 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [updateConversationTitleError, setUpdateConversationTitleError] = useState<string | null>(null);
 
   const { user } = useAuth(); // Get user from AuthContext to fetch data only when logged in
+  const location = useLocation(); // Get current route
   const cleanupPollingRef = useRef<(() => void) | null>(null); // Ref to hold the cleanup function
+  const hasAutoCreatedConversationRef = useRef<boolean>(false); // Track if we've auto-created a conversation in this session
 
   // --- Function to update title based on first message ---
   const updateTitleFromFirstMessage = useCallback((conversationId: number, content: string, currentMessagesLength: number) => {
@@ -96,7 +113,84 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setError(null);
     try {
       const fetchedConversations = await listConversations();
+      console.log(`[OnboardingDebug] Fetched ${fetchedConversations.length} existing conversations`);
       setConversations(fetchedConversations);
+      
+      // Auto-create new conversation on every login (implements visit-based onboarding)
+      // Each login session = new visit = new conversation with appropriate prompt
+      // Use ref to ensure we only create once per session
+      // ONLY run on /chat route - don't auto-create when user is on other pages like /prompts
+      
+      const isOnChatRoute = location.pathname === '/chat' || location.pathname === '/';
+      if (!hasAutoCreatedConversationRef.current && isOnChatRoute) {
+        console.log(`[OnboardingDebug] User login detected on chat route - automatically creating new conversation (Visit ${fetchedConversations.length + 1})`);
+        hasAutoCreatedConversationRef.current = true; // Mark as created
+        
+        try {
+          // Show loading screen (especially important for first-time users)
+          const isNewUser = fetchedConversations.length === 0;
+          if (isNewUser) {
+            setIsInitializingForNewUser(true);
+          }
+          setIsPreparingConversation(true);
+          
+          const response: ConversationCreateResponse = await createConversation("New Chat");
+          const newConversation = response.conversation;
+          
+          console.log(`[OnboardingDebug] Conversation created with visit_number=${response.visit_number}, prompt_version_id=${newConversation.prompt_version_id}`);
+          
+          // Set preparation status for loading UI
+          setPreparationStatus(response.preparation_status);
+          
+          // Set visit number and prompt version
+          setCurrentVisitNumber(response.visit_number);
+          setCurrentPromptVersionId(newConversation.prompt_version_id);
+          
+          console.log(`[OnboardingDebug] Set currentVisitNumber to ${response.visit_number}`);
+          
+          // Add conversation to list
+          setConversations([newConversation, ...fetchedConversations]);
+          setCurrentConversationId(newConversation.id);
+          
+          // Fetch actual messages from database to get real message IDs (including opening message)
+          // This is important for pipeline steps functionality
+          if (response.ai_opening_message) {
+            try {
+              const history: ChatHistory = await getConversationMessages(newConversation.id);
+              setMessages(history.messages || []);
+            } catch (msgErr) {
+              console.error('[OnboardingDebug] Failed to fetch opening message:', msgErr);
+              // Fallback: show the message with a note that pipeline steps won't work
+              const aiMessage: Message = {
+                id: Date.now(), // Temporary ID - pipeline steps won't work
+                content: response.ai_opening_message,
+                is_user: false,
+                timestamp: new Date().toISOString(),
+                status: 'sent'
+              };
+              setMessages([aiMessage]);
+            }
+          }
+          
+          console.log(`[OnboardingDebug] Conversation created successfully for Visit ${response.visit_number}:`, newConversation.id);
+        } catch (createErr: any) {
+          console.error('[OnboardingDebug] Failed to auto-create conversation:', createErr);
+          // Handle 503 errors specially (preparation timeout)
+          if (createErr.status === 503) {
+            setError('Unable to prepare your conversation at this time. Please try again in a moment.');
+          } else {
+            setError(createErr.message || 'Failed to create conversation');
+          }
+        } finally {
+          setIsPreparingConversation(false);
+          setIsInitializingForNewUser(false); // Clear loading screen
+        }
+      } else if (hasAutoCreatedConversationRef.current) {
+        console.log(`[OnboardingDebug] Skipping auto-creation - already created in this session`);
+      } else if (!isOnChatRoute) {
+        console.log(`[OnboardingDebug] Skipping auto-creation - not on chat route (current: ${location.pathname})`);
+      }
+      
       // Optionally select the most recent conversation by default
       // if (fetchedConversations.length > 0 && currentConversationId === null) {
       //   setCurrentConversationId(fetchedConversations[0].id);
@@ -105,8 +199,8 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       setError(err.message || 'Failed to fetch conversations');
     } finally {
       setIsLoadingConversations(false);
-    }
-  }, [user]); // Depend on user
+    } 
+  }, [user, location.pathname]); // Depend on user and current route
 
   // --- Fetch Messages for a Conversation --- 
   const fetchMessages = useCallback(async (conversationId: number) => {
@@ -130,13 +224,20 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const selectConversation = useCallback((conversationId: number | null) => {
     setCurrentConversationId(conversationId);
     setIsBrainProcessing(false);
+    setPreparationStatus(null); // Clear preparation status
     if (conversationId !== null) {
+      // Find the conversation and set visit number + prompt version
+      const conversation = conversations.find(c => c.id === conversationId);
+      setCurrentVisitNumber(conversation?.visit_number ?? null);
+      setCurrentPromptVersionId((conversation as any)?.prompt_version_id);
       fetchMessages(conversationId);
       setIsConfigViewActive(false); // Ensure config view is not active when a chat is selected
     } else {
       setMessages([]); // Clear messages if no conversation is selected
+      setCurrentVisitNumber(null);
+      setCurrentPromptVersionId(undefined);
     }
-  }, [fetchMessages]);
+  }, [fetchMessages, conversations]);
 
   // --- Update Conversation Title ---
   const handleUpdateConversationTitle = useCallback(async (conversationId: number, newTitle: string) => {
@@ -177,18 +278,57 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   // --- Create Conversation --- 
   const handleCreateConversation = useCallback(async (title?: string): Promise<number | null> => {
     if (!user) return null;
-    // Consider adding loading state for creation
     setError(null);
+    setIsPreparingConversation(true);
     try {
-      const newConversation = await createConversation(title);
+      const response: ConversationCreateResponse = await createConversation(title);
+      const newConversation = response.conversation;
+      
+      // Set preparation status for loading UI
+      setPreparationStatus(response.preparation_status);
+      
+      // Set visit number and prompt version
+      setCurrentVisitNumber(response.visit_number);
+      setCurrentPromptVersionId(newConversation.prompt_version_id);
+      
+      // Add conversation to list
       setConversations(prev => [newConversation, ...prev]); // Add to top of list
       setCurrentConversationId(newConversation.id);
-      setMessages([]); // Clear messages for new chat
+      
+      // Fetch actual messages from database to get real message IDs (including opening message)
+      // This is important for pipeline steps functionality
+      if (response.ai_opening_message) {
+        try {
+          const history: ChatHistory = await getConversationMessages(newConversation.id);
+          setMessages(history.messages || []);
+        } catch (msgErr) {
+          console.error('Failed to fetch opening message:', msgErr);
+          // Fallback: show the message with temporary ID (pipeline steps won't work)
+          const aiMessage: Message = {
+            id: Date.now(), // Temporary ID - pipeline steps won't work
+            content: response.ai_opening_message,
+            is_user: false,
+            timestamp: new Date().toISOString(),
+            status: 'sent'
+          };
+          setMessages([aiMessage]);
+        }
+      } else {
+        setMessages([]); // Clear messages for new chat
+      }
+      
       setIsConfigViewActive(false); // Ensure config view is not active
       return newConversation.id;
     } catch (err: any) {
-      setError(err.message || 'Failed to create conversation');
+      // Handle 503 errors specially (preparation timeout)
+      if (err.status === 503) {
+        setError('Unable to prepare your conversation at this time. Please try again in a moment.');
+      } else {
+        setError(err.message || 'Failed to create conversation');
+      }
       return null;
+    } finally {
+      setIsPreparingConversation(false);
     }
   }, [user]);
 
@@ -488,16 +628,24 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   }, [user]); // Removed fetchBrainConfigSchema from deps for now
 
-  // --- Initial Fetch --- 
+  // --- Initial Fetch ---
   useEffect(() => {
     if (user) {
+      // Reset the auto-creation flag when user logs in
+      hasAutoCreatedConversationRef.current = false;
+      console.log(`[OnboardingDebug] User logged in, reset auto-creation flag`);
       fetchConversations();
     } else {
+       // User logged out - reset everything
+       console.log(`[OnboardingDebug] User logged out, resetting state`);
        setConversations([]);
        setCurrentConversationId(null);
+       setCurrentVisitNumber(null);
+       setCurrentPromptVersionId(undefined);
        setMessages([]);
        setError(null);
        setIsBrainProcessing(false);
+       hasAutoCreatedConversationRef.current = false; // Reset flag on logout
        if (cleanupPollingRef.current) cleanupPollingRef.current(); // Use ref for cleanup
     }
     // Cleanup polling on component unmount or when user changes
@@ -506,12 +654,15 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           cleanupPollingRef.current();
       }
     };
-  }, [user, fetchConversations]); // Removed cleanupPolling from deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]); // Only depend on user - fetchConversations causes double-trigger bug
 
   // --- Value Provided by Context ---
   const value: ChatContextState = {
     conversations,
     currentConversationId,
+    currentVisitNumber,
+    currentPromptVersionId,
     messages,
     isLoadingConversations,
     isLoadingMessages,
@@ -538,6 +689,10 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     isUpdatingConversationTitle,
     updateConversationTitleError,
     handleUpdateConversationTitle,
+    // Onboarding state
+    preparationStatus,
+    isPreparingConversation,
+    isInitializingForNewUser,
   };
 
   return <ChatContext.Provider value={value}>{children}</ChatContext.Provider>;
