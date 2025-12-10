@@ -96,8 +96,8 @@ async def create_new_conversation(
     from sqlalchemy.exc import IntegrityError
     from src.onboarding.service import (
         generate_ai_first_message,
-        ensure_memories_for_conversations,
-        generate_persona_sync_with_retry
+        # ensure_memories_for_conversations,
+        # generate_persona_sync_with_retry,
     )
     from src.onboarding.schemas import ConversationCreateResponse, ConversationWithVisit
     
@@ -168,65 +168,57 @@ async def create_new_conversation(
             logger.info(f"Race condition resolved, assigned visit_number: {visit_number}")
         
         # 4. Handle visit-specific requirements (OUTSIDE transaction for long operations)
-        if visit_number >= 2 and visit_number <= 3:
-            preparation_status = "generating_memory"
-            logger.info(f"Ensuring memories for all previous conversations (visit {visit_number})")
-            
-            # Ensure ALL previous conversations have memories
-            await ensure_memories_for_conversations(
-                db=db,
-                user_id=current_user.id,
-                exclude_conversation_id=conversation.id
+        if visit_number >= 2:
+            logger.info(
+                f"Skipping onboarding memory/persona generation for visit {visit_number} (temporarily disabled)"
             )
-            
-            logger.info("Memory generation completed for all previous conversations")
-        
-        elif visit_number >= 4:
-            preparation_status = "generating_persona"
-            logger.info(f"Visit {visit_number}: Checking persona requirements")
-            
-            # FIRST: Ensure memories exist for at least 3 conversations with messages
-            all_conversations = models.get_user_conversations_list(db, current_user.id)
-            previous_conversations = [c for c in all_conversations if c.id != conversation.id]
-            
-            conversations_with_messages = [
-                c for c in previous_conversations
-                if models.has_messages(db, c.id)
-            ]
-            
-            if len(conversations_with_messages) < 3:
-                logger.error(
-                    f"User {current_user.id} has only {len(conversations_with_messages)} conversations with messages. "
-                    f"Persona requires at least 3."
-                )
-                raise HTTPException(
-                    status_code=503,
-                    detail="Unable to prepare your personalized experience. Please ensure you have completed at least 3 conversations with messages."
-                )
-            
-            # Ensure memories exist for previous conversations (at least the first 3 with messages)
-            await ensure_memories_for_conversations(
-                db=db,
-                user_id=current_user.id,
-                exclude_conversation_id=conversation.id
-            )
-            
-            # THEN: Generate persona if not exists
-            persona = db.query(models.UserPersona).filter(
-                models.UserPersona.user_id == current_user.id
-            ).first()
-            
-            if not persona:
-                logger.info(f"Generating persona for user {current_user.id}")
-                await generate_persona_sync_with_retry(
-                    user_id=current_user.id,
-                    db=db,
-                    max_retries=2
-                )
-                logger.info("Persona generation completed successfully")
-            else:
-                logger.info(f"Persona already exists for user {current_user.id}")
-        
+            # Original behaviour retained below for quick re-enable once experiments conclude.
+            # if visit_number <= 3:
+            #     preparation_status = "generating_memory"
+            #     logger.info(f"Ensuring memories for all previous conversations (visit {visit_number})")
+            #     await ensure_memories_for_conversations(
+            #         db=db,
+            #         user_id=current_user.id,
+            #         exclude_conversation_id=conversation.id
+            #     )
+            #     logger.info("Memory generation completed for all previous conversations")
+            # elif visit_number >= 4:
+            #     preparation_status = "generating_persona"
+            #     logger.info(f"Visit {visit_number}: Checking persona requirements")
+            #     all_conversations = models.get_user_conversations_list(db, current_user.id)
+            #     previous_conversations = [c for c in all_conversations if c.id != conversation.id]
+            #     conversations_with_messages = [
+            #         c for c in previous_conversations
+            #         if models.has_messages(db, c.id)
+            #     ]
+            #     if len(conversations_with_messages) < 3:
+            #         logger.error(
+            #             f"User {current_user.id} has only {len(conversations_with_messages)} conversations with messages. "
+            #             "Persona requires at least 3."
+            #         )
+            #         raise HTTPException(
+            #             status_code=503,
+            #             detail="Unable to prepare your personalized experience. Please ensure you have completed at least 3 conversations with messages."
+            #         )
+            #     await ensure_memories_for_conversations(
+            #         db=db,
+            #         user_id=current_user.id,
+            #         exclude_conversation_id=conversation.id
+            #     )
+            #     persona = db.query(models.UserPersona).filter(
+            #         models.UserPersona.user_id == current_user.id
+            #     ).first()
+            #     if not persona:
+            #         logger.info(f"Generating persona for user {current_user.id}")
+            #         await generate_persona_sync_with_retry(
+            #             user_id=current_user.id,
+            #             db=db,
+            #             max_retries=2
+            #         )
+            #         logger.info("Persona generation completed successfully")
+            #     else:
+            #         logger.info(f"Persona already exists for user {current_user.id}")
+
         # 6. Generate AI's opening message
         preparation_status = "ready"
         logger.info(f"Generating opening message for conversation {conversation.id}")

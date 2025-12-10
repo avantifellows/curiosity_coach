@@ -6,6 +6,7 @@ Edit this file to add/remove schools or sections as needed.
 
 # List of schools (easily editable)
 SCHOOLS = [
+    "Ekya School JP Nagar",
     "JNV Palghar",
     "School A",
     "School B",
