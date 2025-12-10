@@ -36,6 +36,16 @@ class PaginatedConversationsResponse(BaseModel):
 
 
 class ClassAnalysisResponse(BaseModel):
-    analysis: str
-    status: str = "success"
+    analysis: Optional[str] = None
+    status: str
+    job_id: Optional[str] = None
+    computed_at: Optional[datetime] = None
 
+
+class AnalysisJobStatusResponse(BaseModel):
+    job_id: str
+    status: str
+    analysis: Optional[str] = None
+    computed_at: Optional[datetime] = None
+    error_message: Optional[str] = None
+    analysis_status: Optional[str] = None

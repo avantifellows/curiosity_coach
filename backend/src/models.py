@@ -202,6 +202,61 @@ class LMUserKnowledge(Base):
     )
 
 
+class ClassAnalysis(Base):
+    __tablename__ = "class_analyses"
+
+    id = Column(Integer, primary_key=True, index=True)
+    school = Column(String(100), nullable=False, index=True)
+    grade = Column(Integer, nullable=False, index=True)
+    section = Column(String(10), nullable=True, index=True)
+    analysis_text = Column(Text, nullable=True)
+    status = Column(String(20), nullable=False, default="ready")
+    computed_at = Column(DateTime(timezone=True), nullable=True)
+    last_message_hash = Column(String(64), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    jobs = relationship("AnalysisJob", back_populates="class_analysis", cascade="all, delete-orphan")
+
+    __table_args__ = (
+        UniqueConstraint("school", "grade", "section", name="uq_class_analysis_identifier"),
+    )
+
+
+class StudentAnalysis(Base):
+    __tablename__ = "student_analyses"
+
+    id = Column(Integer, primary_key=True, index=True)
+    student_id = Column(Integer, ForeignKey("students.id", ondelete="CASCADE"), nullable=False, unique=True, index=True)
+    analysis_text = Column(Text, nullable=True)
+    status = Column(String(20), nullable=False, default="ready")
+    computed_at = Column(DateTime(timezone=True), nullable=True)
+    last_message_hash = Column(String(64), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    student = relationship("Student")
+    jobs = relationship("AnalysisJob", back_populates="student_analysis", cascade="all, delete-orphan")
+
+
+class AnalysisJob(Base):
+    __tablename__ = "analysis_jobs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    job_id = Column(String(36), nullable=False, unique=True, index=True)
+    analysis_kind = Column(String(20), nullable=False)
+    status = Column(String(20), nullable=False, default="queued")
+    error_message = Column(Text, nullable=True)
+    class_analysis_id = Column(Integer, ForeignKey("class_analyses.id", ondelete="CASCADE"), nullable=True, index=True)
+    student_analysis_id = Column(Integer, ForeignKey("student_analyses.id", ondelete="CASCADE"), nullable=True, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    completed_at = Column(DateTime(timezone=True), nullable=True)
+
+    class_analysis = relationship("ClassAnalysis", back_populates="jobs")
+    student_analysis = relationship("StudentAnalysis", back_populates="jobs")
+
+
 # --- Prompt Versioning Models ---
 
 class Prompt(Base):
