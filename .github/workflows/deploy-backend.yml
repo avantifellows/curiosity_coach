@@ -96,17 +96,21 @@ jobs:
           echo "Found Backend API URL: $API_URL"
           echo "::set-output name=url::$API_URL"
 
-      - name: Get Brain API Gateway URL
+      - name: Get Brain Lambda Function URL
         id: get_brain_url
         run: |
-          API_NAME="curiosity-coach-brain-lambda-api"
-          API_URL=$(aws apigatewayv2 get-apis --region ap-south-1 --query "Items[?Name=='$API_NAME'].ApiEndpoint" --output text)
-          if [ -z "$API_URL" ]; then
-            echo "Error: Could not find API Gateway with name $API_NAME"
+          FUNCTION_NAME=$(aws lambda list-functions --region ap-south-1 --query 'Functions[?contains(FunctionName, `curiosity-coach-brain`)].FunctionName | [0]' --output text)
+          if [ -z "$FUNCTION_NAME" ] || [ "$FUNCTION_NAME" == "None" ]; then
+            echo "Error: Could not find Lambda function containing 'curiosity-coach-brain'"
             exit 1
           fi
-          echo "Found Brain API URL: $API_URL"
-          echo "::set-output name=url::$API_URL"
+          FUNCTION_URL=$(aws lambda get-function-url-config --function-name $FUNCTION_NAME --region ap-south-1 --query 'FunctionUrl' --output text)
+          if [ -z "$FUNCTION_URL" ]; then
+            echo "Error: Could not get function URL for $FUNCTION_NAME"
+            exit 1
+          fi
+          echo "Found Brain Lambda URL: $FUNCTION_URL"
+          echo "::set-output name=url::$FUNCTION_URL"
 
       - name: Update Lambda environment variables
         env:

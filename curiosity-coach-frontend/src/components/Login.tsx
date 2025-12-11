@@ -18,6 +18,78 @@ const Login: React.FC = () => {
   const [section, setSection] = useState('');
   const [rollNumber, setRollNumber] = useState<number | ''>('');
   const [firstName, setFirstName] = useState('');
+  const [selectedStudentId, setSelectedStudentId] = useState('');
+
+  // Ekya School JP Nagar pilot students
+  const EKYA_JP_NAGAR_STUDENTS = [
+    "Aakarsh_Ekya_School_JP_Nagar_8_B_1",
+    "Aanya_Ekya_School_JP_Nagar_8_B_2",
+    "Abhigna_Ekya_School_JP_Nagar_8_B_3",
+    "Achintya_Ekya_School_JP_Nagar_8_B_4",
+    "Akshara_Ekya_School_JP_Nagar_8_B_5",
+    "Alisha_Ekya_School_JP_Nagar_8_B_28",
+    "Anika_Ekya_School_JP_Nagar_8_B_6",
+    "Arnav_Ekya_School_JP_Nagar_8_B_7",
+    "Rishith_Ekya_School_JP_Nagar_8_B_26",
+    "Karthik_Ekya_School_JP_Nagar_8_B_10",
+    "Kiara_Ekya_School_JP_Nagar_8_B_9",
+    "Manyatha_Ekya_School_JP_Nagar_8_B_8",
+    "Natasha_Ekya_School_JP_Nagar_8_B_11",
+    "Nikhil_Ekya_School_JP_Nagar_8_B_12",
+    "Preetham_Ekya_School_JP_Nagar_8_B_13",
+    "Niharika_Ekya_School_JP_Nagar_8_B_14",
+    "Rakshan_Ekya_School_JP_Nagar_8_B_15",
+    "Sahasra_Ekya_School_JP_Nagar_8_B_16",
+    "Samairra_Ekya_School_JP_Nagar_8_B_17",
+    "Samanyu_Ekya_School_JP_Nagar_8_B_18",
+    "Saraswatee_Ekya_School_JP_Nagar_8_B_27",
+    "Shreegowri_Ekya_School_JP_Nagar_8_B_19",
+    "Shreshta_Ekya_School_JP_Nagar_8_B_20",
+    "Sihi_Ekya_School_JP_Nagar_8_B_21",
+    "Siya_Ekya_School_JP_Nagar_8_B_22",
+    "Swara_Ekya_School_JP_Nagar_8_B_23",
+    "Karthikeya_Ekya_School_JP_Nagar_8_B_24",
+    "Varnit_Ekya_School_JP_Nagar_8_B_25"
+  ];
+
+  const isEkyaJPNagar = school === 'Ekya School JP Nagar';
+
+  // Auto-set grade and section for Ekya JP Nagar
+  useEffect(() => {
+    if (isEkyaJPNagar) {
+      setGrade(8);
+      setSection('B');
+    }
+  }, [isEkyaJPNagar]);
+
+  // Handle student selection for Ekya JP Nagar
+  const handleStudentSelection = (studentId: string) => {
+    setSelectedStudentId(studentId);
+    if (studentId) {
+      // Parse the student ID: {name}_Ekya_School_JP_Nagar_8_B_{roll_number}
+      const parts = studentId.split('_');
+      const name = parts[0];
+      const rollNum = parts[parts.length - 1];
+      setFirstName(name);
+      setRollNumber(Number(rollNum));
+    } else {
+      setFirstName('');
+      setRollNumber('');
+    }
+  };
+
+  // Handle school change
+  const handleSchoolChange = (schoolName: string) => {
+    setSchool(schoolName);
+    // Reset fields when changing schools
+    if (schoolName !== 'Ekya School JP Nagar') {
+      setSelectedStudentId('');
+      setGrade('');
+      setSection('');
+      setRollNumber('');
+      setFirstName('');
+    }
+  };
 
   // Debug mode detection from URL query params
   const searchParams = new URLSearchParams(location.search);
@@ -82,8 +154,22 @@ const Login: React.FC = () => {
         }
       } else {
         // Student mode: use student login
-        if (!school || grade === '' || rollNumber === '' || !firstName) {
+        if (!school || grade === '' || !firstName) {
           setError('Please fill in all required fields');
+          setIsLoading(false);
+          return;
+        }
+
+        // For Ekya JP Nagar, validate student selection
+        if (isEkyaJPNagar && !selectedStudentId) {
+          setError('Please select your name from the dropdown');
+          setIsLoading(false);
+          return;
+        }
+
+        // For non-Ekya schools, validate roll number
+        if (!isEkyaJPNagar && rollNumber === '') {
+          setError('Please enter your roll number');
           setIsLoading(false);
           return;
         }
@@ -172,7 +258,7 @@ const Login: React.FC = () => {
                   required
                   className="appearance-none relative block w-full px-3 py-3 sm:py-2 border border-gray-300 text-gray-900 rounded-md focus:outline-hidden focus:ring-indigo-500 focus:border-indigo-500 text-base sm:text-sm"
                   value={school}
-                  onChange={(e) => setSchool(e.target.value)}
+                  onChange={(e) => handleSchoolChange(e.target.value)}
                   disabled={!studentOptions}
                 >
                   <option value="">Select your school</option>
@@ -183,83 +269,113 @@ const Login: React.FC = () => {
                 <p className="mt-1 text-xs text-gray-500">Choose your school from the list</p>
               </div>
 
-              <div>
-                <label htmlFor="grade" className="block text-sm font-medium text-gray-700 mb-1">
-                  Grade *
-                </label>
-                <select
-                  id="grade"
-                  name="grade"
-                  required
-                  className="appearance-none relative block w-full px-3 py-3 sm:py-2 border border-gray-300 text-gray-900 rounded-md focus:outline-hidden focus:ring-indigo-500 focus:border-indigo-500 text-base sm:text-sm"
-                  value={grade}
-                  onChange={(e) => setGrade(Number(e.target.value))}
-                  disabled={!studentOptions}
-                >
-                  <option value="">Select your grade</option>
-                  {studentOptions?.grades.map((g) => (
-                    <option key={g} value={g}>Grade {g}</option>
-                  ))}
-                </select>
-                <p className="mt-1 text-xs text-gray-500">Select your current grade (3 to 10)</p>
-              </div>
+              {/* For Ekya JP Nagar - show name dropdown, hide other fields */}
+              {isEkyaJPNagar ? (
+                <>
+                  <div>
+                    <label htmlFor="studentName" className="block text-sm font-medium text-gray-700 mb-1">
+                      Select Your Name *
+                    </label>
+                    <select
+                      id="studentName"
+                      name="studentName"
+                      required
+                      className="appearance-none relative block w-full px-3 py-3 sm:py-2 border border-gray-300 text-gray-900 rounded-md focus:outline-hidden focus:ring-indigo-500 focus:border-indigo-500 text-base sm:text-sm"
+                      value={selectedStudentId}
+                      onChange={(e) => handleStudentSelection(e.target.value)}
+                    >
+                      <option value="">Choose your name</option>
+                      {EKYA_JP_NAGAR_STUDENTS.map((studentId) => {
+                        const name = studentId.split('_')[0];
+                        return (
+                          <option key={studentId} value={studentId}>{name}</option>
+                        );
+                      })}
+                    </select>
+                    <p className="mt-1 text-xs text-gray-500">Grade 8, Section B</p>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div>
+                    <label htmlFor="grade" className="block text-sm font-medium text-gray-700 mb-1">
+                      Grade *
+                    </label>
+                    <select
+                      id="grade"
+                      name="grade"
+                      required
+                      className="appearance-none relative block w-full px-3 py-3 sm:py-2 border border-gray-300 text-gray-900 rounded-md focus:outline-hidden focus:ring-indigo-500 focus:border-indigo-500 text-base sm:text-sm"
+                      value={grade}
+                      onChange={(e) => setGrade(Number(e.target.value))}
+                      disabled={!studentOptions}
+                    >
+                      <option value="">Select your grade</option>
+                      {studentOptions?.grades.map((g) => (
+                        <option key={g} value={g}>Grade {g}</option>
+                      ))}
+                    </select>
+                    <p className="mt-1 text-xs text-gray-500">Select your current grade (3 to 10)</p>
+                  </div>
 
-              <div>
-                <label htmlFor="section" className="block text-sm font-medium text-gray-700 mb-1">
-                  Section (Optional)
-                </label>
-                <select
-                  id="section"
-                  name="section"
-                  className="appearance-none relative block w-full px-3 py-3 sm:py-2 border border-gray-300 text-gray-900 rounded-md focus:outline-hidden focus:ring-indigo-500 focus:border-indigo-500 text-base sm:text-sm"
-                  value={section}
-                  onChange={(e) => setSection(e.target.value)}
-                  disabled={!studentOptions}
-                >
-                  <option value="">No section / Not applicable</option>
-                  {studentOptions?.sections.map((s) => (
-                    <option key={s} value={s}>Section {s}</option>
-                  ))}
-                </select>
-                <p className="mt-1 text-xs text-gray-500">Select your section if your school has sections (A, B, C, etc.)</p>
-              </div>
+                  <div>
+                    <label htmlFor="section" className="block text-sm font-medium text-gray-700 mb-1">
+                      Section (Optional)
+                    </label>
+                    <select
+                      id="section"
+                      name="section"
+                      className="appearance-none relative block w-full px-3 py-3 sm:py-2 border border-gray-300 text-gray-900 rounded-md focus:outline-hidden focus:ring-indigo-500 focus:border-indigo-500 text-base sm:text-sm"
+                      value={section}
+                      onChange={(e) => setSection(e.target.value)}
+                      disabled={!studentOptions}
+                    >
+                      <option value="">No section / Not applicable</option>
+                      {studentOptions?.sections.map((s) => (
+                        <option key={s} value={s}>Section {s}</option>
+                      ))}
+                    </select>
+                    <p className="mt-1 text-xs text-gray-500">Select your section if your school has sections (A, B, C, etc.)</p>
+                  </div>
 
-              <div>
-                <label htmlFor="rollNumber" className="block text-sm font-medium text-gray-700 mb-1">
-                  Roll Number *
-                </label>
-                <input
-                  id="rollNumber"
-                  name="rollNumber"
-                  type="number"
-                  min="1"
-                  max="100"
-                  required
-                  className="appearance-none relative block w-full px-3 py-3 sm:py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-md focus:outline-hidden focus:ring-indigo-500 focus:border-indigo-500 text-base sm:text-sm"
-                  placeholder="Enter your roll number"
-                  value={rollNumber}
-                  onChange={(e) => setRollNumber(e.target.value ? Number(e.target.value) : '')}
-                />
-                <p className="mt-1 text-xs text-gray-500">Your roll number in your class</p>
-              </div>
+                  <div>
+                    <label htmlFor="rollNumber" className="block text-sm font-medium text-gray-700 mb-1">
+                      Roll Number *
+                    </label>
+                    <input
+                      id="rollNumber"
+                      name="rollNumber"
+                      type="number"
+                      min="1"
+                      max="100"
+                      required
+                      className="appearance-none relative block w-full px-3 py-3 sm:py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-md focus:outline-hidden focus:ring-indigo-500 focus:border-indigo-500 text-base sm:text-sm"
+                      placeholder="Enter your roll number"
+                      value={rollNumber}
+                      onChange={(e) => setRollNumber(e.target.value ? Number(e.target.value) : '')}
+                    />
+                    <p className="mt-1 text-xs text-gray-500">Your roll number in your class</p>
+                  </div>
 
-              <div>
-                <label htmlFor="firstName" className="block text-sm font-medium text-gray-700 mb-1">
-                  First Name *
-                </label>
-                <input
-                  id="firstName"
-                  name="firstName"
-                  type="text"
-                  autoComplete="given-name"
-                  required
-                  className="appearance-none relative block w-full px-3 py-3 sm:py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-md focus:outline-hidden focus:ring-indigo-500 focus:border-indigo-500 text-base sm:text-sm"
-                  placeholder="Enter your first name"
-                  value={firstName}
-                  onChange={(e) => setFirstName(e.target.value)}
-                />
-                <p className="mt-1 text-xs text-gray-500">Enter your first name (e.g., Amit, Priya)</p>
-              </div>
+                  <div>
+                    <label htmlFor="firstName" className="block text-sm font-medium text-gray-700 mb-1">
+                      First Name *
+                    </label>
+                    <input
+                      id="firstName"
+                      name="firstName"
+                      type="text"
+                      autoComplete="given-name"
+                      required
+                      className="appearance-none relative block w-full px-3 py-3 sm:py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-md focus:outline-hidden focus:ring-indigo-500 focus:border-indigo-500 text-base sm:text-sm"
+                      placeholder="Enter your first name"
+                      value={firstName}
+                      onChange={(e) => setFirstName(e.target.value)}
+                    />
+                    <p className="mt-1 text-xs text-gray-500">Enter your first name (e.g., Amit, Priya)</p>
+                  </div>
+                </>
+              )}
             </>
           )}
 
