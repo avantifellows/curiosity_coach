@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import axios from 'axios';
 import { StudentWithConversation, ConversationWithMessages } from '../types';
 import {
   getStudentsForClass,
@@ -9,16 +10,26 @@ import {
 import { AnalysisStatus } from '../types';
 import parse from 'html-react-parser';
 
-// AnalysisLoading component (inline to avoid module resolution issues)
-const AnalysisLoading: React.FC<{ message?: string }> = ({ 
-  message = "PROCESSING, IT TAKES AROUND 2 MINS......."
+// Helper to detect if an error is likely a timeout (API Gateway 30s limit)
+const isTimeoutError = (err: unknown): boolean => {
+  if (!axios.isAxiosError(err)) return false;
+  return err.code === 'ECONNABORTED' || err.response?.status === 504 || !err.response;
+};
+
+// AnalysisLoading component with informative messaging
+const AnalysisLoading: React.FC<{ message?: string; subtext?: string }> = ({ 
+  message = "Preparing analysis...",
+  subtext,
 }) => {
   return (
     <div className="flex flex-col items-center justify-center py-12 px-4">
-      <div className="text-center">
+      <div className="text-center space-y-2">
         <p className="text-lg font-medium text-slate-700 animate-pulse">
           {message}
         </p>
+        {subtext && (
+          <p className="text-sm text-slate-500">{subtext}</p>
+        )}
       </div>
     </div>
   );
@@ -56,14 +67,16 @@ const ClassSummary: React.FC = () => {
 
   const isMountedRef = useRef(true);
   const pollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const retryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const retryCountRef = useRef(0);
+  const MAX_RETRIES = 2;
 
   useEffect(() => {
     isMountedRef.current = true;
     return () => {
       isMountedRef.current = false;
-      if (pollTimeoutRef.current) {
-        clearTimeout(pollTimeoutRef.current);
-      }
+      if (pollTimeoutRef.current) clearTimeout(pollTimeoutRef.current);
+      if (retryTimeoutRef.current) clearTimeout(retryTimeoutRef.current);
     };
   }, []);
 
@@ -176,13 +189,18 @@ const ClassSummary: React.FC = () => {
   }, [school, gradeNumber, section, navigate]);
 
   const fetchAnalysis = useCallback(
-    async (forceRefresh = false) => {
+    async (forceRefresh = false, isRetry = false) => {
       if (!school || !gradeNumber || !section) {
         return;
       }
 
       if (!isMountedRef.current) {
         return;
+      }
+
+      // Reset retry count on fresh requests (not retries)
+      if (!isRetry) {
+        retryCountRef.current = 0;
       }
 
       setAnalysisError(null);
@@ -194,6 +212,9 @@ const ClassSummary: React.FC = () => {
         if (!isMountedRef.current) {
           return;
         }
+
+        // Success - reset retry count
+        retryCountRef.current = 0;
 
         if (data.analysis !== undefined) {
           setAnalysis(data.analysis ?? null);
@@ -227,9 +248,28 @@ const ClassSummary: React.FC = () => {
         if (!isMountedRef.current) {
           return;
         }
+
+        // On timeout, the backend may have already started the job
+        // Retry after a short delay to check for active job
+        if (isTimeoutError(err) && retryCountRef.current < MAX_RETRIES) {
+          retryCountRef.current += 1;
+          console.log(`Request timed out, retrying (${retryCountRef.current}/${MAX_RETRIES})...`);
+          // Keep status as running, don't show error yet
+          retryTimeoutRef.current = setTimeout(() => {
+            // Retry without force refresh to pick up any active job
+            fetchAnalysis(false, true);
+          }, 3000);
+          return;
+        }
+
+        // Real error or max retries reached
         setAnalysisStatus('failed');
         setJobId(null);
-        setAnalysisError(err instanceof Error ? err.message : 'Failed to generate analysis. Please try again.');
+        setAnalysisError(
+          isTimeoutError(err)
+            ? 'Analysis is taking longer than expected. Please refresh the page in a minute.'
+            : (err instanceof Error ? err.message : 'Failed to generate analysis. Please try again.')
+        );
         stopPolling();
       }
     },
@@ -301,11 +341,17 @@ const ClassSummary: React.FC = () => {
                 ) : (
                   <>
                     {showAnalysisLoading && (
-                      <AnalysisLoading key="analysis-loading" message={`Analysis ${analysisStatus === 'queued' ? 'queued' : 'running'}...`} />
+                      <AnalysisLoading 
+                        key="analysis-loading" 
+                        message={analysisStatus === 'queued' ? 'Analysis queued...' : 'Generating analysis...'}
+                        subtext="This typically takes 1-2 minutes. You can wait or come back later."
+                      />
                     )}
                     {analysisError && (
-                      <div className="rounded-lg bg-red-50 p-4">
-                        <p className="text-sm text-red-700">{analysisError}</p>
+                      <div className={`rounded-lg p-4 ${analysisError.includes('longer than expected') ? 'bg-amber-50' : 'bg-red-50'}`}>
+                        <p className={`text-sm ${analysisError.includes('longer than expected') ? 'text-amber-700' : 'text-red-700'}`}>
+                          {analysisError}
+                        </p>
                       </div>
                     )}
                     <div className="flex items-start justify-between gap-3">

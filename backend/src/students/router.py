@@ -509,23 +509,42 @@ async def analyze_class_conversations(
             ).model_dump(mode="json"),
         )
     
-    # If we have a ready analysis and not forcing refresh, do a quick staleness check
-    # But only if we already have cached content to show
-    if (
-        not force_refresh
-        and class_analysis.analysis_text
-        and class_analysis.status == "ready"
-    ):
-        # Return cached immediately - background will check if refresh needed
-        # Skip expensive hash computation here to stay under timeout
-        return ClassAnalysisResponse(
-            analysis=class_analysis.analysis_text,
-            status="ready",
-            job_id=None,
-            computed_at=class_analysis.computed_at,
+    # If we have cached analysis, check staleness
+    if class_analysis.analysis_text and class_analysis.status == "ready":
+        # Compute current hash to detect changes
+        students = _fetch_students_for_class(db, school_value, grade, section_value)
+        user_ids = [s.user_id for s in students]
+        conversations_map, _ = _get_latest_conversations_for_users(db, user_ids)
+        current_hash = _build_class_conversation_hash(students, conversations_map)
+        
+        is_stale = (
+            not class_analysis.last_message_hash 
+            or current_hash != class_analysis.last_message_hash
         )
+        
+        if not is_stale and not force_refresh:
+            # Nothing changed - return cached immediately
+            return ClassAnalysisResponse(
+                analysis=class_analysis.analysis_text,
+                status="ready",
+                job_id=None,
+                computed_at=class_analysis.computed_at,
+            )
+        
+        if not is_stale and force_refresh:
+            # User clicked refresh but nothing changed - return cached
+            logger.info("Class analysis hash unchanged, returning cached result")
+            return ClassAnalysisResponse(
+                analysis=class_analysis.analysis_text,
+                status="ready",
+                job_id=None,
+                computed_at=class_analysis.computed_at,
+            )
+        
+        # Data changed - queue refresh, but return cached for now
+        logger.info("Class analysis is stale, queueing refresh")
 
-    # No cached analysis or force refresh - queue a job immediately
+    # No cached analysis, or stale - queue a job
     job = _create_analysis_job(db, kind="class", class_analysis=class_analysis)
     class_analysis.status = "queued"
     class_analysis.updated_at = datetime.now(timezone.utc)
@@ -585,20 +604,40 @@ async def analyze_student_conversations(
             ).model_dump(mode="json"),
         )
     
-    # If we have a ready analysis and not forcing refresh, return cached
-    if (
-        not force_refresh
-        and student_analysis.analysis_text
-        and student_analysis.status == "ready"
-    ):
-        return ClassAnalysisResponse(
-            analysis=student_analysis.analysis_text,
-            status="ready",
-            job_id=None,
-            computed_at=student_analysis.computed_at,
+    # If we have cached analysis, check staleness
+    if student_analysis.analysis_text and student_analysis.status == "ready":
+        # Compute current hash to detect changes
+        conversations, _ = _fetch_student_conversations(db, student)
+        current_hash = _build_student_conversation_hash(conversations)
+        
+        is_stale = (
+            not student_analysis.last_message_hash 
+            or current_hash != student_analysis.last_message_hash
         )
+        
+        if not is_stale and not force_refresh:
+            # Nothing changed - return cached immediately
+            return ClassAnalysisResponse(
+                analysis=student_analysis.analysis_text,
+                status="ready",
+                job_id=None,
+                computed_at=student_analysis.computed_at,
+            )
+        
+        if not is_stale and force_refresh:
+            # User clicked refresh but nothing changed - return cached
+            logger.info("Student analysis hash unchanged, returning cached result")
+            return ClassAnalysisResponse(
+                analysis=student_analysis.analysis_text,
+                status="ready",
+                job_id=None,
+                computed_at=student_analysis.computed_at,
+            )
+        
+        # Data changed - queue refresh, but return cached for now
+        logger.info("Student analysis is stale, queueing refresh")
 
-    # No cached analysis or force refresh - queue a job immediately
+    # No cached analysis, or stale - queue a job
     job = _create_analysis_job(db, kind="student", student_analysis=student_analysis)
     student_analysis.status = "queued"
     student_analysis.updated_at = datetime.now(timezone.utc)
