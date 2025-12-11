@@ -13,7 +13,10 @@ import parse from 'html-react-parser';
 // Helper to detect if an error is likely a timeout (API Gateway 30s limit)
 const isTimeoutError = (err: unknown): boolean => {
   if (!axios.isAxiosError(err)) return false;
-  return err.code === 'ECONNABORTED' || err.response?.status === 504 || !err.response;
+  const status = err.response?.status;
+  // 503 = Service Unavailable (often from Lambda/API Gateway timeout)
+  // 504 = Gateway Timeout
+  return err.code === 'ECONNABORTED' || status === 503 || status === 504 || !err.response;
 };
 
 // AnalysisLoading component with informative messaging
@@ -67,16 +70,12 @@ const ClassSummary: React.FC = () => {
 
   const isMountedRef = useRef(true);
   const pollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const retryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const retryCountRef = useRef(0);
-  const MAX_RETRIES = 2;
 
   useEffect(() => {
     isMountedRef.current = true;
     return () => {
       isMountedRef.current = false;
       if (pollTimeoutRef.current) clearTimeout(pollTimeoutRef.current);
-      if (retryTimeoutRef.current) clearTimeout(retryTimeoutRef.current);
     };
   }, []);
 
@@ -189,18 +188,13 @@ const ClassSummary: React.FC = () => {
   }, [school, gradeNumber, section, navigate]);
 
   const fetchAnalysis = useCallback(
-    async (forceRefresh = false, isRetry = false) => {
+    async (forceRefresh = false) => {
       if (!school || !gradeNumber || !section) {
         return;
       }
 
       if (!isMountedRef.current) {
         return;
-      }
-
-      // Reset retry count on fresh requests (not retries)
-      if (!isRetry) {
-        retryCountRef.current = 0;
       }
 
       setAnalysisError(null);
@@ -212,9 +206,6 @@ const ClassSummary: React.FC = () => {
         if (!isMountedRef.current) {
           return;
         }
-
-        // Success - reset retry count
-        retryCountRef.current = 0;
 
         if (data.analysis !== undefined) {
           setAnalysis(data.analysis ?? null);
@@ -249,27 +240,17 @@ const ClassSummary: React.FC = () => {
           return;
         }
 
-        // On timeout, the backend may have already started the job
-        // Retry after a short delay to check for active job
-        if (isTimeoutError(err) && retryCountRef.current < MAX_RETRIES) {
-          retryCountRef.current += 1;
-          console.log(`Request timed out, retrying (${retryCountRef.current}/${MAX_RETRIES})...`);
-          // Keep status as running, don't show error yet
-          retryTimeoutRef.current = setTimeout(() => {
-            // Retry without force refresh to pick up any active job
-            fetchAnalysis(false, true);
-          }, 3000);
+        // On timeout (503/504), the job is likely running in the background
+        if (isTimeoutError(err)) {
+          setAnalysisStatus('running');
+          setAnalysisError('Analysis is being prepared. Please come back in a couple of minutes and refresh the page.');
           return;
         }
 
-        // Real error or max retries reached
+        // Real error
         setAnalysisStatus('failed');
         setJobId(null);
-        setAnalysisError(
-          isTimeoutError(err)
-            ? 'Analysis is taking longer than expected. Please refresh the page in a minute.'
-            : (err instanceof Error ? err.message : 'Failed to generate analysis. Please try again.')
-        );
+        setAnalysisError(err instanceof Error ? err.message : 'Failed to generate analysis. Please try again.');
         stopPolling();
       }
     },

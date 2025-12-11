@@ -606,8 +606,13 @@ async def analyze_student_conversations(
     
     # If we have cached analysis, check staleness
     if student_analysis.analysis_text and student_analysis.status == "ready":
-        # Compute current hash to detect changes
-        conversations, _ = _fetch_student_conversations(db, student)
+        # Lightweight query for hash - only need conversation metadata, not messages
+        conversations = (
+            db.query(Conversation)
+            .filter(Conversation.user_id == student.user_id)
+            .order_by(Conversation.updated_at.desc())
+            .all()
+        )
         current_hash = _build_student_conversation_hash(conversations)
         
         is_stale = (
