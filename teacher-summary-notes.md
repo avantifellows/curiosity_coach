@@ -24,8 +24,9 @@
    - Use task queue/cron to refresh analyses periodically so teachers see recent insights without waiting for synchronous LLM calls.
 
 4. **Change detection**
-   - Track a hash/updated timestamp for the latest conversation set. Only rerun Brain when the set changes. Otherwise, serve cached copy.
+   - Track a hash/updated timestamp for the latest conversation set AND the prompt version used. Only rerun Brain when either the conversations or the prompt changes. Otherwise, serve cached copy.
    - Emit events when new messages land and let that invalidate the cached analysis for affected class/student.
+   - When prompt text is updated (new production version), the hash changes automatically to invalidate stale analyses.
 
 5. **UI experience tweaks**
    - Show cached analysis immediately with a “last updated” indicator and optional “Refresh analysis” button that re-triggers the compute flow on demand.
@@ -84,4 +85,5 @@ These tactics should trim redundant work, keep the UI responsive, and reduce Bra
 - Added `class_analyses`, `student_analyses`, and `analysis_jobs` tables (with Alembic migration `3c0b0a0dcb5d_add_analysis_cache_tables.py`) and SQLAlchemy models for cached summaries and job metadata.
 - Refactored `/api/students/class-analysis` and `/api/students/{id}/analysis` to return cached results instantly, queue background jobs via FastAPI `BackgroundTasks`, and expose job state fetching at `/api/students/analysis-jobs/{job_id}`.
 - Background processors reuse existing Brain calls to update caches, stamp `computed_at`, and surface failures without blocking API Gateway timeouts.
-- Frontend teacher views now show cached text immediately, poll job status, surface “last updated” timestamps, and allow manual refresh with graceful failure messaging.
+- Frontend teacher views now show cached text immediately, poll job status, surface "last updated" timestamps, and allow manual refresh with graceful failure messaging.
+- **Hash calculation includes prompt version**: Both `_build_class_conversation_hash` and `_build_student_conversation_hash` now include the production prompt version (ID + created_at) in the hash. When teachers update prompts in the database, existing cached analyses automatically become stale and trigger a refresh, ensuring analyses always reflect the current prompt text.

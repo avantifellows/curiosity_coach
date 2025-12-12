@@ -17,6 +17,7 @@ from src.models import (
     ClassAnalysis,
     StudentAnalysis,
     AnalysisJob,
+    PromptVersion,
 )
 from src.students.schemas import (
     StudentWithConversationResponse,
@@ -27,6 +28,7 @@ from src.students.schemas import (
     AnalysisJobStatusResponse,
 )
 from src.config.settings import settings
+from src.prompts.service import PromptService
 from starlette.status import HTTP_202_ACCEPTED
 
 logger = logging.getLogger(__name__)
@@ -126,14 +128,34 @@ def _get_messages_by_conversation(
     return messages_by_conversation
 
 
+def _get_class_analysis_prompt_version(db: Session) -> Optional[PromptVersion]:
+    """Fetch the production version of the class analysis prompt."""
+    prompt_service = PromptService()
+    return prompt_service.get_production_prompt_version(db, "overall_class_latest_topic_analysis")
+
+
+def _get_student_analysis_prompt_version(db: Session) -> Optional[PromptVersion]:
+    """Fetch the production version of the student analysis prompt."""
+    prompt_service = PromptService()
+    return prompt_service.get_production_prompt_version(db, "analyse_student_all_conversation")
+
+
 def _build_class_conversation_hash(
     students: List[Student],
     conversations_map: Dict[int, Conversation],
+    prompt_version: Optional[PromptVersion] = None,
 ) -> str:
     if not students:
         return "no-students"
 
     parts: List[str] = []
+    
+    # Include prompt version in hash - when prompt changes, hash changes
+    if prompt_version:
+        parts.append(f"prompt:{prompt_version.id}:{prompt_version.created_at.isoformat()}")
+    else:
+        parts.append("prompt:none")
+    
     for student in students:
         conversation = conversations_map.get(student.user_id)
         if conversation:
@@ -179,11 +201,24 @@ def _fetch_student_conversations(
     return conversations, messages_by_conversation
 
 
-def _build_student_conversation_hash(conversations: List[Conversation]) -> str:
+def _build_student_conversation_hash(
+    conversations: List[Conversation],
+    prompt_version: Optional[PromptVersion] = None,
+) -> str:
     if not conversations:
         return "no-conversations"
 
-    parts = [f"{conversation.id}:{conversation.updated_at.isoformat()}" for conversation in conversations]
+    parts: List[str] = []
+    
+    # Include prompt version in hash - when prompt changes, hash changes
+    if prompt_version:
+        parts.append(f"prompt:{prompt_version.id}:{prompt_version.created_at.isoformat()}")
+    else:
+        parts.append("prompt:none")
+    
+    for conversation in conversations:
+        parts.append(f"{conversation.id}:{conversation.updated_at.isoformat()}")
+    
     return hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()
 
 
@@ -511,11 +546,12 @@ async def analyze_class_conversations(
     
     # If we have cached analysis, check staleness
     if class_analysis.analysis_text and class_analysis.status == "ready":
-        # Compute current hash to detect changes
+        # Compute current hash to detect changes (including prompt version)
+        prompt_version = _get_class_analysis_prompt_version(db)
         students = _fetch_students_for_class(db, school_value, grade, section_value)
         user_ids = [s.user_id for s in students]
         conversations_map, _ = _get_latest_conversations_for_users(db, user_ids)
-        current_hash = _build_class_conversation_hash(students, conversations_map)
+        current_hash = _build_class_conversation_hash(students, conversations_map, prompt_version)
         
         is_stale = (
             not class_analysis.last_message_hash 
@@ -607,13 +643,15 @@ async def analyze_student_conversations(
     # If we have cached analysis, check staleness
     if student_analysis.analysis_text and student_analysis.status == "ready":
         # Lightweight query for hash - only need conversation metadata, not messages
+        # Also include prompt version so hash changes when prompt is updated
+        prompt_version = _get_student_analysis_prompt_version(db)
         conversations = (
             db.query(Conversation)
             .filter(Conversation.user_id == student.user_id)
             .order_by(Conversation.updated_at.desc())
             .all()
         )
-        current_hash = _build_student_conversation_hash(conversations)
+        current_hash = _build_student_conversation_hash(conversations, prompt_version)
         
         is_stale = (
             not student_analysis.last_message_hash 
@@ -732,7 +770,9 @@ async def _process_class_analysis_job(
         class_analysis.analysis_text = analysis_text
         class_analysis.status = "ready"
         class_analysis.computed_at = datetime.now(timezone.utc)
-        class_analysis.last_message_hash = _build_class_conversation_hash(students, conversations_map)
+        # Include prompt version in hash so cache invalidates when prompt changes
+        prompt_version = _get_class_analysis_prompt_version(db)
+        class_analysis.last_message_hash = _build_class_conversation_hash(students, conversations_map, prompt_version)
         class_analysis.updated_at = datetime.now(timezone.utc)
 
         job.status = "completed"
@@ -807,7 +847,9 @@ async def _process_student_analysis_job(
         student_analysis.analysis_text = analysis_text
         student_analysis.status = "ready"
         student_analysis.computed_at = datetime.now(timezone.utc)
-        student_analysis.last_message_hash = _build_student_conversation_hash(conversations)
+        # Include prompt version in hash so cache invalidates when prompt changes
+        prompt_version = _get_student_analysis_prompt_version(db)
+        student_analysis.last_message_hash = _build_student_conversation_hash(conversations, prompt_version)
         student_analysis.updated_at = datetime.now(timezone.utc)
 
         job.status = "completed"
