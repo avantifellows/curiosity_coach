@@ -64,6 +64,7 @@ const ClassSummary: React.FC = () => {
   const [analysisStatus, setAnalysisStatus] = useState<AnalysisStatus>('ready');
   const [jobId, setJobId] = useState<string | null>(null);
   const [computedAt, setComputedAt] = useState<string | null>(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   const isAnalysisInProgress = analysisStatus === 'queued' || analysisStatus === 'running';
   const showAnalysisLoading = isAnalysisInProgress && !analysis;
@@ -198,7 +199,12 @@ const ClassSummary: React.FC = () => {
       }
 
       setAnalysisError(null);
-      setAnalysisStatus(forceRefresh ? 'queued' : 'running');
+      
+      // Show immediate feedback - set loading flag but don't change status yet
+      // Backend will tell us the actual status (could be 'ready' if hash unchanged, or 'queued' if job created)
+      if (forceRefresh) {
+        setIsRefreshing(true);
+      }
 
       try {
         const data = await analyzeClassConversations(school, gradeNumber, section, forceRefresh);
@@ -221,6 +227,8 @@ const ClassSummary: React.FC = () => {
             : 'ready';
 
         setAnalysisStatus(nextStatus);
+        setIsRefreshing(false);
+        
         if (shouldPoll) {
           const job = data.job_id as string;
           setJobId(job);
@@ -240,6 +248,8 @@ const ClassSummary: React.FC = () => {
           return;
         }
 
+        setIsRefreshing(false);
+        
         // On timeout (503/504), the job is likely running in the background
         if (isTimeoutError(err)) {
           setAnalysisStatus('running');
@@ -343,17 +353,17 @@ const ClassSummary: React.FC = () => {
                             Last updated {new Date(computedAt).toLocaleString()}
                           </p>
                         )}
-                        {analysis && jobId && (analysisStatus === 'queued' || analysisStatus === 'running') && (
+                        {(isRefreshing || (analysis && jobId && (analysisStatus === 'queued' || analysisStatus === 'running'))) && (
                           <p className="text-xs text-indigo-600 font-medium">Refreshing analysis…</p>
                         )}
                       </div>
                       <button
                         type="button"
                         onClick={() => fetchAnalysis(true)}
-                        className="inline-flex items-center justify-center rounded-full bg-slate-900 px-4 py-2 text-xs font-semibold text-white shadow transition hover:bg-slate-800 disabled:opacity-60"
-                        disabled={isAnalysisInProgress && !analysis}
+                        className="inline-flex items-center justify-center rounded-full bg-slate-900 px-4 py-2 text-xs font-semibold text-white shadow transition hover:bg-slate-800 disabled:opacity-60 disabled:cursor-not-allowed"
+                        disabled={isRefreshing || (isAnalysisInProgress && !analysis)}
                       >
-                        Refresh Analysis
+                        {isRefreshing ? 'Refreshing...' : 'Refresh Analysis'}
                       </button>
                     </div>
                     {analysis && (

@@ -9,6 +9,7 @@
 - Duplicate DB work: class roster + message hydration happens on every page hop and again inside each analysis endpoint.
 - LLM summaries are recomputed synchronously, even if nothing changed, adding latency and cost.
 - Frontend has no shared cache/context, so results fetched in one view are discarded before visiting the next.
+- **BackgroundTasks timeout issue**: FastAPI's `BackgroundTasks` in AWS Lambda don't truly background - Lambda waits for them to complete, causing API Gateway timeouts when analysis takes too long. Need to migrate to true async queue (SQS).
 
 ## Optimization Ideas
 1. **Frontend data reuse**
@@ -78,6 +79,7 @@ These tactics should trim redundant work, keep the UI responsive, and reduce Bra
    4. Monitor queue/job metrics post-deploy; set alerts for repeated `failed` statuses.
 
 7. **Follow-ups**
+   - **URGENT**: Migrate from `BackgroundTasks` to SQS-based queue processing to eliminate Lambda timeout issues. The `QueueService` infrastructure already exists and supports SQS.
    - Consider adding WebSocket/SSE later to push completion events instead of polling.
    - Evaluate storing analysis as structured JSON for richer UI rendering down the line.
 
@@ -87,3 +89,6 @@ These tactics should trim redundant work, keep the UI responsive, and reduce Bra
 - Background processors reuse existing Brain calls to update caches, stamp `computed_at`, and surface failures without blocking API Gateway timeouts.
 - Frontend teacher views now show cached text immediately, poll job status, surface "last updated" timestamps, and allow manual refresh with graceful failure messaging.
 - **Hash calculation includes prompt version**: Both `_build_class_conversation_hash` and `_build_student_conversation_hash` now include the production prompt version (ID + created_at) in the hash. When teachers update prompts in the database, existing cached analyses automatically become stale and trigger a refresh, ensuring analyses always reflect the current prompt text.
+- **No duplicate jobs**: Backend now rejects duplicate job creation even when `force_refresh=true`. If a job is already running for the same analysis, return the existing job instead of spawning another. This prevents cost explosions from repeated "Refresh Analysis" clicks.
+- **Smarter UI feedback**: Frontend now uses an `isRefreshing` flag instead of optimistically setting `status='queued'`. This prevents jarring UX when backend returns `status='ready'` (hash unchanged) instead of queueing a job. Button shows "Refreshing..." text and is disabled during the API call, "Refreshing analysis…" indicator appears immediately.
+- **Known issue - BackgroundTasks timeouts**: Currently using FastAPI `BackgroundTasks` which blocks Lambda until complete, causing API Gateway 30s timeouts when analysis takes longer. Need to migrate to SQS-based queue (see `QueueService` in `src/queue/service.py`) where jobs are truly async and processed by separate workers.

@@ -529,11 +529,13 @@ async def analyze_class_conversations(
     # Quick check: get or create analysis record (lightweight)
     class_analysis = _get_or_create_class_analysis(db, school_value, grade, section_value)
     
-    # Check for active job first
+    # Check for active job first - even with force_refresh, don't create duplicate jobs
     active_job = _find_active_job_for_analysis(db, class_analysis.id, "class")
     
     # If there's already a job running, return current state immediately
-    if active_job and not force_refresh:
+    # Don't waste resources creating duplicate jobs even if user clicks refresh
+    if active_job:
+        logger.info("Active job %s already running for class analysis, returning existing job", active_job.job_id)
         return JSONResponse(
             status_code=HTTP_202_ACCEPTED,
             content=ClassAnalysisResponse(
@@ -625,11 +627,13 @@ async def analyze_student_conversations(
     # Quick check: get or create analysis record (lightweight)
     student_analysis = _get_or_create_student_analysis(db, student)
     
-    # Check for active job first
+    # Check for active job first - even with force_refresh, don't create duplicate jobs
     active_job = _find_active_job_for_analysis(db, student_analysis.id, "student")
     
     # If there's already a job running, return current state immediately
-    if active_job and not force_refresh:
+    # Don't waste resources creating duplicate jobs even if user clicks refresh
+    if active_job:
+        logger.info("Active job %s already running for student %s analysis, returning existing job", active_job.job_id, student_id)
         return JSONResponse(
             status_code=HTTP_202_ACCEPTED,
             content=ClassAnalysisResponse(
