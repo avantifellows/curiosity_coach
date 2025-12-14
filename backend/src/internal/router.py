@@ -11,7 +11,7 @@ from src.models import (
     Prompt, PromptVersion, get_conversation, save_message,
     save_message_pipeline_data, update_conversation_core_chat_theme,
     Message, MessagePipelineData, LMHomework,
-    ClassAnalysis, StudentAnalysis, AnalysisJob,
+    ClassAnalysis, StudentAnalysis, AnalysisJob, Student,
 )
 from src.onboarding.schemas import OpeningMessageCallbackPayload
 from pydantic import BaseModel
@@ -366,6 +366,160 @@ def save_knowledge_updates(conversation_id: int, payload: KnowledgeItemsPayload,
     except Exception as e:
         logger.error(f"Error saving knowledge updates for conversation {conversation_id}: {e}")
         raise HTTPException(status_code=500, detail=f"Error saving knowledge updates: {str(e)}")
+
+
+# --- Analysis Data Endpoints for Brain ---
+
+from sqlalchemy import func, and_
+
+
+def _get_latest_conversations_for_users(db: Session, user_ids: List[int]):
+    """Get the latest conversation for each user."""
+    if not user_ids:
+        return {}, []
+
+    latest_convo_subquery = (
+        db.query(
+            Conversation.user_id.label("user_id"),
+            func.max(Conversation.updated_at).label("latest_updated_at")
+        )
+        .filter(Conversation.user_id.in_(user_ids))
+        .group_by(Conversation.user_id)
+        .subquery()
+    )
+
+    latest_conversations = (
+        db.query(Conversation)
+        .join(
+            latest_convo_subquery,
+            and_(
+                Conversation.user_id == latest_convo_subquery.c.user_id,
+                Conversation.updated_at == latest_convo_subquery.c.latest_updated_at
+            )
+        )
+        .all()
+    )
+
+    conversations_map = {conv.user_id: conv for conv in latest_conversations}
+    conversation_ids = [conv.id for conv in latest_conversations]
+    return conversations_map, conversation_ids
+
+
+def _get_messages_by_conversation(db: Session, conversation_ids: List[int]):
+    """Get all messages grouped by conversation."""
+    if not conversation_ids:
+        return {}
+
+    messages = (
+        db.query(Message)
+        .filter(Message.conversation_id.in_(conversation_ids))
+        .order_by(Message.conversation_id.asc(), Message.timestamp.asc())
+        .all()
+    )
+
+    messages_by_conversation = {}
+    for message in messages:
+        messages_by_conversation.setdefault(message.conversation_id, []).append(message)
+    return messages_by_conversation
+
+
+@router.get("/class-transcript")
+def get_class_transcript(
+    school: str,
+    grade: int,
+    section: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
+    """
+    Internal endpoint for Brain to fetch class conversation transcript.
+    Returns formatted transcript text for LLM analysis.
+    """
+    # Normalize inputs
+    school_value = school.strip()
+    section_value = section.strip().upper() if section else None
+    
+    # Fetch students for class
+    query = db.query(Student).filter(Student.school == school_value, Student.grade == grade)
+    if section_value:
+        query = query.filter(Student.section == section_value)
+    students = query.order_by(Student.roll_number.asc()).all()
+    
+    if not students:
+        return {"transcript": "", "student_count": 0, "conversation_count": 0}
+    
+    # Get latest conversations
+    user_ids = [s.user_id for s in students]
+    conversations_map, conversation_ids = _get_latest_conversations_for_users(db, user_ids)
+    
+    if not conversation_ids:
+        return {"transcript": "", "student_count": len(students), "conversation_count": 0}
+    
+    # Get messages
+    messages_by_conversation = _get_messages_by_conversation(db, conversation_ids)
+    
+    # Build transcript
+    text_parts = []
+    for student in students:
+        conversation = conversations_map.get(student.user_id)
+        if not conversation:
+            continue
+        text_parts.append(student.first_name)
+        for message in messages_by_conversation.get(conversation.id, []):
+            sender = "Student" if message.is_user else "AI"
+            text_parts.append(f"  {sender}: {message.content}")
+    
+    transcript = "\n".join(text_parts)
+    
+    return {
+        "transcript": transcript,
+        "student_count": len(students),
+        "conversation_count": len(conversation_ids),
+    }
+
+
+@router.get("/student-transcript/{student_id}")
+def get_student_transcript(
+    student_id: int,
+    db: Session = Depends(get_db),
+):
+    """
+    Internal endpoint for Brain to fetch student conversation transcript.
+    Returns formatted transcript text for LLM analysis.
+    """
+    student = db.query(Student).filter(Student.id == student_id).first()
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found")
+    
+    # Get all conversations for this student
+    conversations = (
+        db.query(Conversation)
+        .filter(Conversation.user_id == student.user_id)
+        .order_by(Conversation.updated_at.desc())
+        .all()
+    )
+    
+    if not conversations:
+        return {"transcript": "", "conversation_count": 0}
+    
+    # Get messages
+    conversation_ids = [c.id for c in conversations]
+    messages_by_conversation = _get_messages_by_conversation(db, conversation_ids)
+    
+    # Build transcript
+    text_parts = []
+    for conversation in conversations:
+        text_parts.append(f"Conversation: {conversation.title or 'Untitled'}")
+        for message in messages_by_conversation.get(conversation.id, []):
+            sender = "Student" if message.is_user else "AI"
+            text_parts.append(f"  {sender}: {message.content}")
+        text_parts.append("")
+    
+    transcript = "\n".join(text_parts)
+    
+    return {
+        "transcript": transcript,
+        "conversation_count": len(conversations),
+    }
 
 
 # --- Analysis Callback Schemas and Endpoint ---

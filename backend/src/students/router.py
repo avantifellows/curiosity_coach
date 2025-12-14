@@ -168,39 +168,6 @@ def _build_class_conversation_hash(
     return hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()
 
 
-def _collect_class_conversation_text(
-    students: List[Student],
-    conversations_map: Dict[int, Conversation],
-    messages_by_conversation: Dict[int, List[Message]],
-) -> str:
-    text_parts: List[str] = []
-    for student in students:
-        conversation = conversations_map.get(student.user_id)
-        if not conversation:
-            continue
-        text_parts.append(student.first_name)
-        for message in messages_by_conversation.get(conversation.id, []):
-            sender = "Student" if message.is_user else "AI"
-            text_parts.append(f"  {sender}: {message.content}")
-    return "\n".join(text_parts)
-
-
-def _fetch_student_conversations(
-    db: Session,
-    student: Student,
-) -> Tuple[List[Conversation], Dict[int, List[Message]]]:
-    conversations = (
-        db.query(Conversation)
-        .filter(Conversation.user_id == student.user_id)
-        .order_by(Conversation.updated_at.desc())
-        .all()
-    )
-
-    conversation_ids = [conversation.id for conversation in conversations]
-    messages_by_conversation = _get_messages_by_conversation(db, conversation_ids)
-    return conversations, messages_by_conversation
-
-
 def _build_student_conversation_hash(
     conversations: List[Conversation],
     prompt_version: Optional[PromptVersion] = None,
@@ -220,20 +187,6 @@ def _build_student_conversation_hash(
         parts.append(f"{conversation.id}:{conversation.updated_at.isoformat()}")
     
     return hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()
-
-
-def _collect_student_conversation_text(
-    conversations: List[Conversation],
-    messages_by_conversation: Dict[int, List[Message]],
-) -> str:
-    text_parts: List[str] = []
-    for conversation in conversations:
-        text_parts.append(f"Conversation: {conversation.title or 'Untitled'}")
-        for message in messages_by_conversation.get(conversation.id, []):
-            sender = "Student" if message.is_user else "AI"
-            text_parts.append(f"  {sender}: {message.content}")
-        text_parts.append("")
-    return "\n".join(text_parts)
 
 
 def _get_or_create_class_analysis(
@@ -556,22 +509,9 @@ async def analyze_class_conversations(
         # Data changed - queue refresh, but return cached for now
         logger.info("Class analysis is stale, queueing refresh")
 
-    # Build transcript synchronously (fast DB reads)
+    # Quick check: are there any conversations to analyze?
     if not conversation_ids:
-        # No conversations to analyze - mark as failed immediately
         logger.warning("No conversations available for class analysis %s/%s/%s", school_value, grade, section_value)
-        return ClassAnalysisResponse(
-            analysis=None,
-            status="ready",
-            job_id=None,
-            computed_at=None,
-        )
-    
-    messages_by_conversation = _get_messages_by_conversation(db, conversation_ids)
-    transcript = _collect_class_conversation_text(students, conversations_map, messages_by_conversation)
-    
-    if not transcript.strip():
-        logger.warning("Empty transcript for class analysis %s/%s/%s", school_value, grade, section_value)
         return ClassAnalysisResponse(
             analysis=None,
             status="ready",
@@ -586,13 +526,13 @@ async def analyze_class_conversations(
     db.add(class_analysis)
     db.commit()
     
-    # Queue via SQS (or local HTTP in development mode)
-    # Brain will process and callback with results
+    # Queue via SQS - send only identifiers, Brain will fetch transcript
     task_payload = {
         "task_type": "CLASS_ANALYSIS",
         "job_id": job.job_id,
-        "class_analysis_id": class_analysis.id,
-        "transcript": transcript,
+        "school": school_value,
+        "grade": grade,
+        "section": section_value,
         "last_message_hash": current_hash,
     }
     
@@ -654,9 +594,14 @@ async def analyze_student_conversations(
             ).model_dump(mode="json"),
         )
     
-    # Fetch data needed for hash check and (potentially) for queueing
+    # Compute hash for cache check (lightweight - just conversation metadata)
     prompt_version = _get_student_analysis_prompt_version(db)
-    conversations, messages_by_conversation = _fetch_student_conversations(db, student)
+    conversations = (
+        db.query(Conversation)
+        .filter(Conversation.user_id == student.user_id)
+        .order_by(Conversation.updated_at.desc())
+        .all()
+    )
     current_hash = _build_student_conversation_hash(conversations, prompt_version)
     
     # If we have cached analysis, check staleness
@@ -688,20 +633,9 @@ async def analyze_student_conversations(
         # Data changed - queue refresh, but return cached for now
         logger.info("Student analysis is stale, queueing refresh")
 
-    # Build transcript synchronously (fast DB reads - already fetched above)
+    # Quick check: are there any conversations to analyze?
     if not conversations:
         logger.warning("No conversations available for student %s analysis", student_id)
-        return ClassAnalysisResponse(
-            analysis=None,
-            status="ready",
-            job_id=None,
-            computed_at=None,
-        )
-    
-    transcript = _collect_student_conversation_text(conversations, messages_by_conversation)
-    
-    if not transcript.strip():
-        logger.warning("Empty transcript for student %s analysis", student_id)
         return ClassAnalysisResponse(
             analysis=None,
             status="ready",
@@ -716,13 +650,11 @@ async def analyze_student_conversations(
     db.add(student_analysis)
     db.commit()
     
-    # Queue via SQS (or local HTTP in development mode)
-    # Brain will process and callback with results
+    # Queue via SQS - send only identifiers, Brain will fetch transcript
     task_payload = {
         "task_type": "STUDENT_ANALYSIS",
         "job_id": job.job_id,
-        "student_analysis_id": student_analysis.id,
-        "transcript": transcript,
+        "student_id": student_id,
         "last_message_hash": current_hash,
     }
     

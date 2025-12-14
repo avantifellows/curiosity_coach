@@ -234,9 +234,12 @@ class QueueService:
         else: # SQS Mode
             if not self.sqs_available or not self.queue_url or not self.sqs:
                 print("SQS Error: Queue not configured or unavailable.")
-                return {"error": "SQS not configured or unavailable"}
+                raise RuntimeError("SQS not configured or unavailable")
             try:
+                message_body_str = json.dumps(task_body)
+                
                 print(f"Attempting to send batch task SQS message to queue: {self.queue_url}")
+                print(f"Task type: {task_body.get('task_type')}")
                 
                 # SQS sending logic is synchronous in boto3, run in executor
                 loop = asyncio.get_event_loop()
@@ -245,7 +248,7 @@ class QueueService:
                 def send_sqs_message_sync():
                     return self.sqs.send_message(
                         QueueUrl=self.queue_url,
-                        MessageBody=json.dumps(task_body)
+                        MessageBody=message_body_str
                     )
 
                 response = await asyncio.wait_for(
@@ -256,10 +259,12 @@ class QueueService:
                 return response
             except asyncio.TimeoutError:
                 print("SQS send operation for batch task timed out.")
-                return {"error": "SQS send operation timed out"}
+                raise RuntimeError("SQS send operation timed out")
             except ClientError as e:
-                print(f"SQS ClientError sending batch task: {e}")
-                return {"error": f"SQS send failed: {e.response.get('Error', {}).get('Code')}"}
+                error_code = e.response.get('Error', {}).get('Code', 'Unknown')
+                error_msg = e.response.get('Error', {}).get('Message', str(e))
+                print(f"SQS ClientError sending batch task: {error_code} - {error_msg}")
+                raise RuntimeError(f"SQS send failed: {error_code} - {error_msg}")
 
 
 # Create singleton instance

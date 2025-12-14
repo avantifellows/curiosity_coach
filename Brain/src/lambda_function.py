@@ -88,27 +88,29 @@ def lambda_handler(event, context):
 
                 elif task_type == "CLASS_ANALYSIS":
                     job_id = message_body.get("job_id")
-                    transcript = message_body.get("transcript")
+                    school = message_body.get("school")
+                    grade = message_body.get("grade")
+                    section = message_body.get("section")
                     last_message_hash = message_body.get("last_message_hash")
-                    if job_id and transcript:
+                    if job_id and school and grade is not None:
                         logger.info(f"Detected CLASS_ANALYSIS task for job_id: {job_id}")
-                        asyncio.run(process_class_analysis_task(job_id, transcript, last_message_hash))
+                        asyncio.run(process_class_analysis_task(job_id, school, grade, section, last_message_hash))
                         processed_messages += 1
                     else:
-                        logger.warning("CLASS_ANALYSIS task received with missing job_id or transcript.")
+                        logger.warning("CLASS_ANALYSIS task received with missing job_id, school, or grade.")
                         failed_messages += 1
                     continue
 
                 elif task_type == "STUDENT_ANALYSIS":
                     job_id = message_body.get("job_id")
-                    transcript = message_body.get("transcript")
+                    student_id = message_body.get("student_id")
                     last_message_hash = message_body.get("last_message_hash")
-                    if job_id and transcript:
+                    if job_id and student_id:
                         logger.info(f"Detected STUDENT_ANALYSIS task for job_id: {job_id}")
-                        asyncio.run(process_student_analysis_task(job_id, transcript, last_message_hash))
+                        asyncio.run(process_student_analysis_task(job_id, student_id, last_message_hash))
                         processed_messages += 1
                     else:
-                        logger.warning("STUDENT_ANALYSIS task received with missing job_id or transcript.")
+                        logger.warning("STUDENT_ANALYSIS task received with missing job_id or student_id.")
                         failed_messages += 1
                     continue
 
