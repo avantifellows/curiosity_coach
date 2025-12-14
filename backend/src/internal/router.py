@@ -10,9 +10,12 @@ from src.models import (
     UserPersona, Conversation, ConversationMemory, 
     Prompt, PromptVersion, get_conversation, save_message,
     save_message_pipeline_data, update_conversation_core_chat_theme,
-    Message, MessagePipelineData, LMHomework
+    Message, MessagePipelineData, LMHomework,
+    ClassAnalysis, StudentAnalysis, AnalysisJob,
 )
 from src.onboarding.schemas import OpeningMessageCallbackPayload
+from pydantic import BaseModel
+from datetime import datetime, timezone
 import logging
 from src.analytics_agent.schemas import HomeworkItemsPayload, AnalyticsTriggerPayload
 from src.analytics_agent.registry import MEMORY_GENERATION_EVENT, flows_for_event
@@ -363,3 +366,79 @@ def save_knowledge_updates(conversation_id: int, payload: KnowledgeItemsPayload,
     except Exception as e:
         logger.error(f"Error saving knowledge updates for conversation {conversation_id}: {e}")
         raise HTTPException(status_code=500, detail=f"Error saving knowledge updates: {str(e)}")
+
+
+# --- Analysis Callback Schemas and Endpoint ---
+
+class AnalysisCallbackPayload(BaseModel):
+    """Payload from Brain service when analysis task completes."""
+    job_id: str
+    analysis_kind: str  # "class" or "student"
+    status: str  # "completed" or "failed"
+    analysis_text: Optional[str] = None
+    error_message: Optional[str] = None
+    last_message_hash: Optional[str] = None
+
+
+@router.post("/analysis-callback")
+def handle_analysis_callback(
+    payload: AnalysisCallbackPayload,
+    db: Session = Depends(get_db),
+):
+    """
+    Callback endpoint for Brain service to report analysis results.
+    Updates the analysis record and job status.
+    """
+    logger.info(f"Received analysis callback for job_id={payload.job_id}, kind={payload.analysis_kind}, status={payload.status}")
+    
+    # Find the job
+    job = db.query(AnalysisJob).filter(AnalysisJob.job_id == payload.job_id).first()
+    if not job:
+        logger.error(f"Analysis job not found: {payload.job_id}")
+        raise HTTPException(status_code=404, detail="Job not found")
+    
+    # Get the associated analysis record
+    if payload.analysis_kind == "class" and job.class_analysis_id:
+        analysis = db.query(ClassAnalysis).filter(ClassAnalysis.id == job.class_analysis_id).first()
+    elif payload.analysis_kind == "student" and job.student_analysis_id:
+        analysis = db.query(StudentAnalysis).filter(StudentAnalysis.id == job.student_analysis_id).first()
+    else:
+        logger.error(f"Invalid analysis_kind or missing analysis reference for job {payload.job_id}")
+        raise HTTPException(status_code=400, detail="Invalid analysis_kind or job configuration")
+    
+    if not analysis:
+        logger.error(f"Analysis record not found for job {payload.job_id}")
+        raise HTTPException(status_code=404, detail="Analysis record not found")
+    
+    now = datetime.now(timezone.utc)
+    
+    if payload.status == "completed":
+        # Update analysis record with results
+        analysis.analysis_text = payload.analysis_text
+        analysis.status = "ready"
+        analysis.computed_at = now
+        if payload.last_message_hash:
+            analysis.last_message_hash = payload.last_message_hash
+        analysis.updated_at = now
+        
+        # Update job
+        job.status = "completed"
+        job.error_message = None
+        job.completed_at = now
+        job.updated_at = now
+        
+        logger.info(f"Analysis completed successfully for job {payload.job_id}")
+    else:
+        # Mark as failed
+        analysis.status = "failed"
+        analysis.updated_at = now
+        
+        job.status = "failed"
+        job.error_message = payload.error_message or "Analysis failed"
+        job.updated_at = now
+        
+        logger.error(f"Analysis failed for job {payload.job_id}: {payload.error_message}")
+    
+    db.commit()
+    
+    return {"success": True, "job_id": payload.job_id, "status": payload.status}

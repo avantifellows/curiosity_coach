@@ -12,6 +12,7 @@ class ConversationMessageResponse(BaseModel):
     content: str
     is_user: bool
     timestamp: datetime
+    curiosity_score: Optional[int] = None
 
     model_config = ConfigDict(from_attributes=True)
 

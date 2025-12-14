@@ -9,6 +9,17 @@ interface ConversationLocationState {
 
 const PAGE_SIZE = 3;
 
+// Get the latest non-null curiosity score from messages
+const getLatestCuriosityScore = (messages: ConversationWithMessages['messages']): number | null => {
+  // Messages are ordered by timestamp, find last one with a score
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (!messages[i].is_user && typeof messages[i].curiosity_score === 'number') {
+      return messages[i].curiosity_score!;
+    }
+  }
+  return null;
+};
+
 const TeacherConversationView: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -128,9 +139,19 @@ const TeacherConversationView: React.FC = () => {
                       </p>
                       <p className="text-xs uppercase tracking-wide text-slate-500">Conversation #{conversation.id}</p>
                     </div>
-                    <p className="text-sm text-slate-500">
-                      Last updated {new Date(conversation.updated_at).toLocaleString()}
-                    </p>
+                    <div className="flex flex-col items-start sm:items-end gap-1">
+                      {(() => {
+                        const score = getLatestCuriosityScore(conversation.messages);
+                        return score !== null ? (
+                          <span className="inline-flex items-center gap-1.5 rounded-full bg-gradient-to-r from-amber-400 to-orange-500 px-3 py-1 text-sm font-semibold text-white shadow-sm">
+                            ✨ Score: {score}
+                          </span>
+                        ) : null;
+                      })()}
+                      <p className="text-sm text-slate-500">
+                        Last updated {new Date(conversation.updated_at).toLocaleString()}
+                      </p>
+                    </div>
                   </div>
                   <div className="mt-4 max-h-[40vh] space-y-4 overflow-y-auto pr-1">
                     {conversation.messages.length === 0 ? (

@@ -43,8 +43,6 @@ async def evaluate_exploration_directions(
     core_theme: Optional[str],
     conversation_history: List[Dict[str, Any]],
     current_query: Optional[str] = None,
-    latest_user_message: Optional[str] = None,
-    latest_ai_response: Optional[str] = None,
     current_curiosity_score: int = 0,
 ) -> Optional[Dict[str, Any]]:
     """
@@ -82,18 +80,10 @@ async def evaluate_exploration_directions(
             query_text = current_query if current_query else "No current query available"
             formatted_prompt = formatted_prompt.replace("{{QUERY}}", query_text)
 
-        if "{{LATEST_USER_MESSAGE}}" in formatted_prompt:
-            formatted_prompt = formatted_prompt.replace("{{LATEST_USER_MESSAGE}}", latest_user_message or "")
-
-        if "{{LATEST_AI_RESPONSE}}" in formatted_prompt:
-            formatted_prompt = formatted_prompt.replace("{{LATEST_AI_RESPONSE}}", latest_ai_response or "")
-
         if "{{CURRENT_CURIOSITY_SCORE}}" in formatted_prompt:
             bounded_score = max(0, min(100, current_curiosity_score))
             formatted_prompt = formatted_prompt.replace("{{CURRENT_CURIOSITY_SCORE}}", str(bounded_score))
 
-        if "{{CONVERSATION_ID}}" in formatted_prompt:
-            formatted_prompt = formatted_prompt.replace("{{CONVERSATION_ID}}", str(conversation_id))
         logger.debug(f"Final formatted prompt (first 200 chars): {formatted_prompt[:200]}...")
 
         # Call LLM
@@ -124,7 +114,15 @@ async def evaluate_exploration_directions(
         directions: List[str] = []
         curiosity_score: Optional[int] = None
         curiosity_reason: Optional[str] = None
+        curiosity_tip: Optional[str] = None
         curiosity_error: Optional[str] = None
+
+        # Default tips to use as fallback
+        default_tips = [
+            "Respond to what the coach just said.",
+            "Try asking the coach a cool follow-up!",
+            "Challenge the coach with a smart question!"
+        ]
 
         try:
             parsed = json.loads(raw_response)
@@ -135,11 +133,14 @@ async def evaluate_exploration_directions(
 
                 curiosity_score_val = parsed.get("curiosity_score") or parsed.get("score")
                 curiosity_reason_val = parsed.get("curiosity_reason") or parsed.get("reason")
+                curiosity_tip_val = parsed.get("curiosity_tip")
 
                 if isinstance(curiosity_score_val, (int, float)):
                     curiosity_score = int(max(0, min(100, round(curiosity_score_val))))
                 if isinstance(curiosity_reason_val, str):
                     curiosity_reason = curiosity_reason_val.strip()
+                if isinstance(curiosity_tip_val, str) and curiosity_tip_val.strip():
+                    curiosity_tip = curiosity_tip_val.strip()
             else:
                 logger.warning(f"Unexpected JSON structure for exploration response in conversation {conversation_id}")
                 curiosity_error = 'Unexpected JSON structure'
@@ -149,6 +150,11 @@ async def evaluate_exploration_directions(
             # Attempt legacy parsing for directions if JSON parsing fails
             directions = [d.strip() for d in raw_response.split('#') if d.strip()]
             curiosity_error = 'JSON decode error'
+
+        # Use a random default tip if no tip was provided
+        if not curiosity_tip:
+            import random
+            curiosity_tip = random.choice(default_tips)
 
         evaluation_successful = len(directions) > 0
         if not evaluation_successful:
@@ -162,6 +168,7 @@ async def evaluate_exploration_directions(
             'evaluation_successful': evaluation_successful,
             'curiosity_score': curiosity_score,
             'curiosity_reason': curiosity_reason,
+            'curiosity_tip': curiosity_tip,
             'curiosity_error': curiosity_error,
         }
     except Exception as e:

@@ -7,6 +7,7 @@ interface MessageInputProps {
   setNewMessage: (message: string) => void;
   onSubmit: (e: React.FormEvent) => void;
   isSendingMessage: boolean;
+  isBrainProcessing: boolean;
   isConfigViewActive: boolean;
   isLoadingMessages: boolean;
   isDisabled?: boolean;
@@ -18,18 +19,20 @@ const MessageInput: React.FC<MessageInputProps> = ({
   setNewMessage,
   onSubmit,
   isSendingMessage,
+  isBrainProcessing,
   isConfigViewActive,
   isLoadingMessages,
   isDisabled = false,
   shouldShowSidebar = true,
 }) => {
+  const isWaitingForResponse = isSendingMessage || isBrainProcessing;
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Auto-focus the textarea when ready for input
   useEffect(() => {
     if (
       !isConfigViewActive && 
-      !isSendingMessage && 
+      !isWaitingForResponse && 
       !isLoadingMessages && 
       textareaRef.current
     ) {
@@ -38,7 +41,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
         textareaRef.current?.focus();
       }, 100);
     }
-  }, [isConfigViewActive, isSendingMessage, isLoadingMessages]);
+  }, [isConfigViewActive, isWaitingForResponse, isLoadingMessages]);
 
   if (isConfigViewActive) {
     return null;
@@ -61,17 +64,19 @@ const MessageInput: React.FC<MessageInputProps> = ({
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
-                onSubmit(e);
+                if (!isWaitingForResponse && !isDisabled) {
+                  onSubmit(e);
+                }
               }
             }}
-            disabled={isSendingMessage || isDisabled}
+            disabled={isDisabled}
           />
           <button
             type="submit"
-            className={`btn-gradient-primary ${isSendingMessage ? 'animate-pulse' : ''}`}
-            disabled={!newMessage.trim() || isSendingMessage || isDisabled}
+            className={`btn-gradient-primary ${isWaitingForResponse ? 'animate-pulse' : ''}`}
+            disabled={!newMessage.trim() || isWaitingForResponse || isDisabled}
           >
-            {isSendingMessage ? (
+            {isWaitingForResponse ? (
                 <CircularProgress size={24} color="inherit" />
             ) : (
                 <Telegram fontSize="medium" />

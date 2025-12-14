@@ -1,15 +1,14 @@
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 from typing import Dict, List, Optional, Tuple
 from sqlalchemy import func, and_
-import httpx
 import logging
 import hashlib
 import uuid
 from datetime import datetime, timezone
 
-from src.database import get_db, SessionLocal
+from src.database import get_db
 from src.models import (
     Student,
     Conversation,
@@ -29,6 +28,7 @@ from src.students.schemas import (
 )
 from src.config.settings import settings
 from src.prompts.service import PromptService
+from src.queue.service import get_queue_service, QueueService
 from starlette.status import HTTP_202_ACCEPTED
 
 logger = logging.getLogger(__name__)
@@ -318,35 +318,6 @@ def _create_analysis_job(
     return job
 
 
-async def _call_brain(endpoint: str, payload: dict) -> dict:
-    async with httpx.AsyncClient(timeout=180.0) as client:
-        response = await client.post(endpoint, json=payload)
-        response.raise_for_status()
-        return response.json()
-
-
-def _resolve_brain_endpoint() -> str:
-    return (
-        settings.LOCAL_BRAIN_ENDPOINT_URL
-        if settings.APP_ENV == "development" and settings.LOCAL_BRAIN_ENDPOINT_URL
-        else settings.BRAIN_ENDPOINT_URL
-    )
-
-
-def _mark_job_failure(
-    db: Session,
-    job: AnalysisJob,
-    analysis,
-    message: str,
-) -> None:
-    job.status = "failed"
-    job.error_message = message
-    job.updated_at = datetime.now(timezone.utc)
-    if analysis is not None:
-        analysis.status = "failed"
-        analysis.updated_at = datetime.now(timezone.utc)
-    db.commit()
-
 @router.get("", response_model=List[StudentWithConversationResponse])
 def list_students(
     school: str = Query(..., description="School name to filter students"),
@@ -378,6 +349,7 @@ def list_students(
                     content=message.content,
                     is_user=message.is_user,
                     timestamp=message.timestamp,
+                    curiosity_score=message.curiosity_score,
                 )
                 for message in messages_by_conversation_raw.get(latest_conversation.id, [])
             ]
@@ -436,6 +408,7 @@ def list_student_conversations(
                     content=message.content,
                     is_user=message.is_user,
                     timestamp=message.timestamp,
+                    curiosity_score=message.curiosity_score,
                 )
             )
 
@@ -494,6 +467,7 @@ def list_all_student_conversations(
                     content=message.content,
                     is_user=message.is_user,
                     timestamp=message.timestamp,
+                    curiosity_score=message.curiosity_score,
                 )
             )
 
@@ -512,15 +486,15 @@ def list_all_student_conversations(
 
 @router.post("/class-analysis", response_model=ClassAnalysisResponse)
 async def analyze_class_conversations(
-    background_tasks: BackgroundTasks,
     school: str = Query(..., description="School name to filter students"),
     grade: int = Query(..., ge=1, le=12, description="Grade to filter students"),
     section: Optional[str] = Query(None, description="Optional section (e.g., A, B)"),
     force_refresh: bool = Query(False, description="Force recomputing the analysis even if cached"),
     db: Session = Depends(get_db),
+    queue_service: QueueService = Depends(get_queue_service),
 ):
     """
-    Returns cached analysis immediately if available, queues background job for refresh.
+    Returns cached analysis immediately if available, queues SQS job for refresh.
     This endpoint returns quickly to avoid API Gateway timeout.
     """
     school_value = _normalize_school_value(school)
@@ -546,15 +520,15 @@ async def analyze_class_conversations(
             ).model_dump(mode="json"),
         )
     
+    # Fetch data needed for hash check and (potentially) for queueing
+    prompt_version = _get_class_analysis_prompt_version(db)
+    students = _fetch_students_for_class(db, school_value, grade, section_value)
+    user_ids = [s.user_id for s in students]
+    conversations_map, conversation_ids = _get_latest_conversations_for_users(db, user_ids)
+    current_hash = _build_class_conversation_hash(students, conversations_map, prompt_version)
+    
     # If we have cached analysis, check staleness
     if class_analysis.analysis_text and class_analysis.status == "ready":
-        # Compute current hash to detect changes (including prompt version)
-        prompt_version = _get_class_analysis_prompt_version(db)
-        students = _fetch_students_for_class(db, school_value, grade, section_value)
-        user_ids = [s.user_id for s in students]
-        conversations_map, _ = _get_latest_conversations_for_users(db, user_ids)
-        current_hash = _build_class_conversation_hash(students, conversations_map, prompt_version)
-        
         is_stale = (
             not class_analysis.last_message_hash 
             or current_hash != class_analysis.last_message_hash
@@ -582,21 +556,57 @@ async def analyze_class_conversations(
         # Data changed - queue refresh, but return cached for now
         logger.info("Class analysis is stale, queueing refresh")
 
-    # No cached analysis, or stale - queue a job
+    # Build transcript synchronously (fast DB reads)
+    if not conversation_ids:
+        # No conversations to analyze - mark as failed immediately
+        logger.warning("No conversations available for class analysis %s/%s/%s", school_value, grade, section_value)
+        return ClassAnalysisResponse(
+            analysis=None,
+            status="ready",
+            job_id=None,
+            computed_at=None,
+        )
+    
+    messages_by_conversation = _get_messages_by_conversation(db, conversation_ids)
+    transcript = _collect_class_conversation_text(students, conversations_map, messages_by_conversation)
+    
+    if not transcript.strip():
+        logger.warning("Empty transcript for class analysis %s/%s/%s", school_value, grade, section_value)
+        return ClassAnalysisResponse(
+            analysis=None,
+            status="ready",
+            job_id=None,
+            computed_at=None,
+        )
+
+    # Create job record
     job = _create_analysis_job(db, kind="class", class_analysis=class_analysis)
     class_analysis.status = "queued"
     class_analysis.updated_at = datetime.now(timezone.utc)
     db.add(class_analysis)
     db.commit()
     
-    # Queue background task - all heavy work happens here
-    background_tasks.add_task(
-        _process_class_analysis_job,
-        job.job_id,
-        school_value,
-        grade,
-        section_value,
-    )
+    # Queue via SQS (or local HTTP in development mode)
+    # Brain will process and callback with results
+    task_payload = {
+        "task_type": "CLASS_ANALYSIS",
+        "job_id": job.job_id,
+        "class_analysis_id": class_analysis.id,
+        "transcript": transcript,
+        "last_message_hash": current_hash,
+    }
+    
+    try:
+        await queue_service.send_batch_task(task_payload)
+        logger.info("Queued CLASS_ANALYSIS task for job %s", job.job_id)
+    except Exception as e:
+        # If queue fails, mark job as failed
+        logger.error("Failed to queue CLASS_ANALYSIS task: %s", e)
+        job.status = "failed"
+        job.error_message = f"Failed to queue task: {str(e)}"
+        class_analysis.status = "failed"
+        db.commit()
+        raise HTTPException(status_code=500, detail="Failed to queue analysis task")
 
     return JSONResponse(
         status_code=HTTP_202_ACCEPTED,
@@ -611,13 +621,13 @@ async def analyze_class_conversations(
 
 @router.post("/{student_id}/analysis", response_model=ClassAnalysisResponse)
 async def analyze_student_conversations(
-    background_tasks: BackgroundTasks,
     student_id: int,
     force_refresh: bool = Query(False, description="Force recomputing the analysis even if cached"),
     db: Session = Depends(get_db),
+    queue_service: QueueService = Depends(get_queue_service),
 ):
     """
-    Returns cached analysis immediately if available, queues background job for refresh.
+    Returns cached analysis immediately if available, queues SQS job for refresh.
     This endpoint returns quickly to avoid API Gateway timeout.
     """
     student = db.query(Student).filter(Student.id == student_id).first()
@@ -644,19 +654,13 @@ async def analyze_student_conversations(
             ).model_dump(mode="json"),
         )
     
+    # Fetch data needed for hash check and (potentially) for queueing
+    prompt_version = _get_student_analysis_prompt_version(db)
+    conversations, messages_by_conversation = _fetch_student_conversations(db, student)
+    current_hash = _build_student_conversation_hash(conversations, prompt_version)
+    
     # If we have cached analysis, check staleness
     if student_analysis.analysis_text and student_analysis.status == "ready":
-        # Lightweight query for hash - only need conversation metadata, not messages
-        # Also include prompt version so hash changes when prompt is updated
-        prompt_version = _get_student_analysis_prompt_version(db)
-        conversations = (
-            db.query(Conversation)
-            .filter(Conversation.user_id == student.user_id)
-            .order_by(Conversation.updated_at.desc())
-            .all()
-        )
-        current_hash = _build_student_conversation_hash(conversations, prompt_version)
-        
         is_stale = (
             not student_analysis.last_message_hash 
             or current_hash != student_analysis.last_message_hash
@@ -684,19 +688,55 @@ async def analyze_student_conversations(
         # Data changed - queue refresh, but return cached for now
         logger.info("Student analysis is stale, queueing refresh")
 
-    # No cached analysis, or stale - queue a job
+    # Build transcript synchronously (fast DB reads - already fetched above)
+    if not conversations:
+        logger.warning("No conversations available for student %s analysis", student_id)
+        return ClassAnalysisResponse(
+            analysis=None,
+            status="ready",
+            job_id=None,
+            computed_at=None,
+        )
+    
+    transcript = _collect_student_conversation_text(conversations, messages_by_conversation)
+    
+    if not transcript.strip():
+        logger.warning("Empty transcript for student %s analysis", student_id)
+        return ClassAnalysisResponse(
+            analysis=None,
+            status="ready",
+            job_id=None,
+            computed_at=None,
+        )
+
+    # Create job record
     job = _create_analysis_job(db, kind="student", student_analysis=student_analysis)
     student_analysis.status = "queued"
     student_analysis.updated_at = datetime.now(timezone.utc)
     db.add(student_analysis)
     db.commit()
     
-    # Queue background task - all heavy work happens here
-    background_tasks.add_task(
-        _process_student_analysis_job,
-        job.job_id,
-        student.id,
-    )
+    # Queue via SQS (or local HTTP in development mode)
+    # Brain will process and callback with results
+    task_payload = {
+        "task_type": "STUDENT_ANALYSIS",
+        "job_id": job.job_id,
+        "student_analysis_id": student_analysis.id,
+        "transcript": transcript,
+        "last_message_hash": current_hash,
+    }
+    
+    try:
+        await queue_service.send_batch_task(task_payload)
+        logger.info("Queued STUDENT_ANALYSIS task for job %s", job.job_id)
+    except Exception as e:
+        # If queue fails, mark job as failed
+        logger.error("Failed to queue STUDENT_ANALYSIS task: %s", e)
+        job.status = "failed"
+        job.error_message = f"Failed to queue task: {str(e)}"
+        student_analysis.status = "failed"
+        db.commit()
+        raise HTTPException(status_code=500, detail="Failed to queue analysis task")
 
     return JSONResponse(
         status_code=HTTP_202_ACCEPTED,
@@ -709,160 +749,9 @@ async def analyze_student_conversations(
     )
 
 
-async def _process_class_analysis_job(
-    job_id: str,
-    school_value: str,
-    grade: int,
-    section_value: Optional[str],
-) -> None:
-    db = SessionLocal()
-    try:
-        job = db.query(AnalysisJob).filter(AnalysisJob.job_id == job_id).first()
-        if not job or not job.class_analysis_id:
-            logger.warning("Class analysis job %s missing target", job_id)
-            return
-
-        class_analysis = job.class_analysis
-        job.status = "running"
-        job.updated_at = datetime.now(timezone.utc)
-        class_analysis.status = "running"
-        class_analysis.updated_at = datetime.now(timezone.utc)
-        db.commit()
-
-        students = _fetch_students_for_class(db, school_value, grade, section_value)
-        user_ids = [student.user_id for student in students]
-        conversations_map, conversation_ids = _get_latest_conversations_for_users(db, user_ids)
-
-        if not conversation_ids:
-            _mark_job_failure(db, job, class_analysis, "No conversations available for analysis")
-            return
-
-        messages_by_conversation = _get_messages_by_conversation(db, conversation_ids)
-        transcript = _collect_class_conversation_text(students, conversations_map, messages_by_conversation)
-
-        if not transcript.strip():
-            _mark_job_failure(db, job, class_analysis, "Conversation transcript was empty")
-            return
-
-        brain_endpoint = _resolve_brain_endpoint()
-        if not brain_endpoint:
-            _mark_job_failure(db, job, class_analysis, "Brain endpoint is not configured")
-            return
-
-        try:
-            response_json = await _call_brain(
-                f"{brain_endpoint.rstrip('/')}/class-analysis",
-                {
-                    "all_conversations": transcript,
-                    "call_type": "class_analysis",
-                },
-            )
-        except httpx.TimeoutException:
-            logger.error("Timeout while generating class analysis for %s/%s/%s", school_value, grade, section_value)
-            _mark_job_failure(db, job, class_analysis, "Brain analysis timed out")
-            return
-        except httpx.HTTPStatusError as exc:
-            logger.error("Brain returned %s for class analysis: %s", exc.response.status_code, exc.response.text)
-            _mark_job_failure(db, job, class_analysis, f"Brain analysis failed: {exc.response.text}")
-            return
-        except Exception as exc:  # pylint: disable=broad-except
-            logger.exception("Unexpected error while processing class analysis job %s", job_id)
-            _mark_job_failure(db, job, class_analysis, str(exc))
-            return
-
-        analysis_text = response_json.get("analysis", "")
-        class_analysis.analysis_text = analysis_text
-        class_analysis.status = "ready"
-        class_analysis.computed_at = datetime.now(timezone.utc)
-        # Include prompt version in hash so cache invalidates when prompt changes
-        prompt_version = _get_class_analysis_prompt_version(db)
-        class_analysis.last_message_hash = _build_class_conversation_hash(students, conversations_map, prompt_version)
-        class_analysis.updated_at = datetime.now(timezone.utc)
-
-        job.status = "completed"
-        job.error_message = None
-        job.completed_at = datetime.now(timezone.utc)
-        job.updated_at = job.completed_at
-        db.commit()
-    finally:
-        db.close()
-
-
-async def _process_student_analysis_job(
-    job_id: str,
-    student_id: int,
-) -> None:
-    db = SessionLocal()
-    try:
-        job = db.query(AnalysisJob).filter(AnalysisJob.job_id == job_id).first()
-        if not job or not job.student_analysis_id:
-            logger.warning("Student analysis job %s missing target", job_id)
-            return
-
-        student_analysis = job.student_analysis
-        job.status = "running"
-        job.updated_at = datetime.now(timezone.utc)
-        student_analysis.status = "running"
-        student_analysis.updated_at = datetime.now(timezone.utc)
-        db.commit()
-
-        student = db.query(Student).filter(Student.id == student_id).first()
-        if not student:
-            _mark_job_failure(db, job, student_analysis, "Student not found during analysis")
-            return
-
-        conversations, messages_by_conversation = _fetch_student_conversations(db, student)
-        if not conversations:
-            _mark_job_failure(db, job, student_analysis, "No conversations available for analysis")
-            return
-
-        transcript = _collect_student_conversation_text(conversations, messages_by_conversation)
-        if not transcript.strip():
-            _mark_job_failure(db, job, student_analysis, "Conversation transcript was empty")
-            return
-
-        brain_endpoint = _resolve_brain_endpoint()
-        if not brain_endpoint:
-            _mark_job_failure(db, job, student_analysis, "Brain endpoint is not configured")
-            return
-
-        try:
-            response_json = await _call_brain(
-                f"{brain_endpoint.rstrip('/')}/student-analysis",
-                {
-                    "all_conversations": transcript,
-                    "call_type": "student_analysis",
-                },
-            )
-        except httpx.TimeoutException:
-            logger.error("Timeout while generating student analysis for student_id=%s", student_id)
-            _mark_job_failure(db, job, student_analysis, "Brain analysis timed out")
-            return
-        except httpx.HTTPStatusError as exc:
-            logger.error("Brain returned %s for student analysis: %s", exc.response.status_code, exc.response.text)
-            _mark_job_failure(db, job, student_analysis, f"Brain analysis failed: {exc.response.text}")
-            return
-        except Exception as exc:  # pylint: disable=broad-except
-            logger.exception("Unexpected error while processing student analysis job %s", job_id)
-            _mark_job_failure(db, job, student_analysis, str(exc))
-            return
-
-        analysis_text = response_json.get("analysis", "")
-        student_analysis.analysis_text = analysis_text
-        student_analysis.status = "ready"
-        student_analysis.computed_at = datetime.now(timezone.utc)
-        # Include prompt version in hash so cache invalidates when prompt changes
-        prompt_version = _get_student_analysis_prompt_version(db)
-        student_analysis.last_message_hash = _build_student_conversation_hash(conversations, prompt_version)
-        student_analysis.updated_at = datetime.now(timezone.utc)
-
-        job.status = "completed"
-        job.error_message = None
-        job.completed_at = datetime.now(timezone.utc)
-        job.updated_at = job.completed_at
-        db.commit()
-    finally:
-        db.close()
+## NOTE: _process_class_analysis_job and _process_student_analysis_job have been removed.
+# Analysis processing is now handled by Brain via SQS queue.
+# Brain receives the task, calls LLM, and posts results back via /api/internal/analysis-callback
 
 
 @router.get("/analysis-jobs/{job_id}", response_model=AnalysisJobStatusResponse)

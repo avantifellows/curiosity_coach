@@ -60,7 +60,9 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ mode }) => {
   const [showExplorationPanel, setShowExplorationPanel] = useState(false);
   const [explorationDirections, setExplorationDirections] = useState<string[]>([]);
   const [explorationPrompt, setExplorationPrompt] = useState<string | undefined>(undefined);
+  const [curiosityTip, setCuriosityTip] = useState<string | undefined>(undefined);
   const lastShownAiIdRef = React.useRef<number | string | null>(null);
+  const lastTipFetchedAiIdRef = React.useRef<number | string | null>(null);
 
   const { user, logout } = useAuth();
   const location = useLocation();
@@ -105,6 +107,8 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ mode }) => {
           setExplorationDirections(explorationStep.directions || []);
           setExplorationPrompt(explorationStep.prompt || undefined);
           setShowExplorationPanel(true);
+          // Also update the tip in debug mode
+          setCuriosityTip(explorationStep.curiosity_tip || undefined);
         } else {
           // If missing, hide panel
           setExplorationDirections([]);
@@ -114,6 +118,31 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ mode }) => {
       } catch (e) {
         // On error, do not block chat; simply don't show panel
         setShowExplorationPanel(false);
+      }
+    })();
+  }, [messages, isDebugMode]);
+
+  // Effect to fetch curiosity tip for the score indicator (non-debug mode)
+  React.useEffect(() => {
+    if (isDebugMode || !messages || messages.length === 0) return;
+
+    const lastAi = [...messages].reverse().find(m => !m.is_user && m.id != null);
+    if (!lastAi) return;
+
+    // avoid refetching for same message
+    if (lastTipFetchedAiIdRef.current === lastAi.id) return;
+    lastTipFetchedAiIdRef.current = lastAi.id as number | string;
+
+    (async () => {
+      try {
+        const steps: PipelineStep[] = await getPipelineSteps(lastAi.id as number | string);
+        const explorationStep = steps.find(s => s.name === 'exploration_directions_evaluation');
+
+        if (explorationStep?.curiosity_tip) {
+          setCuriosityTip(explorationStep.curiosity_tip);
+        }
+      } catch (e) {
+        // On error, don't update the tip - fallback will be used
       }
     })();
   }, [messages, isDebugMode]);
@@ -176,8 +205,8 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ mode }) => {
     }
   };
 
-  // Determine if sidebar should be shown (only for visit 4+)
-  const shouldShowSidebar = currentVisitNumber === null || currentVisitNumber >= 4;
+  // Sidebar disabled for all visits
+  const shouldShowSidebar = false;
 
   // Show onboarding loading screen during conversation preparation (all visits)
   if (isInitializingForNewUser || isPreparingConversation) {
@@ -295,6 +324,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ mode }) => {
           setNewMessage={setNewMessage}
           onSubmit={handleFormSubmit}
           isSendingMessage={isSendingMessage}
+          isBrainProcessing={isBrainProcessing}
           isConfigViewActive={isConfigViewActive}
           isLoadingMessages={isLoadingMessages}
           isDisabled={isPreparingConversation || (currentConversationId !== null && messages.length === 0 && isLoadingMessages)}
@@ -335,7 +365,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ mode }) => {
       )}
 
       {!isDebugMode && (
-        <CuriosityScoreIndicator score={curiosityScore} />
+        <CuriosityScoreIndicator score={curiosityScore} tip={curiosityTip} />
       )}
 
       {/* Exploration Panel - only shown when ?debug=true */}

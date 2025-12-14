@@ -22,9 +22,6 @@ from src.core.chat_controller import control_chat_response
 from src.core.age_adapter import generate_response_for_13_year_old
 from src.process_query_entrypoint import process_query, process_follow_up, ProcessQueryResponse
 from src.utils.logger import logger
-# from src.core.conversational_intent_gatherer import gather_initial_intent, process_follow_up_response, ConversationalIntentError
-# from src.core.knowledge_retrieval import retrieve_knowledge, KnowledgeRetrievalError
-# from src.core.learning_enhancement import generate_enhanced_response, LearningEnhancementError
 from src.config_models import FlowConfig
 from src.services.llm_service import LLMService
 from src.services.api_service import api_service
@@ -158,14 +155,9 @@ async def init_prompts():
     
     # Prompt name mapping (filename to friendly name)
     prompt_names = {
-        "simplified_conversation_prompt.txt": "simplified_conversation",  # Changed to match the expected name
-        "intent_gathering_prompt.txt": "intent_gathering",
-        "knowledge_retrieval_prompt.txt": "knowledge_retrieval",
-        "response_generator_prompt.txt": "response_generation",
-        "learning_prompt.txt": "learning_enhancement",
-        "follow_up_response_prompt.txt": "follow_up_response",
-        "response_generator_personal_prompt.txt": "response_generation_personal",
-        "response_generator_conversational_prompt.txt": "response_generation_conversational"
+        "simplified_conversation_prompt.txt": "simplified_conversation",
+        "memory_generation_prompt.txt": "memory_generation",
+        "user_persona_generation_prompt.txt": "user_persona_generation"
     }
     
     # Find all text files in prompts directory
@@ -292,6 +284,10 @@ class BatchTaskRequest(BaseModel):
     conversation_id: Optional[int] = None
     flows: Optional[List[str]] = None
     event: Optional[str] = None
+    # Fields for analysis tasks
+    job_id: Optional[str] = None
+    transcript: Optional[str] = None
+    last_message_hash: Optional[str] = None
 
 # Updated dequeue function containing the core logic
 async def dequeue(message: MessagePayload, background_tasks: Optional[BackgroundTasks] = None):
@@ -742,8 +738,6 @@ async def dequeue(message: MessagePayload, background_tasks: Optional[Background
                             core_theme=core_theme,
                             conversation_history=conversation_history_with_latest,
                             current_query=user_input,
-                            latest_user_message=user_input,
-                            latest_ai_response=response_data.final_response,
                             current_curiosity_score=current_curiosity_score
                         )
 
@@ -764,6 +758,7 @@ async def dequeue(message: MessagePayload, background_tasks: Optional[Background
                                 'evaluation_successful': exploration_data.get('evaluation_successful', False),
                                 'curiosity_score': exploration_data.get('curiosity_score'),
                                 'curiosity_reason': exploration_data.get('curiosity_reason'),
+                                'curiosity_tip': exploration_data.get('curiosity_tip'),
                                 'curiosity_error': exploration_data.get('curiosity_error'),
                             }
 
@@ -1361,6 +1356,157 @@ async def process_memory_generation_batch(conversation_ids: List[int]):
             logger.error(f"Error processing memory for conversation {conv_id}: {e}", exc_info=True)
             # Continue to the next conversation even if one fails
 
+
+async def process_class_analysis_task(job_id: str, transcript: str, last_message_hash: Optional[str] = None):
+    """
+    Process a class analysis task received via SQS.
+    Calls the LLM, then posts results back to the Backend via callback.
+    """
+    logger.info(f"Processing CLASS_ANALYSIS task for job_id: {job_id}")
+    backend_url = os.getenv("BACKEND_CALLBACK_BASE_URL", "http://localhost:5000")
+    callback_url = f"{backend_url}/api/internal/analysis-callback"
+    
+    try:
+        # Fetch prompt from backend database
+        prompt_name = "overall_class_latest_topic_analysis"
+        version_url = f"{backend_url}/api/prompts/{prompt_name}/versions/production"
+        
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(version_url)
+            
+            if response.status_code == 200:
+                data = response.json()
+                prompt_template = data.get("prompt_text")
+            elif response.status_code == 404:
+                # Try active version if production not found
+                active_version_url = f"{backend_url}/api/prompts/{prompt_name}/versions/active"
+                response = await client.get(active_version_url)
+                if response.status_code == 200:
+                    data = response.json()
+                    prompt_template = data.get("prompt_text")
+                else:
+                    raise Exception(f"Prompt '{prompt_name}' not found in database")
+            else:
+                raise Exception(f"Failed to fetch prompt: {response.status_code}")
+        
+        if not prompt_template:
+            raise Exception(f"Prompt '{prompt_name}' found but has no prompt_text")
+        
+        # Replace placeholder
+        formatted_prompt = prompt_template.replace("{{ALL_CONVERSATIONS}}", transcript)
+        
+        # Call LLM
+        llm_service = LLMService()
+        messages = [{"role": "user", "content": formatted_prompt}]
+        analysis_text = llm_service.get_completion(messages=messages, call_type="class_analysis", json_mode=False)
+        
+        logger.info(f"Successfully generated class analysis for job {job_id} (length: {len(analysis_text)} chars)")
+        
+        # Send success callback
+        callback_payload = {
+            "job_id": job_id,
+            "analysis_kind": "class",
+            "status": "completed",
+            "analysis_text": analysis_text.strip(),
+            "last_message_hash": last_message_hash,
+        }
+        
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(callback_url, json=callback_payload)
+            resp.raise_for_status()
+            logger.info(f"Successfully sent callback for class analysis job {job_id}")
+            
+    except Exception as e:
+        logger.error(f"Error processing class analysis job {job_id}: {e}", exc_info=True)
+        # Send failure callback
+        try:
+            callback_payload = {
+                "job_id": job_id,
+                "analysis_kind": "class",
+                "status": "failed",
+                "error_message": str(e),
+            }
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                await client.post(callback_url, json=callback_payload)
+        except Exception as cb_err:
+            logger.error(f"Failed to send failure callback for job {job_id}: {cb_err}")
+
+
+async def process_student_analysis_task(job_id: str, transcript: str, last_message_hash: Optional[str] = None):
+    """
+    Process a student analysis task received via SQS.
+    Calls the LLM, then posts results back to the Backend via callback.
+    """
+    logger.info(f"Processing STUDENT_ANALYSIS task for job_id: {job_id}")
+    backend_url = os.getenv("BACKEND_CALLBACK_BASE_URL", "http://localhost:5000")
+    callback_url = f"{backend_url}/api/internal/analysis-callback"
+    
+    try:
+        # Fetch prompt from backend database
+        prompt_name = "analyse_student_all_conversation"
+        version_url = f"{backend_url}/api/prompts/{prompt_name}/versions/production"
+        
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(version_url)
+            
+            if response.status_code == 200:
+                data = response.json()
+                prompt_template = data.get("prompt_text")
+            elif response.status_code == 404:
+                # Try active version if production not found
+                active_version_url = f"{backend_url}/api/prompts/{prompt_name}/versions/active"
+                response = await client.get(active_version_url)
+                if response.status_code == 200:
+                    data = response.json()
+                    prompt_template = data.get("prompt_text")
+                else:
+                    raise Exception(f"Prompt '{prompt_name}' not found in database")
+            else:
+                raise Exception(f"Failed to fetch prompt: {response.status_code}")
+        
+        if not prompt_template:
+            raise Exception(f"Prompt '{prompt_name}' found but has no prompt_text")
+        
+        # Replace placeholder
+        formatted_prompt = prompt_template.replace("{{ALL_CONVERSATIONS}}", transcript)
+        
+        # Call LLM
+        llm_service = LLMService()
+        messages = [{"role": "user", "content": formatted_prompt}]
+        analysis_text = llm_service.get_completion(messages=messages, call_type="student_analysis", json_mode=False)
+        
+        logger.info(f"Successfully generated student analysis for job {job_id} (length: {len(analysis_text)} chars)")
+        
+        # Send success callback
+        callback_payload = {
+            "job_id": job_id,
+            "analysis_kind": "student",
+            "status": "completed",
+            "analysis_text": analysis_text.strip(),
+            "last_message_hash": last_message_hash,
+        }
+        
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(callback_url, json=callback_payload)
+            resp.raise_for_status()
+            logger.info(f"Successfully sent callback for student analysis job {job_id}")
+            
+    except Exception as e:
+        logger.error(f"Error processing student analysis job {job_id}: {e}", exc_info=True)
+        # Send failure callback
+        try:
+            callback_payload = {
+                "job_id": job_id,
+                "analysis_kind": "student",
+                "status": "failed",
+                "error_message": str(e),
+            }
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                await client.post(callback_url, json=callback_payload)
+        except Exception as cb_err:
+            logger.error(f"Failed to send failure callback for job {job_id}: {cb_err}")
+
+
 @app.post("/tasks", status_code=202)
 async def handle_batch_tasks(task_request: BatchTaskRequest, background_tasks: BackgroundTasks):
     """
@@ -1392,6 +1538,31 @@ async def handle_batch_tasks(task_request: BatchTaskRequest, background_tasks: B
             raise HTTPException(status_code=400, detail="conversation_id and flows are required")
         background_tasks.add_task(analytics_runner.run_flows, task_request.conversation_id, task_request.flows)
         return {"message": f"Accepted analytics flows for conversation_id={task_request.conversation_id}", "flows": task_request.flows}
+
+    elif task_request.task_type == "CLASS_ANALYSIS":
+        if not task_request.job_id or not task_request.transcript:
+            raise HTTPException(status_code=400, detail="job_id and transcript are required for CLASS_ANALYSIS")
+        background_tasks.add_task(
+            process_class_analysis_task, 
+            task_request.job_id, 
+            task_request.transcript, 
+            task_request.last_message_hash
+        )
+        logger.info(f"Queued CLASS_ANALYSIS task for job_id: {task_request.job_id}")
+        return {"message": f"Accepted CLASS_ANALYSIS task for job_id: {task_request.job_id}"}
+
+    elif task_request.task_type == "STUDENT_ANALYSIS":
+        if not task_request.job_id or not task_request.transcript:
+            raise HTTPException(status_code=400, detail="job_id and transcript are required for STUDENT_ANALYSIS")
+        background_tasks.add_task(
+            process_student_analysis_task, 
+            task_request.job_id, 
+            task_request.transcript, 
+            task_request.last_message_hash
+        )
+        logger.info(f"Queued STUDENT_ANALYSIS task for job_id: {task_request.job_id}")
+        return {"message": f"Accepted STUDENT_ANALYSIS task for job_id: {task_request.job_id}"}
+
     else:
         logger.warning(f"Received unknown task type: {task_request.task_type}")
         raise HTTPException(status_code=400, detail=f"Unknown task type: {task_request.task_type}")

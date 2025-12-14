@@ -26,6 +26,10 @@ export interface PipelineStep {
   // Add exploration directions specific fields
   directions?: string[];
   evaluation_successful?: boolean;
+  curiosity_score?: number | null;
+  curiosity_reason?: string | null;
+  curiosity_tip?: string | null;
+  curiosity_error?: string | null;
   // Add timing fields
   time_taken?: number | null; // Time taken in seconds
 }
@@ -271,6 +275,33 @@ const PipelineStepsModal: React.FC<PipelineStepsModalProps> = ({
                                     <li key={directionIdx} className="text-sm text-gray-800">{direction}</li>
                                   ))}
                                 </ul>
+                              </div>
+                            )}
+                            
+                            {/* Curiosity Score, Reason, and Tip */}
+                            {(step.curiosity_score !== null && step.curiosity_score !== undefined) && (
+                              <div className="bg-blue-50 p-3 rounded border border-blue-200">
+                                <p className="font-medium text-sm sm:text-base">
+                                  <strong className="text-blue-800">Curiosity Score:</strong> <span className="text-lg font-bold text-blue-600">{step.curiosity_score}</span>
+                                </p>
+                                {step.curiosity_reason && (
+                                  <p className="text-sm text-gray-700 mt-2">
+                                    <strong>Reason:</strong> {step.curiosity_reason}
+                                  </p>
+                                )}
+                                {step.curiosity_tip && (
+                                  <p className="text-sm text-gray-700 mt-2">
+                                    <strong>Tip:</strong> {step.curiosity_tip}
+                                  </p>
+                                )}
+                              </div>
+                            )}
+                            
+                            {step.curiosity_error && (
+                              <div className="bg-red-50 p-3 rounded border border-red-200">
+                                <p className="text-sm text-red-700">
+                                  <strong>Curiosity Evaluation Error:</strong> {step.curiosity_error}
+                                </p>
                               </div>
                             )}
                             

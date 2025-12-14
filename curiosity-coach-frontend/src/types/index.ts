@@ -150,6 +150,7 @@ export interface ConversationMessage {
   content: string;
   is_user: boolean;
   timestamp: string;
+  curiosity_score?: number;
 }
 
 export interface ConversationWithMessages {

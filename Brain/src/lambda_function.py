@@ -15,7 +15,10 @@ if project_root not in sys.path:
     sys.path.append(project_root)
 
 # Import the FastAPI app and the dequeue function
-from src.main import app, dequeue, MessagePayload, process_memory_generation_batch
+from src.main import (
+    app, dequeue, MessagePayload, process_memory_generation_batch,
+    process_class_analysis_task, process_student_analysis_task,
+)
 from src.core.user_persona_generator import generate_persona_for_user
 from pydantic import ValidationError
 
@@ -80,6 +83,32 @@ def lambda_handler(event, context):
                         processed_messages += 1
                     else:
                         logger.warning("USER_PERSONA_GENERATION task received with no user_id.")
+                        failed_messages += 1
+                    continue
+
+                elif task_type == "CLASS_ANALYSIS":
+                    job_id = message_body.get("job_id")
+                    transcript = message_body.get("transcript")
+                    last_message_hash = message_body.get("last_message_hash")
+                    if job_id and transcript:
+                        logger.info(f"Detected CLASS_ANALYSIS task for job_id: {job_id}")
+                        asyncio.run(process_class_analysis_task(job_id, transcript, last_message_hash))
+                        processed_messages += 1
+                    else:
+                        logger.warning("CLASS_ANALYSIS task received with missing job_id or transcript.")
+                        failed_messages += 1
+                    continue
+
+                elif task_type == "STUDENT_ANALYSIS":
+                    job_id = message_body.get("job_id")
+                    transcript = message_body.get("transcript")
+                    last_message_hash = message_body.get("last_message_hash")
+                    if job_id and transcript:
+                        logger.info(f"Detected STUDENT_ANALYSIS task for job_id: {job_id}")
+                        asyncio.run(process_student_analysis_task(job_id, transcript, last_message_hash))
+                        processed_messages += 1
+                    else:
+                        logger.warning("STUDENT_ANALYSIS task received with missing job_id or transcript.")
                         failed_messages += 1
                     continue
 
