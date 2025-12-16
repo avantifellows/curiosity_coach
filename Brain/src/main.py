@@ -1378,45 +1378,20 @@ async def process_class_analysis_task(
     callback_url = f"{backend_url}/api/internal/analysis-callback"
     
     try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            # 1. Fetch transcript from Backend
-            transcript_url = f"{backend_url}/api/internal/class-transcript"
-            params = {"school": school, "grade": grade}
-            if section:
-                params["section"] = section
-            
-            logger.info(f"Fetching class transcript from {transcript_url}")
-            resp = await client.get(transcript_url, params=params)
-            resp.raise_for_status()
-            transcript_data = resp.json()
-            transcript = transcript_data.get("transcript", "")
-            
-            if not transcript.strip():
-                raise Exception("No conversation transcript available for this class")
-            
-            logger.info(f"Fetched transcript: {transcript_data.get('student_count')} students, {transcript_data.get('conversation_count')} conversations")
-            
-            # 2. Fetch prompt
-            prompt_name = "overall_class_latest_topic_analysis"
-            version_url = f"{backend_url}/api/prompts/{prompt_name}/versions/production"
-            response = await client.get(version_url)
-            
-            if response.status_code == 200:
-                data = response.json()
-                prompt_template = data.get("prompt_text")
-            elif response.status_code == 404:
-                active_version_url = f"{backend_url}/api/prompts/{prompt_name}/versions/active"
-                response = await client.get(active_version_url)
-                if response.status_code == 200:
-                    data = response.json()
-                    prompt_template = data.get("prompt_text")
-                else:
-                    raise Exception(f"Prompt '{prompt_name}' not found in database")
-            else:
-                raise Exception(f"Failed to fetch prompt: {response.status_code}")
+        # 1. Fetch transcript from Backend using service method
+        transcript = await api_service.get_class_conversation_transcript(school, grade, section)
+        
+        if not transcript or not transcript.strip():
+            raise Exception("No conversation transcript available for this class")
+        
+        logger.info(f"Fetched class transcript (length: {len(transcript)} chars)")
+        
+        # 2. Fetch prompt using service method
+        prompt_name = "overall_class_latest_topic_analysis"
+        prompt_template = await api_service.get_prompt_template(prompt_name, prefer_production=True)
         
         if not prompt_template:
-            raise Exception(f"Prompt '{prompt_name}' found but has no prompt_text")
+            raise Exception(f"Prompt '{prompt_name}' not found in database")
         
         # 3. Format prompt and call LLM
         formatted_prompt = prompt_template.replace("{{ALL_CONVERSATIONS}}", transcript)
@@ -1435,24 +1410,18 @@ async def process_class_analysis_task(
             "last_message_hash": last_message_hash,
         }
         
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.post(callback_url, json=callback_payload)
-            resp.raise_for_status()
-            logger.info(f"Successfully sent callback for class analysis job {job_id}")
+        await api_service.send_analysis_callback(callback_url, callback_payload)
             
     except Exception as e:
         logger.error(f"Error processing class analysis job {job_id}: {e}", exc_info=True)
-        try:
-            callback_payload = {
-                "job_id": job_id,
-                "analysis_kind": "class",
-                "status": "failed",
-                "error_message": str(e),
-            }
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                await client.post(callback_url, json=callback_payload)
-        except Exception as cb_err:
-            logger.error(f"Failed to send failure callback for job {job_id}: {cb_err}")
+        # Send failure callback
+        callback_payload = {
+            "job_id": job_id,
+            "analysis_kind": "class",
+            "status": "failed",
+            "error_message": str(e),
+        }
+        await api_service.send_analysis_callback(callback_url, callback_payload)
 
 
 async def process_student_analysis_task(
@@ -1469,42 +1438,24 @@ async def process_student_analysis_task(
     callback_url = f"{backend_url}/api/internal/analysis-callback"
     
     try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            # 1. Fetch transcript from Backend
-            transcript_url = f"{backend_url}/api/internal/student-transcript/{student_id}"
-            
-            logger.info(f"Fetching student transcript from {transcript_url}")
-            resp = await client.get(transcript_url)
-            resp.raise_for_status()
-            transcript_data = resp.json()
-            transcript = transcript_data.get("transcript", "")
-            
-            if not transcript.strip():
-                raise Exception("No conversation transcript available for this student")
-            
-            logger.info(f"Fetched transcript: {transcript_data.get('conversation_count')} conversations")
-            
-            # 2. Fetch prompt
-            prompt_name = "analyse_student_all_conversation"
-            version_url = f"{backend_url}/api/prompts/{prompt_name}/versions/production"
-            response = await client.get(version_url)
-            
-            if response.status_code == 200:
-                data = response.json()
-                prompt_template = data.get("prompt_text")
-            elif response.status_code == 404:
-                active_version_url = f"{backend_url}/api/prompts/{prompt_name}/versions/active"
-                response = await client.get(active_version_url)
-                if response.status_code == 200:
-                    data = response.json()
-                    prompt_template = data.get("prompt_text")
-                else:
-                    raise Exception(f"Prompt '{prompt_name}' not found in database")
-            else:
-                raise Exception(f"Failed to fetch prompt: {response.status_code}")
+        # 1. Fetch transcript from Backend using service method
+        transcript_data = await api_service.get_student_conversation_transcript(student_id)
+        
+        if not transcript_data:
+            raise Exception("No conversation transcript available for this student")
+        
+        transcript = transcript_data.get("transcript", "")
+        if not transcript.strip():
+            raise Exception("Empty conversation transcript for this student")
+        
+        logger.info(f"Fetched student transcript: {transcript_data.get('conversation_count', 0)} conversations (length: {len(transcript)} chars)")
+        
+        # 2. Fetch prompt using service method
+        prompt_name = "analyse_student_all_conversation"
+        prompt_template = await api_service.get_prompt_template(prompt_name, prefer_production=True)
         
         if not prompt_template:
-            raise Exception(f"Prompt '{prompt_name}' found but has no prompt_text")
+            raise Exception(f"Prompt '{prompt_name}' not found in database")
         
         # 3. Format prompt and call LLM
         formatted_prompt = prompt_template.replace("{{ALL_CONVERSATIONS}}", transcript)
@@ -1523,24 +1474,18 @@ async def process_student_analysis_task(
             "last_message_hash": last_message_hash,
         }
         
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.post(callback_url, json=callback_payload)
-            resp.raise_for_status()
-            logger.info(f"Successfully sent callback for student analysis job {job_id}")
+        await api_service.send_analysis_callback(callback_url, callback_payload)
             
     except Exception as e:
         logger.error(f"Error processing student analysis job {job_id}: {e}", exc_info=True)
-        try:
-            callback_payload = {
-                "job_id": job_id,
-                "analysis_kind": "student",
-                "status": "failed",
-                "error_message": str(e),
-            }
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                await client.post(callback_url, json=callback_payload)
-        except Exception as cb_err:
-            logger.error(f"Failed to send failure callback for job {job_id}: {cb_err}")
+        # Send failure callback
+        callback_payload = {
+            "job_id": job_id,
+            "analysis_kind": "student",
+            "status": "failed",
+            "error_message": str(e),
+        }
+        await api_service.send_analysis_callback(callback_url, callback_payload)
 
 
 @app.post("/tasks", status_code=202)
@@ -1620,39 +1565,14 @@ async def analyze_class_conversations(request: ClassAnalysisRequest):
         raise HTTPException(status_code=400, detail="all_conversations is required and cannot be empty")
     
     try:
-        # Fetch prompt from backend database
+        # Fetch prompt using service method
         prompt_name = "overall_class_latest_topic_analysis"
-        backend_url = os.getenv("BACKEND_CALLBACK_BASE_URL", "http://localhost:5000")
-        # Use production version for analysis
-        version_url = f"{backend_url}/api/prompts/{prompt_name}/versions/production"
+        logger.info(f"Fetching prompt '{prompt_name}' from backend")
         
-        logger.info(f"Fetching prompt '{prompt_name}' from backend: {version_url}")
+        prompt_template = await api_service.get_prompt_template(prompt_name, prefer_production=True)
         
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.get(version_url)
-            
-            if response.status_code == 200:
-                data = response.json()
-                prompt_template = data.get("prompt_text")
-                if not prompt_template:
-                    raise HTTPException(status_code=500, detail=f"Prompt '{prompt_name}' found but has no prompt_text")
-                logger.info(f"Successfully fetched prompt '{prompt_name}' from backend")
-            elif response.status_code == 404:
-                # Try active version if production not found
-                logger.warning(f"Production version not found for '{prompt_name}', trying active version")
-                active_version_url = f"{backend_url}/api/prompts/{prompt_name}/versions/active"
-                response = await client.get(active_version_url)
-                if response.status_code == 200:
-                    data = response.json()
-                    prompt_template = data.get("prompt_text")
-                    if not prompt_template:
-                        raise HTTPException(status_code=500, detail=f"Prompt '{prompt_name}' found but has no prompt_text")
-                    logger.info(f"Successfully fetched active version of prompt '{prompt_name}' from backend")
-                else:
-                    raise HTTPException(status_code=404, detail=f"Prompt '{prompt_name}' not found in database")
-            else:
-                response.raise_for_status()
-                raise HTTPException(status_code=response.status_code, detail=f"Failed to fetch prompt: {response.text}")
+        if not prompt_template:
+            raise HTTPException(status_code=404, detail=f"Prompt '{prompt_name}' not found in database")
         
         # Replace {{ALL_CONVERSATIONS}} placeholder in the prompt
         formatted_prompt = prompt_template.replace("{{ALL_CONVERSATIONS}}", request.all_conversations)
@@ -1714,39 +1634,14 @@ async def analyze_student_conversations(request: StudentAnalysisRequest):
         raise HTTPException(status_code=400, detail="all_conversations is required and cannot be empty")
     
     try:
-        # Fetch prompt from backend database
+        # Fetch prompt using service method
         prompt_name = "analyse_student_all_conversation"
-        backend_url = os.getenv("BACKEND_CALLBACK_BASE_URL", "http://localhost:5000")
-        # Use production version for analysis
-        version_url = f"{backend_url}/api/prompts/{prompt_name}/versions/production"
+        logger.info(f"Fetching prompt '{prompt_name}' from backend")
         
-        logger.info(f"Fetching prompt '{prompt_name}' from backend: {version_url}")
+        prompt_template = await api_service.get_prompt_template(prompt_name, prefer_production=True)
         
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.get(version_url)
-            
-            if response.status_code == 200:
-                data = response.json()
-                prompt_template = data.get("prompt_text")
-                if not prompt_template:
-                    raise HTTPException(status_code=500, detail=f"Prompt '{prompt_name}' found but has no prompt_text")
-                logger.info(f"Successfully fetched prompt '{prompt_name}' from backend")
-            elif response.status_code == 404:
-                # Try active version if production not found
-                logger.warning(f"Production version not found for '{prompt_name}', trying active version")
-                active_version_url = f"{backend_url}/api/prompts/{prompt_name}/versions/active"
-                response = await client.get(active_version_url)
-                if response.status_code == 200:
-                    data = response.json()
-                    prompt_template = data.get("prompt_text")
-                    if not prompt_template:
-                        raise HTTPException(status_code=500, detail=f"Prompt '{prompt_name}' found but has no prompt_text")
-                    logger.info(f"Successfully fetched active version of prompt '{prompt_name}' from backend")
-                else:
-                    raise HTTPException(status_code=404, detail=f"Prompt '{prompt_name}' not found in database")
-            else:
-                response.raise_for_status()
-                raise HTTPException(status_code=response.status_code, detail=f"Failed to fetch prompt: {response.text}")
+        if not prompt_template:
+            raise HTTPException(status_code=404, detail=f"Prompt '{prompt_name}' not found in database")
         
         # Replace {{ALL_CONVERSATIONS}} placeholder in the prompt
         formatted_prompt = prompt_template.replace("{{ALL_CONVERSATIONS}}", request.all_conversations)

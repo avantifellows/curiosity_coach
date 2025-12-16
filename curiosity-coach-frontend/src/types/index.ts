@@ -170,4 +170,25 @@ export interface PaginatedStudentConversations {
   next_offset: number | null;
 }
 
+// --- User Persona Types ---
+
+export interface UserPersonaData {
+  what_works: string;
+  what_doesnt_work: string;
+  interests: string;
+  learning_style: string;
+  engagement_triggers: string;
+  red_flags: string;
+}
+
+export interface UserPersona {
+  id: number;
+  user_id: number;
+  persona_data: UserPersonaData | string; // Can be parsed object or JSON string from backend
+  created_at: string;
+  updated_at: string;
+}
+
+// --- End User Persona Types ---
+
 // --- End Student Types --- 

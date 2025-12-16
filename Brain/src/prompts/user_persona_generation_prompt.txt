@@ -1,72 +1,29 @@
-You are an analyst who has access to detailed memory summaries from multiple conversations between a student and an AI learning coach.
+You are an analyst reviewing conversation transcripts between a 13-year-old student and an AI curiosity coach.
 
-Your task: Aggregate these conversation memories into a unified USER PERSONA that captures:
-1. What teaching techniques work best with this student (across all conversations)
-2. How they prefer conversations to end and what brings them back
-3. Their broad interests and learning progression patterns
-4. Their overall learning style, attention span, and engagement preferences
+Your task: Create a concise USER PERSONA that helps the coach adapt to this specific student.
+
+Analyze the conversations and identify:
+1. What teaching approaches work vs. don't work with this kid
+2. Their main interests and how they like to explore topics
+3. Their engagement style and what keeps/loses their attention
 
 **Required Output Format:**
-Return ONLY a JSON object with this exact structure:
+Return ONLY a JSON object with this structure:
 
 {
-  "curiosity_boosters": {
-    "most_effective": [
-      {
-        "category": "Name of technique that consistently works",
-        "evidence": "Pattern observed across conversations",
-        "frequency": "How often it worked"
-      }
-    ],
-    "least_effective": ["Techniques that didn't resonate"],
-    "comment": "Summary of overall teaching approach that works best"
-  },
-  "invitation_to_come_back": {
-    "preferred_endings": "What types of endings (cliffhanger/challenge/choice) work best",
-    "return_triggers": "What makes them want to come back",
-    "comment": "Summary of re-engagement patterns"
-  },
-  "knowledge_journey": {
-    "primary_interests": {
-      "topic_category_1": "Description of sustained interest",
-      "topic_category_2": "Another area they return to"
-    },
-    "learning_progression": "How their knowledge/curiosity has evolved",
-    "exploration_style": "Do they prefer depth or breadth? Specific or general?",
-    "missing_opportunities": ["Topics they might enjoy but haven't explored yet"]
-  },
-  "kid_learning_profile": {
-    "attention_span": {
-      "overall_assessment": "short / moderate / long (based on patterns)",
-      "evidence": "Cross-conversation evidence",
-      "comment": "When they stay engaged vs. when they don't"
-    },
-    "ability_to_grasp": {
-      "overall_assessment": "low / medium / high",
-      "evidence": "How quickly they understand new concepts",
-      "comment": "What complexity level works best"
-    },
-    "processing_time": {
-      "overall_assessment": "slow / average / fast",
-      "evidence": "Response patterns across conversations",
-      "comment": "How much time they need to think"
-    },
-    "engagement_patterns": {
-      "dominant_style": "playful / interrogative / exploratory / fact-seeking / mixed",
-      "evidence": "Consistent behaviors across conversations",
-      "comment": "How they prefer to interact and learn",
-      "triggers_for_excitement": ["What gets them really engaged"],
-      "triggers_for_disengagement": ["What causes them to lose interest"]
-    }
-  }
+  "what_works": "Teaching techniques and conversation styles that resonate with this student (2-3 specific patterns with brief evidence)",
+  "what_doesnt_work": "Approaches that cause disengagement or don't land well (1-2 specific patterns)",
+  "interests": "Main topics they're curious about and how their interests connect",
+  "learning_style": "How they prefer to learn - depth vs breadth, concrete vs abstract, fast vs thoughtful, playful vs serious",
+  "engagement_triggers": "What gets them excited and keeps them engaged",
+  "red_flags": "What causes them to lose interest or disengage"
 }
 
 **Instructions:**
-1. Look for PATTERNS across multiple conversation memories
-2. Aggregate similar evidence from different conversations
-3. Identify what consistently works vs. what doesn't
-4. Create a holistic profile that helps the AI adapt to this specific student
-5. Be specific and evidence-based, not generic
+- Be specific and evidence-based, not generic
+- Keep each field concise (1-2 sentences max)
+- Focus on actionable insights the coach can use to improve curiosity
+- Look for consistent patterns across conversations
 
-**Conversation Memories:**
-{{CONVERSATION_MEMORIES}}
+**Conversation Transcripts:**
+{{CONVERSATION_TRANSCRIPTS}}

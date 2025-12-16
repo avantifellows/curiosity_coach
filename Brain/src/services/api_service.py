@@ -216,6 +216,161 @@ class APIService:
             logger.warning(f"Error response {e.response.status_code} while fetching previous memories: {e.response.text}")
             return []
 
+    async def get_student_by_user_id(self, user_id: int) -> Optional[Dict[str, Any]]:
+        """
+        Fetch student record by user_id.
+        
+        Returns:
+            Student dict with id, user_id, school, grade, etc. or None if not found
+        """
+        url = f"{self.backend_url}/api/internal/users/{user_id}/student"
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(url)
+                if response.status_code == 404:
+                    logger.warning(f"No student record found for user_id {user_id}")
+                    return None
+                response.raise_for_status()
+                return response.json()
+        except httpx.RequestError as e:
+            logger.error(f"Error fetching student for user {user_id}: {e}")
+            return None
+        except httpx.HTTPStatusError as e:
+            logger.error(f"Error response {e.response.status_code} while fetching student for user {user_id}: {e.response.text}")
+            return None
+
+    async def get_student_conversation_transcript(self, student_id: int) -> Optional[Dict[str, Any]]:
+        """
+        Fetch formatted conversation transcripts for a student.
+        Used by Brain for persona generation.
+        
+        Returns:
+            Dict with {"transcript": str, "conversation_count": int} or None if error
+        """
+        url = f"{self.backend_url}/api/internal/student-transcript/{student_id}"
+        try:
+            timeout = httpx.Timeout(60.0, connect=10.0)
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                logger.info(f"Fetching conversation transcript from: {url}")
+                response = await client.get(url)
+                response.raise_for_status()
+                data = response.json()
+                conversation_count = data.get("conversation_count", 0)
+                logger.info(f"Successfully fetched transcript for student {student_id}: {conversation_count} conversations")
+                return data
+        except httpx.RequestError as e:
+            logger.error(f"Error fetching conversation transcript for student {student_id}: {e}")
+            return None
+        except httpx.HTTPStatusError as e:
+            logger.error(f"Error response {e.response.status_code} while fetching transcript for student {student_id}: {e.response.text}")
+            return None
+
+    async def get_class_conversation_transcript(self, school: str, grade: int, section: Optional[str] = None) -> Optional[str]:
+        """
+        Fetch formatted conversation transcripts for a class.
+        Used by Brain for class analysis.
+        
+        Returns:
+            Formatted transcript string or None if error
+        """
+        url = f"{self.backend_url}/api/internal/class-transcript"
+        params = {"school": school, "grade": grade}
+        if section:
+            params["section"] = section
+        
+        try:
+            timeout = httpx.Timeout(60.0, connect=10.0)
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                logger.info(f"Fetching class transcript from: {url} with params: {params}")
+                response = await client.get(url, params=params)
+                response.raise_for_status()
+                data = response.json()
+                transcript = data.get("transcript", "")
+                student_count = data.get("student_count", 0)
+                conversation_count = data.get("conversation_count", 0)
+                logger.info(f"Successfully fetched class transcript: {student_count} students, {conversation_count} conversations")
+                return transcript
+        except httpx.RequestError as e:
+            logger.error(f"Error fetching class transcript: {e}")
+            return None
+        except httpx.HTTPStatusError as e:
+            logger.error(f"Error response {e.response.status_code} while fetching class transcript: {e.response.text}")
+            return None
+
+    async def send_analysis_callback(self, callback_url: str, payload: Dict[str, Any]) -> bool:
+        """
+        Send analysis callback to backend.
+        Used for class and student analysis tasks.
+        
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            timeout = httpx.Timeout(30.0, connect=10.0)
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                logger.info(f"Sending analysis callback to {callback_url}")
+                response = await client.post(callback_url, json=payload)
+                response.raise_for_status()
+                logger.info(f"Successfully sent callback for job {payload.get('job_id')}")
+                return True
+        except httpx.RequestError as e:
+            logger.error(f"Error sending callback: {e}")
+            return False
+        except httpx.HTTPStatusError as e:
+            logger.error(f"HTTP error {e.response.status_code} sending callback: {e.response.text}")
+            return False
+        except Exception as e:
+            logger.error(f"Unexpected error sending callback: {e}")
+            return False
+
+    async def get_prompt_template(self, prompt_name: str, prefer_production: bool = True) -> Optional[str]:
+        """
+        Fetch prompt template from backend.
+        Tries production version first (if prefer_production=True), then falls back to active.
+        
+        Returns:
+            Prompt text string or None if not found
+        """
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                # Try production first (or active if prefer_production=False)
+                if prefer_production:
+                    version_url = f"{self.backend_url}/api/prompts/{prompt_name}/versions/production"
+                    logger.info(f"Fetching production prompt '{prompt_name}' from {version_url}")
+                    response = await client.get(version_url)
+                    
+                    if response.status_code == 200:
+                        data = response.json()
+                        prompt_text = data.get("prompt_text")
+                        if prompt_text:
+                            logger.info(f"Successfully fetched production prompt '{prompt_name}'")
+                            return prompt_text
+                    
+                    # Fall back to active
+                    logger.info(f"Production not found for '{prompt_name}', trying active version")
+                
+                # Try active version
+                active_url = f"{self.backend_url}/api/prompts/{prompt_name}/versions/active"
+                logger.info(f"Fetching active prompt '{prompt_name}' from {active_url}")
+                response = await client.get(active_url)
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    prompt_text = data.get("prompt_text")
+                    if prompt_text:
+                        logger.info(f"Successfully fetched active prompt '{prompt_name}'")
+                        return prompt_text
+                
+                logger.warning(f"Prompt '{prompt_name}' not found in backend (tried production and active)")
+                return None
+                
+        except httpx.RequestError as e:
+            logger.error(f"Error fetching prompt '{prompt_name}': {e}")
+            return None
+        except Exception as e:
+            logger.error(f"Unexpected error fetching prompt '{prompt_name}': {e}")
+            return None
+
     async def get_user_conversations(self, user_id: int) -> Optional[Dict[str, Any]]:
         """
         Fetch list of conversation IDs for a user.

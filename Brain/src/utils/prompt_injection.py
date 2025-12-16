@@ -14,7 +14,8 @@ def _get_allowed_persona_keys() -> List[str]:
     try:
         return list(UserPersonaData.model_fields.keys())
     except Exception:
-        return ["curiosity_boosters", "invitation_to_come_back", "knowledge_journey", "kid_learning_profile"]
+        # Fallback to schema fields if UserPersonaData import fails
+        return ["what_works", "what_doesnt_work", "interests", "learning_style", "engagement_triggers", "red_flags"]
 PERSONA_PLACEHOLDER_REGEX = re.compile(r"\{\{USER_PERSONA(?:__([A-Za-z0-9_]+(?:__[A-Za-z0-9_]+)*))?\}\}")
 
 # Previous conversations memory placeholder regex
@@ -201,14 +202,15 @@ def inject_persona_placeholders(template: str, persona: Optional[Dict[str, Any]]
 
     Supports two modes:
     1. Full injection: {{USER_PERSONA}} -> Complete JSON dump of all persona data
-    2. Selective injection: {{USER_PERSONA__curiosity_boosters}} -> Only specific fields
-    3. Nested injection: {{USER_PERSONA__kid_learning_profile__attention_span__overall_assessment}}
+    2. Selective injection: {{USER_PERSONA__what_works}} -> Only specific fields
 
     This provides the LLM with access to the aggregated persona profile:
-    - curiosity_boosters: What teaching techniques work best
-    - invitation_to_come_back: Preferred conversation endings and return triggers
-    - knowledge_journey: Primary interests and learning progression
-    - kid_learning_profile: Overall learning style and engagement preferences
+    - what_works: Teaching techniques that resonate with this student
+    - what_doesnt_work: Approaches that cause disengagement
+    - interests: Main topics they're curious about
+    - learning_style: How they prefer to learn
+    - engagement_triggers: What gets them excited
+    - red_flags: What causes them to lose interest
 
     Args:
         template: The prompt template with placeholders

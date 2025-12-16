@@ -1,17 +1,13 @@
 import json
-import os
 from src.services.api_service import api_service
 from src.services.llm_service import LLMService
 from src.utils.logger import logger
 from src.schemas import UserPersonaData
 
-# Define paths relative to this file's location
-_PROMPT_DIR = os.path.join(os.path.dirname(__file__), "..", "prompts")
-_USER_PERSONA_GENERATION_PROMPT_PATH = os.path.join(_PROMPT_DIR, "user_persona_generation_prompt.txt")
 
 async def generate_persona_for_user(user_id: int):
     """
-    Generates a user persona based on their conversation memories and saves it.
+    Generates a user persona based on their conversation transcripts and saves it.
     Requires minimum 3 conversations for meaningful persona generation.
     """
     logger.info(f"Starting persona generation for user_id: {user_id}")
@@ -30,32 +26,40 @@ async def generate_persona_for_user(user_id: int):
     
     logger.info(f"User {user_id} has {conversation_count} conversations. Proceeding with persona generation.")
 
-    # 2. Fetch conversation memories
-    memories = await api_service.get_conversation_memories_for_user(user_id)
-    if not memories:
-        logger.warning(f"No conversation memories found for user {user_id}. Skipping persona generation.")
+    # 2. Get student_id from user_id
+    student = await api_service.get_student_by_user_id(user_id)
+    if not student:
+        logger.warning(f"No student record found for user {user_id}. Skipping persona generation.")
         return
-
-    logger.info(f"Found {len(memories)} memories for user {user_id}.")
-
-    # 2. Prepare the prompt for the LLM
-    try:
-        with open(_USER_PERSONA_GENERATION_PROMPT_PATH, "r") as f:
-            prompt_template = f.read()
-    except FileNotFoundError:
-        logger.error(f"Persona generation prompt file not found at {_USER_PERSONA_GENERATION_PROMPT_PATH}.")
-        return
-
-    # The prompt expects a JSON object with a "memories" key
-    # The memories from the API are expected to be a list of dicts,
-    # where each dict has the conversation memory data.
-    memories_payload = {"memories": memories}
     
-    final_prompt = f"{prompt_template}\n\n{json.dumps(memories_payload, indent=2)}"
+    student_id = student.get("id")
+    logger.info(f"Found student_id {student_id} for user_id {user_id}")
+
+    # 3. Fetch conversation transcript using student_id
+    transcript_data = await api_service.get_student_conversation_transcript(student_id)
+    if not transcript_data:
+        logger.warning(f"No conversation transcript found for student {student_id}. Skipping persona generation.")
+        return
+    
+    transcript = transcript_data.get("transcript", "")
+    if not transcript.strip():
+        logger.warning(f"Empty conversation transcript for student {student_id}. Skipping persona generation.")
+        return
+
+    logger.info(f"Successfully fetched conversation transcript for student {student_id} (length: {len(transcript)} chars)")
+
+    # 4. Fetch prompt from database
+    prompt_template = await api_service.get_prompt_template("user_persona_generation")
+    if not prompt_template:
+        logger.error("Prompt 'user_persona_generation' not found in database. Skipping persona generation.")
+        return
+
+    # Replace the placeholder with actual transcript
+    final_prompt = prompt_template.replace("{{CONVERSATION_TRANSCRIPTS}}", transcript)
     
     messages = [{"role": "user", "content": final_prompt}]
 
-    # 3. Call the LLM to get the persona
+    # 5. Call the LLM to get the persona
     try:
         llm_service = LLMService()
         logger.info(f"Calling LLM for persona generation for user {user_id}.")
@@ -77,7 +81,7 @@ async def generate_persona_for_user(user_id: int):
         logger.error(f"An error occurred during LLM call for user {user_id}: {e}")
         return
 
-    # 4. Validate the response against schema and save to DB
+    # 6. Validate the response against schema and save to DB
     try:
         validated_persona = UserPersonaData(**persona_data)
     except Exception as e:

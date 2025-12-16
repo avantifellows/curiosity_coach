@@ -1,13 +1,26 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { ConversationWithMessages, Student } from '../types';
-import { getStudentConversations } from '../services/api';
+import { ConversationWithMessages, Student, UserPersona, UserPersonaData } from '../types';
+import { getStudentConversations, getUserPersona } from '../services/api';
 
 interface ConversationLocationState {
   student?: Student;
 }
 
 const PAGE_SIZE = 3;
+
+// Helper to ensure persona_data is parsed
+const getPersonaData = (persona: UserPersona | null): UserPersonaData | null => {
+  if (!persona) return null;
+  if (typeof persona.persona_data === 'string') {
+    try {
+      return JSON.parse(persona.persona_data);
+    } catch {
+      return null;
+    }
+  }
+  return persona.persona_data;
+};
 
 // Get the latest non-null curiosity score from messages
 const getLatestCuriosityScore = (messages: ConversationWithMessages['messages']): number | null => {
@@ -30,6 +43,8 @@ const TeacherConversationView: React.FC = () => {
   const [isInitialLoading, setIsInitialLoading] = useState(false);
   const [isLoadMore, setIsLoadMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [persona, setPersona] = useState<UserPersona | null>(null);
+  const [personaLoading, setPersonaLoading] = useState(false);
 
   const fetchConversations = useCallback(
     async (offset = 0) => {
@@ -63,6 +78,22 @@ const TeacherConversationView: React.FC = () => {
       return;
     }
     fetchConversations(0);
+    
+    // Fetch persona for this student's user
+    const fetchPersona = async () => {
+      setPersonaLoading(true);
+      try {
+        const personaData = await getUserPersona(student.user_id);
+        setPersona(personaData);
+      } catch (err) {
+        console.error('Failed to fetch persona:', err);
+        // Don't show error to user - persona is optional
+      } finally {
+        setPersonaLoading(false);
+      }
+    };
+    
+    fetchPersona();
   }, [student, fetchConversations]);
 
   const handleLoadMore = () => {
@@ -116,6 +147,73 @@ const TeacherConversationView: React.FC = () => {
             </button>
           </div>
         </div>
+
+        {/* User Persona Section */}
+        {!personaLoading && (() => {
+          const personaData = getPersonaData(persona);
+          if (!personaData) return null;
+          
+          return (
+            <div className="rounded-3xl bg-gradient-to-br from-purple-50 to-pink-50 p-6 shadow-lg shadow-slate-200">
+              <h2 className="text-2xl font-semibold text-slate-900 mb-4 flex items-center gap-2">
+                <span>🎯</span>
+                <span>Learning Profile</span>
+              </h2>
+              <p className="text-xs text-slate-500 mb-4">
+                Last updated: {persona ? new Date(persona.updated_at).toLocaleString() : ''}
+              </p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="bg-white/60 backdrop-blur-sm rounded-2xl p-4 border border-purple-100">
+                  <h3 className="text-sm font-semibold text-purple-700 mb-2 flex items-center gap-2">
+                    <span>✅</span>
+                    <span>What Works</span>
+                  </h3>
+                  <p className="text-sm text-slate-700">{personaData.what_works}</p>
+                </div>
+                
+                <div className="bg-white/60 backdrop-blur-sm rounded-2xl p-4 border border-red-100">
+                  <h3 className="text-sm font-semibold text-red-700 mb-2 flex items-center gap-2">
+                    <span>❌</span>
+                    <span>What Doesn't Work</span>
+                  </h3>
+                  <p className="text-sm text-slate-700">{personaData.what_doesnt_work}</p>
+                </div>
+                
+                <div className="bg-white/60 backdrop-blur-sm rounded-2xl p-4 border border-blue-100">
+                  <h3 className="text-sm font-semibold text-blue-700 mb-2 flex items-center gap-2">
+                    <span>💡</span>
+                    <span>Interests</span>
+                  </h3>
+                  <p className="text-sm text-slate-700">{personaData.interests}</p>
+                </div>
+                
+                <div className="bg-white/60 backdrop-blur-sm rounded-2xl p-4 border border-green-100">
+                  <h3 className="text-sm font-semibold text-green-700 mb-2 flex items-center gap-2">
+                    <span>📚</span>
+                    <span>Learning Style</span>
+                  </h3>
+                  <p className="text-sm text-slate-700">{personaData.learning_style}</p>
+                </div>
+                
+                <div className="bg-white/60 backdrop-blur-sm rounded-2xl p-4 border border-amber-100">
+                  <h3 className="text-sm font-semibold text-amber-700 mb-2 flex items-center gap-2">
+                    <span>⚡</span>
+                    <span>Engagement Triggers</span>
+                  </h3>
+                  <p className="text-sm text-slate-700">{personaData.engagement_triggers}</p>
+                </div>
+                
+                <div className="bg-white/60 backdrop-blur-sm rounded-2xl p-4 border border-orange-100">
+                  <h3 className="text-sm font-semibold text-orange-700 mb-2 flex items-center gap-2">
+                    <span>🚩</span>
+                    <span>Red Flags</span>
+                  </h3>
+                  <p className="text-sm text-slate-700">{personaData.red_flags}</p>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
 
         <div className="rounded-3xl bg-white p-6 shadow-lg shadow-slate-200 space-y-6">
           {error && (

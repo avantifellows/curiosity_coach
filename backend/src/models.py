@@ -549,34 +549,48 @@ def get_conversations_needing_memory_for_user(
 def get_users_needing_persona_generation(db: Session) -> List[int]:
     """
     Returns a list of user IDs who need their persona generated or updated.
-    """
-    # 1. Users with an existing persona but newer memories
-    users_to_update = (
-        db.query(User.id)
-        .join(UserPersona)
-        .join(Conversation, User.id == Conversation.user_id)
-        .join(ConversationMemory, Conversation.id == ConversationMemory.conversation_id)
-        .group_by(User.id, UserPersona.updated_at)
-        .having(func.max(ConversationMemory.created_at) > UserPersona.updated_at)
-        .all()
-    )
-
-    # 2. Users with memories but no persona
-    users_to_create = (
-        db.query(User.id)
-        .join(Conversation, User.id == Conversation.user_id)
-        .join(ConversationMemory, Conversation.id == ConversationMemory.conversation_id)
-        .outerjoin(UserPersona, User.id == UserPersona.user_id)
-        .filter(UserPersona.id == None)
-        .group_by(User.id)
-        .all()
-    )
-
-    # Combine and get unique user IDs
-    user_ids_to_update = {u[0] for u in users_to_update}
-    user_ids_to_create = {u[0] for u in users_to_create}
     
-    return list(user_ids_to_update.union(user_ids_to_create))
+    Simplified: Returns all users with at least 3 conversations.
+    Persona generation requires minimum 3 conversations for meaningful analysis.
+    """
+    # TODO: Later, add smarter logic to check if persona needs updating
+    # (e.g., based on new conversations since last persona update)
+    
+    # OLD LOGIC (commented out - was based on ConversationMemory which we're not using):
+    # # 1. Users with an existing persona but newer memories
+    # users_to_update = (
+    #     db.query(User.id)
+    #     .join(UserPersona)
+    #     .join(Conversation, User.id == Conversation.user_id)
+    #     .join(ConversationMemory, Conversation.id == ConversationMemory.conversation_id)
+    #     .group_by(User.id, UserPersona.updated_at)
+    #     .having(func.max(ConversationMemory.created_at) > UserPersona.updated_at)
+    #     .all()
+    # )
+    # # 2. Users with memories but no persona
+    # users_to_create = (
+    #     db.query(User.id)
+    #     .join(Conversation, User.id == Conversation.user_id)
+    #     .join(ConversationMemory, Conversation.id == ConversationMemory.conversation_id)
+    #     .outerjoin(UserPersona, User.id == UserPersona.user_id)
+    #     .filter(UserPersona.id == None)
+    #     .group_by(User.id)
+    #     .all()
+    # )
+    # user_ids_to_update = {u[0] for u in users_to_update}
+    # user_ids_to_create = {u[0] for u in users_to_create}
+    # return list(user_ids_to_update.union(user_ids_to_create))
+    
+    # NEW LOGIC: All users with >= 3 conversations
+    users_with_enough_conversations = (
+        db.query(User.id)
+        .join(Conversation, User.id == Conversation.user_id)
+        .group_by(User.id)
+        .having(func.count(Conversation.id) >= 3)
+        .all()
+    )
+    
+    return [u[0] for u in users_with_enough_conversations]
 
 def save_message_pipeline_data(db: Session, message_id: int, pipeline_data_dict: dict) -> MessagePipelineData:
     """Saves pipeline data for a specific message."""

@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { LoginResponse, Message, ChatHistory, SendMessageResponse, ConversationSummary, Conversation, ConversationCreateResponse, User, StudentLoginResponse, StudentLoginRequest, StudentOptions, StudentWithConversation, PaginatedStudentConversations, ConversationWithMessages, AnalysisStatus, JobStatus } from '../types';
+import { LoginResponse, Message, ChatHistory, SendMessageResponse, ConversationSummary, Conversation, ConversationCreateResponse, User, StudentLoginResponse, StudentLoginRequest, StudentOptions, StudentWithConversation, PaginatedStudentConversations, ConversationWithMessages, AnalysisStatus, JobStatus, UserPersona } from '../types';
 
 const API = axios.create({
   baseURL: process.env.REACT_APP_BACKEND_BASE_URL + '/api' || '/api',
@@ -94,6 +94,27 @@ export const getAllStudentConversations = async (
   } catch (error: any) {
     console.error(`Error fetching all conversations for student ${studentId}:`, error.response?.data || error.message);
     throw new Error(error.response?.data?.detail || 'Failed to fetch all conversations');
+  }
+};
+
+export const getUserPersona = async (userId: number): Promise<UserPersona | null> => {
+  try {
+    const response = await API.get<UserPersona>(`/internal/users/${userId}/persona`);
+    const persona = response.data;
+    
+    // Parse persona_data if it's a string
+    if (persona && typeof persona.persona_data === 'string') {
+      persona.persona_data = JSON.parse(persona.persona_data);
+    }
+    
+    return persona;
+  } catch (error: any) {
+    if (error.response?.status === 404) {
+      // No persona found - this is expected for users without personas
+      return null;
+    }
+    console.error(`Error fetching persona for user ${userId}:`, error.response?.data || error.message);
+    throw new Error(error.response?.data?.detail || 'Failed to fetch user persona');
   }
 };
 

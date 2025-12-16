@@ -69,6 +69,27 @@ def get_user_persona(user_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Persona not found for user")
     return persona
 
+@router.get("/users/{user_id}/student")
+def get_student_by_user_id(user_id: int, db: Session = Depends(get_db)):
+    """
+    Get student record by user_id (used by Brain for persona generation).
+    Returns 404 if student not found.
+    """
+    student = db.query(Student).filter(Student.user_id == user_id).first()
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found for this user")
+    
+    return {
+        "id": student.id,
+        "user_id": student.user_id,
+        "school": student.school,
+        "grade": student.grade,
+        "section": student.section,
+        "roll_number": student.roll_number,
+        "first_name": student.first_name,
+        "created_at": student.created_at.isoformat() if student.created_at else None
+    }
+
 @router.get("/users/{user_id}/previous-memories")
 def get_user_previous_memories(
     user_id: int,

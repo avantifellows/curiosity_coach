@@ -155,10 +155,12 @@ class ConversationMemoryData(BaseModel):
 # --- User Persona Schema ---
 # Similar structure to ConversationMemoryData but aggregated across all user's conversations
 class UserPersonaData(BaseModel):
-    curiosity_boosters: Dict[str, Any] = Field(..., description="Aggregated analysis of what teaching techniques work best across all conversations")
-    invitation_to_come_back: Dict[str, Any] = Field(..., description="Aggregated patterns of how conversations ended and re-engagement strategies")
-    knowledge_journey: Dict[str, Any] = Field(..., description="Aggregated topics of interest and learning progression across conversations")
-    kid_learning_profile: Dict[str, Any] = Field(..., description="Overall assessment of kid's learning characteristics and preferences")
+    what_works: str = Field(..., description="Teaching techniques and conversation styles that resonate with this student")
+    what_doesnt_work: str = Field(..., description="Approaches that cause disengagement or don't land well")
+    interests: str = Field(..., description="Main topics they're curious about and how their interests connect")
+    learning_style: str = Field(..., description="How they prefer to learn")
+    engagement_triggers: str = Field(..., description="What gets them excited and keeps them engaged")
+    red_flags: str = Field(..., description="What causes them to lose interest or disengage")
     
     class Config:
         # Allow any extra fields for flexibility
