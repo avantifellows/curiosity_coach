@@ -309,6 +309,7 @@ def list_students(
             latest_conversation_payload = ConversationWithMessagesResponse(
                 id=latest_conversation.id,
                 title=latest_conversation.title,
+                created_at=latest_conversation.created_at,
                 updated_at=latest_conversation.updated_at,
                 messages=message_payloads,
             )
@@ -369,6 +370,7 @@ def list_student_conversations(
         ConversationWithMessagesResponse(
             id=conversation.id,
             title=conversation.title,
+            created_at=conversation.created_at,
             updated_at=conversation.updated_at,
             messages=messages_by_conversation.get(conversation.id, []),
         )
@@ -428,6 +430,7 @@ def list_all_student_conversations(
         ConversationWithMessagesResponse(
             id=conversation.id,
             title=conversation.title,
+            created_at=conversation.created_at,
             updated_at=conversation.updated_at,
             messages=messages_by_conversation.get(conversation.id, []),
         )

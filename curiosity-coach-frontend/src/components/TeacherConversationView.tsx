@@ -33,6 +33,22 @@ const getLatestCuriosityScore = (messages: ConversationWithMessages['messages'])
   return null;
 };
 
+// Check if a conversation happened during after-school hours
+const isAfterSchoolHours = (createdAt: string): boolean => {
+  const date = new Date(createdAt);
+  const dayOfWeek = date.getUTCDay(); // 0 = Sunday, 6 = Saturday
+  const hours = date.getUTCHours();
+  
+  // Weekends (Saturday = 6, Sunday = 0): all day is considered "after school"
+  if (dayOfWeek === 0 || dayOfWeek === 6) {
+    return true;
+  }
+  
+  // Weekdays: after 12:00 UTC or before 3:00 UTC
+  // This represents evening/night hours (roughly 5:30 PM IST to 8:30 AM IST next day)
+  return hours >= 12 || hours < 3;
+};
+
 const TeacherConversationView: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -45,6 +61,7 @@ const TeacherConversationView: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [persona, setPersona] = useState<UserPersona | null>(null);
   const [personaLoading, setPersonaLoading] = useState(false);
+  const [showAfterSchoolOnly, setShowAfterSchoolOnly] = useState(false);
 
   const fetchConversations = useCallback(
     async (offset = 0) => {
@@ -119,6 +136,11 @@ const TeacherConversationView: React.FC = () => {
     );
   }
 
+  // Filter conversations based on the toggle
+  const filteredConversations = showAfterSchoolOnly
+    ? conversations.filter((conv) => isAfterSchoolHours(conv.created_at))
+    : conversations;
+
   return (
     <div className="min-h-screen bg-slate-50 py-10 px-4">
       <div className="mx-auto flex w-full max-w-4xl flex-col gap-6">
@@ -133,6 +155,30 @@ const TeacherConversationView: React.FC = () => {
               </button>
               <h1 className="mt-3 text-3xl font-semibold text-slate-900">{student.first_name}&rsquo;s conversations</h1>
               <p className="text-sm text-slate-500">History ordered by most recent chats first.</p>
+              
+              {/* Checkbox for after-school hours filter */}
+              <div className="mt-4">
+                <label className="flex items-center gap-3 cursor-pointer group">
+                  <div className="relative">
+                    <input
+                      type="checkbox"
+                      checked={showAfterSchoolOnly}
+                      onChange={(e) => setShowAfterSchoolOnly(e.target.checked)}
+                      className="sr-only peer"
+                    />
+                    <div className="w-5 h-5 border-2 border-slate-300 rounded peer-checked:bg-indigo-600 peer-checked:border-indigo-600 transition-all flex items-center justify-center group-hover:border-indigo-400">
+                      {showAfterSchoolOnly && (
+                        <svg className="w-3.5 h-3.5 text-white" fill="none" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" viewBox="0 0 24 24" stroke="currentColor">
+                          <path d="M5 13l4 4L19 7"></path>
+                        </svg>
+                      )}
+                    </div>
+                  </div>
+                  <span className="text-sm font-medium text-slate-700 group-hover:text-slate-900 transition-colors">
+                    Show after-school hours conversations only
+                  </span>
+                </label>
+              </div>
             </div>
             <button
               type="button"
@@ -224,11 +270,15 @@ const TeacherConversationView: React.FC = () => {
 
           {isInitialLoading ? (
             <p className="text-sm text-slate-500">Loading conversations...</p>
-          ) : conversations.length === 0 ? (
-            <p className="text-sm text-slate-500">No conversations yet.</p>
+          ) : filteredConversations.length === 0 ? (
+            <p className="text-sm text-slate-500">
+              {showAfterSchoolOnly 
+                ? 'No after-school hours conversations found.' 
+                : 'No conversations yet.'}
+            </p>
           ) : (
             <ul className="space-y-6">
-              {conversations.map((conversation) => (
+              {filteredConversations.map((conversation) => (
                 <li key={conversation.id} className="rounded-2xl border border-slate-100 p-5 shadow-sm">
                   <div className="flex flex-col gap-2 border-b border-slate-100 pb-4 sm:flex-row sm:items-center sm:justify-between">
                     <div>

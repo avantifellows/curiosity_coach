@@ -156,6 +156,7 @@ export interface ConversationMessage {
 export interface ConversationWithMessages {
   id: number;
   title: string | null;
+  created_at: string;
   updated_at: string;
   messages: ConversationMessage[];
 }

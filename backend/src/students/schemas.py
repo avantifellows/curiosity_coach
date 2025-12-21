@@ -20,6 +20,7 @@ class ConversationMessageResponse(BaseModel):
 class ConversationWithMessagesResponse(BaseModel):
     id: int
     title: Optional[str] = None
+    created_at: datetime
     updated_at: datetime
     messages: List[ConversationMessageResponse]
 
