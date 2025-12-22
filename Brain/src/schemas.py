@@ -153,18 +153,18 @@ class ConversationMemoryData(BaseModel):
 
 
 # --- User Persona Schema ---
-# Similar structure to ConversationMemoryData but aggregated across all user's conversations
+# Flexible schema to allow prompt experimentation without code changes
+# Validates that persona_data is a valid dict, but doesn't enforce specific keys
 class UserPersonaData(BaseModel):
-    what_works: str = Field(..., description="Teaching techniques and conversation styles that resonate with this student")
-    what_doesnt_work: str = Field(..., description="Approaches that cause disengagement or don't land well")
-    interests: str = Field(..., description="Main topics they're curious about and how their interests connect")
-    learning_style: str = Field(..., description="How they prefer to learn")
-    engagement_triggers: str = Field(..., description="What gets them excited and keeps them engaged")
-    red_flags: str = Field(..., description="What causes them to lose interest or disengage")
-    
+    # Accept any key-value pairs for flexible prompt iteration
     class Config:
-        # Allow any extra fields for flexibility
         extra = "allow"
+    
+    # Override __init__ to accept arbitrary dict structure
+    def __init__(self, **data):
+        # Just validate it's a dict with string values (most common case)
+        # But allow any structure for flexibility during prompt experiments
+        super().__init__(**data)
 
 
 # --- Opening Message Request Schema ---

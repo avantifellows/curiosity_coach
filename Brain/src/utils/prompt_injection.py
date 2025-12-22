@@ -233,9 +233,15 @@ def inject_persona_placeholders(template: str, persona: Optional[Dict[str, Any]]
     for token, requested_keys in placeholders:
         if not requested_keys:
             # Full injection mode - dump entire JSON
-            formatted = "=== USER PERSONA ===\n"
+            formatted = "=== PERSONALIZATION LAYER ===\n"
             formatted += "Aggregated learning profile based on all previous conversations with this student.\n"
             formatted += "Use this to personalize your teaching approach and build on what works.\n\n"
+            
+            # Add student name if available (injected by api_service)
+            student_name = persona.get("_student_name")
+            if student_name:
+                formatted += f"Student Name: {student_name}\n\n"
+            
             formatted += json.dumps(persona, indent=2)
             template = template.replace(token, formatted)
         else:

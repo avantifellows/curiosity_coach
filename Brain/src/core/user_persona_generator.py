@@ -81,17 +81,19 @@ async def generate_persona_for_user(user_id: int):
         logger.error(f"An error occurred during LLM call for user {user_id}: {e}")
         return
 
-    # 6. Validate the response against schema and save to DB
-    try:
-        validated_persona = UserPersonaData(**persona_data)
-    except Exception as e:
-        logger.warning(f"UserPersonaData validation failed for user {user_id}: {e}")
-        logger.debug(f"Received data: {persona_data}")
+    # 6. Basic validation and save to DB
+    # Just ensure it's a valid dict (relaxed validation for prompt experimentation)
+    if not isinstance(persona_data, dict):
+        logger.warning(f"Persona data is not a dict for user {user_id}: {type(persona_data)}")
+        return
+    
+    if not persona_data:
+        logger.warning(f"Persona data is empty for user {user_id}")
         return
 
-    logger.info(f"Successfully generated persona for user {user_id}.")
+    logger.info(f"Successfully generated persona for user {user_id}. Keys: {list(persona_data.keys())}")
     
-    success = await api_service.post_user_persona(user_id=user_id, persona_data=validated_persona.model_dump())
+    success = await api_service.post_user_persona(user_id=user_id, persona_data=persona_data)
 
     if success:
         logger.info(f"Successfully saved persona for user {user_id}.")

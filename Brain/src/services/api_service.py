@@ -118,6 +118,7 @@ class APIService:
     async def get_user_persona(self, user_id: int) -> Optional[Dict[str, Any]]:
         """
         Fetches the user persona for a specific user from the backend.
+        Also augments it with student metadata (name) for use in prompts.
         """
         # Note: This endpoint is hypothetical and needs to be implemented in the backend.
         url = f"{self.backend_url}/api/internal/users/{user_id}/persona"
@@ -129,7 +130,16 @@ class APIService:
                     return None
                 response.raise_for_status()
                 # Assuming the endpoint returns the persona data directly
-                return response.json().get("persona_data")
+                persona_data = response.json().get("persona_data")
+                
+                # Augment persona with student name for prompt injection
+                if persona_data:
+                    student = await self.get_student_by_user_id(user_id)
+                    if student:
+                        persona_data["_student_name"] = student.get("first_name")
+                        logger.info(f"Augmented persona with student name: {student.get('first_name')}")
+                
+                return persona_data
         except httpx.RequestError as e:
             logger.error(f"Error fetching user persona for user {user_id}: {e}")
             return None

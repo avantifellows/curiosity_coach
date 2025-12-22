@@ -77,7 +77,7 @@
         "user_persona_generation": {
             "provider": "openai",
             "model": "gpt-5.1",  
-            "reasoning":  { "effort": "low" },
+            "reasoning":  { "effort": "medium" },
             "text": { "verbosity": "low" }         
         },
         "memory_generation": {

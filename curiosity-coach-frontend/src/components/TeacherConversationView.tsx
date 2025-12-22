@@ -22,6 +22,28 @@ const getPersonaData = (persona: UserPersona | null): UserPersonaData | null => 
   return persona.persona_data;
 };
 
+// Helper to format snake_case keys to Title Case for display
+const formatPersonaKey = (key: string): string => {
+  // Skip internal metadata keys (starting with _)
+  if (key.startsWith('_')) return '';
+  
+  return key
+    .split('_')
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+};
+
+// Helper to get emoji for persona field (basic mapping)
+const getPersonaEmoji = (key: string): string => {
+  const lowerKey = key.toLowerCase();
+  if (lowerKey.includes('work') && !lowerKey.includes('doesnt')) return '✅';
+  if (lowerKey.includes('doesnt') || lowerKey.includes('red') || lowerKey.includes('flag')) return '❌';
+  if (lowerKey.includes('interest') || lowerKey.includes('topic')) return '💡';
+  if (lowerKey.includes('learning') || lowerKey.includes('style') || lowerKey.includes('profile')) return '📚';
+  if (lowerKey.includes('trigger') || lowerKey.includes('engagement')) return '⚡';
+  return '📝'; // default emoji
+};
+
 // Get the latest non-null curiosity score from messages
 const getLatestCuriosityScore = (messages: ConversationWithMessages['messages']): number | null => {
   // Messages are ordered by timestamp, find last one with a score
@@ -278,10 +300,14 @@ const TeacherConversationView: React.FC = () => {
           )}
         </div>
 
-        {/* User Persona Section */}
+        {/* User Persona Section - Dynamic rendering */}
         {!personaLoading && (() => {
           const personaData = getPersonaData(persona);
           if (!personaData) return null;
+          
+          // Filter out internal metadata keys (starting with _)
+          const displayKeys = Object.keys(personaData).filter(key => !key.startsWith('_'));
+          if (displayKeys.length === 0) return null;
           
           return (
             <div className="rounded-3xl bg-gradient-to-br from-purple-50 to-pink-50 p-6 shadow-lg shadow-slate-200">
@@ -293,53 +319,26 @@ const TeacherConversationView: React.FC = () => {
                 Last updated: {persona ? new Date(persona.updated_at).toLocaleString() : ''}
               </p>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="bg-white/60 backdrop-blur-sm rounded-2xl p-4 border border-purple-100">
-                  <h3 className="text-sm font-semibold text-purple-700 mb-2 flex items-center gap-2">
-                    <span>✅</span>
-                    <span>What Works</span>
-                  </h3>
-                  <p className="text-sm text-slate-700">{personaData.what_works}</p>
-                </div>
-                
-                <div className="bg-white/60 backdrop-blur-sm rounded-2xl p-4 border border-red-100">
-                  <h3 className="text-sm font-semibold text-red-700 mb-2 flex items-center gap-2">
-                    <span>❌</span>
-                    <span>What Doesn't Work</span>
-                  </h3>
-                  <p className="text-sm text-slate-700">{personaData.what_doesnt_work}</p>
-                </div>
-                
-                <div className="bg-white/60 backdrop-blur-sm rounded-2xl p-4 border border-blue-100">
-                  <h3 className="text-sm font-semibold text-blue-700 mb-2 flex items-center gap-2">
-                    <span>💡</span>
-                    <span>Interests</span>
-                  </h3>
-                  <p className="text-sm text-slate-700">{personaData.interests}</p>
-                </div>
-                
-                <div className="bg-white/60 backdrop-blur-sm rounded-2xl p-4 border border-green-100">
-                  <h3 className="text-sm font-semibold text-green-700 mb-2 flex items-center gap-2">
-                    <span>📚</span>
-                    <span>Learning Style</span>
-                  </h3>
-                  <p className="text-sm text-slate-700">{personaData.learning_style}</p>
-                </div>
-                
-                <div className="bg-white/60 backdrop-blur-sm rounded-2xl p-4 border border-amber-100">
-                  <h3 className="text-sm font-semibold text-amber-700 mb-2 flex items-center gap-2">
-                    <span>⚡</span>
-                    <span>Engagement Triggers</span>
-                  </h3>
-                  <p className="text-sm text-slate-700">{personaData.engagement_triggers}</p>
-                </div>
-                
-                <div className="bg-white/60 backdrop-blur-sm rounded-2xl p-4 border border-orange-100">
-                  <h3 className="text-sm font-semibold text-orange-700 mb-2 flex items-center gap-2">
-                    <span>🚩</span>
-                    <span>Red Flags</span>
-                  </h3>
-                  <p className="text-sm text-slate-700">{personaData.red_flags}</p>
-                </div>
+                {displayKeys.map((key) => {
+                  const title = formatPersonaKey(key);
+                  const emoji = getPersonaEmoji(key);
+                  const value = personaData[key];
+                  
+                  // Convert value to string if it's not already
+                  const displayValue = typeof value === 'object' 
+                    ? JSON.stringify(value, null, 2)
+                    : String(value);
+                  
+                  return (
+                    <div key={key} className="bg-white/60 backdrop-blur-sm rounded-2xl p-4 border border-purple-100">
+                      <h3 className="text-sm font-semibold text-purple-700 mb-2 flex items-center gap-2">
+                        <span>{emoji}</span>
+                        <span>{title}</span>
+                      </h3>
+                      <p className="text-sm text-slate-700 whitespace-pre-wrap">{displayValue}</p>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           );

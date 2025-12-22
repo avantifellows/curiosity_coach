@@ -173,13 +173,10 @@ export interface PaginatedStudentConversations {
 
 // --- User Persona Types ---
 
+// Flexible persona structure to allow prompt experimentation
+// Accept any key-value structure from the backend
 export interface UserPersonaData {
-  what_works: string;
-  what_doesnt_work: string;
-  interests: string;
-  learning_style: string;
-  engagement_triggers: string;
-  red_flags: string;
+  [key: string]: string | number | boolean | object;
 }
 
 export interface UserPersona {
