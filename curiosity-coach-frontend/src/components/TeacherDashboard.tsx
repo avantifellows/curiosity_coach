@@ -10,6 +10,7 @@ import {
   getClassDashboardMetrics,
   getStudentDailyMetrics,
   getStudentsForClass,
+  refreshClassMetrics,
 } from '../services/api';
 
 interface LocationState {
@@ -368,6 +369,8 @@ const TeacherDashboard: React.FC = () => {
   const [studentDailySeries, setStudentDailySeries] = useState<StudentDailySeries[]>([]);
   const [studentDailyLoading, setStudentDailyLoading] = useState(false);
   const [studentDailyError, setStudentDailyError] = useState<string | null>(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [refreshError, setRefreshError] = useState<string | null>(null);
 
   const hasClassContext = Boolean(school && grade);
 
@@ -380,6 +383,17 @@ const TeacherDashboard: React.FC = () => {
     const fetchMetrics = async () => {
       try {
         setIsLoading(true);
+        setRefreshError(null);
+        setIsRefreshing(true);
+        try {
+          await refreshClassMetrics(school, grade, section ?? undefined, true);
+        } catch (refreshErr: any) {
+          const message = refreshErr?.message || 'Failed to refresh metrics. Showing last computed data.';
+          setRefreshError(message);
+        } finally {
+          setIsRefreshing(false);
+        }
+
         const response = await getClassDashboardMetrics(school, grade, section);
         setData(response);
       } catch (err: any) {
@@ -503,6 +517,18 @@ const TeacherDashboard: React.FC = () => {
 
         {hasClassContext && (
           <div className="space-y-8">
+            {isRefreshing && (
+              <div className="rounded-2xl border border-indigo-200 bg-indigo-50 p-4 text-sm text-indigo-700">
+                Refreshing class metrics…
+              </div>
+            )}
+
+            {refreshError && (
+              <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-700">
+                {refreshError}
+              </div>
+            )}
+
             {isLoading && (
               <div className="rounded-2xl border border-slate-200 bg-white p-8 text-center text-sm text-slate-600">
                 Loading dashboard metrics...

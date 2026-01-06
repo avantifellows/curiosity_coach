@@ -225,6 +225,15 @@ export interface StudentDailyMetricsResponse {
   students: StudentDailySeries[];
 }
 
+export interface MetricsRefreshResponse {
+  class_daily_rows: number;
+  student_daily_rows: number;
+  class_summary_rows: number;
+  student_summary_rows: number;
+  hourly_rows: number;
+  deleted_rows: Record<string, number>;
+}
+
 export interface ConversationMessage {
   id: number;
   content: string;

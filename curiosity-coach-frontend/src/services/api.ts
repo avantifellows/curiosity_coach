@@ -19,6 +19,7 @@ import {
   UserPersona,
   DashboardResponse,
   StudentDailyMetricsResponse,
+  MetricsRefreshResponse,
 } from '../types';
 
 const API = axios.create({
@@ -65,6 +66,40 @@ export const getStudentOptions = async (): Promise<StudentOptions> => {
   } catch (error: any) {
     console.error("Error fetching student options:", error.response?.data || error.message);
     throw new Error(error.response?.data?.detail || 'Failed to get student options');
+  }
+};
+
+export const refreshClassMetrics = async (
+  school: string,
+  grade: number,
+  section?: string | null,
+  includeHourly = true,
+  startDate?: string | null,
+  endDate?: string | null
+): Promise<MetricsRefreshResponse> => {
+  try {
+    const params: Record<string, string> = {};
+    if (startDate) {
+      params.start_date = startDate;
+    }
+    if (endDate) {
+      params.end_date = endDate;
+    }
+
+    const payload = {
+      school,
+      grade,
+      section: section ?? undefined,
+      include_hourly: includeHourly,
+    };
+
+    const response = await API.post<MetricsRefreshResponse>('/analytics/refresh', payload, {
+      params,
+    });
+    return response.data;
+  } catch (error: any) {
+    console.error('Error refreshing class metrics:', error.response?.data || error.message);
+    throw new Error(error.response?.data?.detail || 'Failed to refresh metrics');
   }
 };
 

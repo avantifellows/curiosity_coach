@@ -6,6 +6,7 @@ from decimal import Decimal
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from sqlalchemy import func, text
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
 from src.models import (
@@ -136,9 +137,15 @@ def refresh_metrics(
             grade=grade,
             section=section_value,
         ),
+        conflict_columns=['school', 'grade', 'section', 'day'],
     )
 
-    student_daily_rows = _bulk_insert(db, StudentDailyMetrics, student_daily_records)
+    student_daily_rows = _bulk_insert(
+        db,
+        StudentDailyMetrics,
+        student_daily_records,
+        conflict_columns=['student_id', 'day'],
+    )
 
     class_summary_rows, student_summary_rows = _persist_summaries(
         db,
@@ -551,7 +558,12 @@ def _persist_summaries(
     )
     class_summary_rows = 0
     if class_summary_row:
-        class_summary_rows = _bulk_insert(db, ClassSummaryMetrics, [class_summary_row])
+        class_summary_rows = _bulk_insert(
+            db,
+            ClassSummaryMetrics,
+            [class_summary_row],
+            conflict_columns=['school', 'grade', 'section', 'cohort_start', 'cohort_end'],
+        )
 
     student_summary_rows = 0
     student_summary_payload = _compute_student_summaries(
@@ -560,7 +572,12 @@ def _persist_summaries(
         end_date,
     )
     if student_summary_payload:
-        student_summary_rows = _bulk_insert(db, StudentSummaryMetrics, student_summary_payload)
+        student_summary_rows = _bulk_insert(
+            db,
+            StudentSummaryMetrics,
+            student_summary_payload,
+            conflict_columns=['student_id', 'cohort_start', 'cohort_end'],
+        )
 
     return class_summary_rows, student_summary_rows
 
@@ -790,7 +807,12 @@ def _refresh_hourly_activity(
             }
         )
 
-    return _bulk_insert(db, HourlyActivityMetrics, rows)
+    return _bulk_insert(
+        db,
+        HourlyActivityMetrics,
+        rows,
+        conflict_columns=['school', 'grade', 'section', 'window_start'],
+    )
 
 
 def get_student_daily_series(
@@ -1023,11 +1045,29 @@ def get_dashboard_metrics(
     }
 
 
-def _bulk_insert(db: Session, model, payload: Iterable[Dict[str, Any]]) -> int:
+def _bulk_insert(
+    db: Session,
+    model,
+    payload: Iterable[Dict[str, Any]],
+    *,
+    conflict_columns: Optional[Sequence[str]] = None,
+) -> int:
     payload_list = [dict(item) for item in payload]
     if not payload_list:
         return 0
-    db.bulk_insert_mappings(model, payload_list)
+    if conflict_columns:
+        stmt = pg_insert(model.__table__).values(payload_list)
+        update_columns = {
+            column: stmt.excluded[column]
+            for column in payload_list[0].keys()
+            if column != 'id'
+        }
+        if 'updated_at' in model.__table__.c:
+            update_columns['updated_at'] = func.now()
+        stmt = stmt.on_conflict_do_update(index_elements=conflict_columns, set_=update_columns)
+        db.execute(stmt)
+    else:
+        db.bulk_insert_mappings(model, payload_list)
     return len(payload_list)
 
 
