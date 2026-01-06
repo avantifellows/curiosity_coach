@@ -1,5 +1,25 @@
 import axios from 'axios';
-import { LoginResponse, Message, ChatHistory, SendMessageResponse, ConversationSummary, Conversation, ConversationCreateResponse, User, StudentLoginResponse, StudentLoginRequest, StudentOptions, StudentWithConversation, PaginatedStudentConversations, ConversationWithMessages, AnalysisStatus, JobStatus, UserPersona } from '../types';
+import {
+  LoginResponse,
+  Message,
+  ChatHistory,
+  SendMessageResponse,
+  ConversationSummary,
+  Conversation,
+  ConversationCreateResponse,
+  User,
+  StudentLoginResponse,
+  StudentLoginRequest,
+  StudentOptions,
+  StudentWithConversation,
+  PaginatedStudentConversations,
+  ConversationWithMessages,
+  AnalysisStatus,
+  JobStatus,
+  UserPersona,
+  DashboardResponse,
+  StudentDailyMetricsResponse,
+} from '../types';
 
 const API = axios.create({
   baseURL: process.env.REACT_APP_BACKEND_BASE_URL + '/api' || '/api',
@@ -48,6 +68,27 @@ export const getStudentOptions = async (): Promise<StudentOptions> => {
   }
 };
 
+export const getClassDashboardMetrics = async (
+  school: string,
+  grade: number,
+  section?: string | null
+): Promise<DashboardResponse> => {
+  try {
+    const params: Record<string, string | number> = {
+      school,
+      grade,
+    };
+    if (section) {
+      params.section = section;
+    }
+    const response = await API.get<DashboardResponse>('/analytics/dashboard', { params });
+    return response.data;
+  } catch (error: any) {
+    console.error('Error fetching dashboard metrics:', error.response?.data || error.message);
+    throw new Error(error.response?.data?.detail || 'Failed to fetch dashboard metrics');
+  }
+};
+
 export const getStudentsForClass = async (
   school: string,
   grade: number,
@@ -66,6 +107,58 @@ export const getStudentsForClass = async (
   } catch (error: any) {
     console.error("Error fetching students for class:", error.response?.data || error.message);
     throw new Error(error.response?.data?.detail || 'Failed to fetch students');
+  }
+};
+
+export const getStudentDailyMetrics = async (
+  school: string,
+  grade: number,
+  studentIds: number[],
+  section?: string | null,
+  startDate?: string | null,
+  endDate?: string | null
+): Promise<StudentDailyMetricsResponse> => {
+  if (!studentIds || studentIds.length === 0) {
+    throw new Error('At least one student ID is required');
+  }
+
+  try {
+    const params: Record<string, string | number | (string | number)[]> = {
+      school,
+      grade,
+      student_ids: studentIds,
+    };
+    if (section) {
+      params.section = section;
+    }
+    if (startDate) {
+      params.start_date = startDate;
+    }
+    if (endDate) {
+      params.end_date = endDate;
+    }
+
+    const response = await API.get<StudentDailyMetricsResponse>('/analytics/student-daily', {
+      params,
+      paramsSerializer: (queryParams) => {
+        const searchParams = new URLSearchParams();
+        Object.entries(queryParams).forEach(([key, value]) => {
+          if (value === null || value === undefined) {
+            return;
+          }
+          if (Array.isArray(value)) {
+            value.forEach((item) => searchParams.append(key, String(item)));
+          } else {
+            searchParams.append(key, String(value));
+          }
+        });
+        return searchParams.toString();
+      },
+    });
+    return response.data;
+  } catch (error: any) {
+    console.error('Error fetching student daily metrics:', error.response?.data || error.message);
+    throw new Error(error.response?.data?.detail || 'Failed to fetch student daily metrics');
   }
 };
 

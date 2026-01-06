@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, Text, JSON, ForeignKeyConstraint, UniqueConstraint, CheckConstraint, and_
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, Date, ForeignKey, Text, JSON, Numeric, ForeignKeyConstraint, UniqueConstraint, CheckConstraint, and_
 from sqlalchemy.orm import relationship, Session
 from sqlalchemy.sql import func
 from src.database import Base
@@ -148,6 +148,151 @@ class MessagePipelineData(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     message = relationship("Message", back_populates="pipeline_info")
+
+
+class ClassDailyMetrics(Base):
+    __tablename__ = "class_daily_metrics"
+
+    id = Column(Integer, primary_key=True, index=True)
+    school = Column(String(100), nullable=False, index=True)
+    grade = Column(Integer, nullable=False, index=True)
+    section = Column(String(10), nullable=True, index=True)
+    day = Column(Date, nullable=False, index=True)
+    total_students = Column(Integer, nullable=True)
+    conversations_started = Column(Integer, nullable=True)
+    active_students = Column(Integer, nullable=True)
+    conversations_with_messages = Column(Integer, nullable=True)
+    total_user_messages = Column(Integer, nullable=True)
+    total_ai_messages = Column(Integer, nullable=True)
+    total_user_words = Column(Integer, nullable=True)
+    total_ai_words = Column(Integer, nullable=True)
+    total_minutes = Column(Numeric(12, 2), nullable=True)
+    avg_minutes_per_conversation = Column(Numeric(8, 2), nullable=True)
+    avg_user_msgs_per_conversation = Column(Numeric(8, 2), nullable=True)
+    avg_ai_msgs_per_conversation = Column(Numeric(8, 2), nullable=True)
+    user_messages_after_school = Column(Integer, nullable=True)
+    total_messages_after_school = Column(Integer, nullable=True)
+    after_school_conversations = Column(Integer, nullable=True)
+    avg_user_words_per_message = Column(Numeric(8, 2), nullable=True)
+    avg_ai_words_per_message = Column(Numeric(8, 2), nullable=True)
+    after_school_user_pct = Column(Numeric(5, 2), nullable=True)
+    metrics_extra = Column(JSON, nullable=True)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    __table_args__ = (
+        UniqueConstraint('school', 'grade', 'section', 'day', name='uq_class_daily_metrics'),
+    )
+
+
+class StudentDailyMetrics(Base):
+    __tablename__ = "student_daily_metrics"
+
+    id = Column(Integer, primary_key=True, index=True)
+    student_id = Column(Integer, ForeignKey("students.id", ondelete="CASCADE"), nullable=False, index=True)
+    day = Column(Date, nullable=False, index=True)
+    conversations = Column(Integer, nullable=True)
+    user_messages = Column(Integer, nullable=True)
+    ai_messages = Column(Integer, nullable=True)
+    user_words = Column(Integer, nullable=True)
+    ai_words = Column(Integer, nullable=True)
+    user_messages_after_school = Column(Integer, nullable=True)
+    total_messages_after_school = Column(Integer, nullable=True)
+    minutes_spent = Column(Numeric(12, 2), nullable=True)
+    avg_user_words_per_message = Column(Numeric(8, 2), nullable=True)
+    avg_ai_words_per_message = Column(Numeric(8, 2), nullable=True)
+    metrics_extra = Column(JSON, nullable=True)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    student = relationship("Student")
+
+    __table_args__ = (
+        UniqueConstraint('student_id', 'day', name='uq_student_daily_metrics'),
+    )
+
+
+class StudentSummaryMetrics(Base):
+    __tablename__ = "student_summary_metrics"
+
+    id = Column(Integer, primary_key=True, index=True)
+    student_id = Column(Integer, ForeignKey("students.id", ondelete="CASCADE"), nullable=False, index=True)
+    cohort_start = Column(Date, nullable=False)
+    cohort_end = Column(Date, nullable=False)
+    total_conversations = Column(Integer, nullable=True)
+    active_days = Column(Integer, nullable=True)
+    total_minutes = Column(Numeric(12, 2), nullable=True)
+    total_user_messages = Column(Integer, nullable=True)
+    total_ai_messages = Column(Integer, nullable=True)
+    total_user_words = Column(Integer, nullable=True)
+    total_ai_words = Column(Integer, nullable=True)
+    user_messages_after_school = Column(Integer, nullable=True)
+    total_messages_after_school = Column(Integer, nullable=True)
+    avg_user_words_per_message = Column(Numeric(8, 2), nullable=True)
+    avg_ai_words_per_message = Column(Numeric(8, 2), nullable=True)
+    after_school_user_pct = Column(Numeric(5, 2), nullable=True)
+    metrics_extra = Column(JSON, nullable=True)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    student = relationship("Student")
+
+    __table_args__ = (
+        UniqueConstraint('student_id', 'cohort_start', 'cohort_end', name='uq_student_summary_window'),
+    )
+
+
+class ClassSummaryMetrics(Base):
+    __tablename__ = "class_summary_metrics"
+
+    id = Column(Integer, primary_key=True, index=True)
+    school = Column(String(100), nullable=False, index=True)
+    grade = Column(Integer, nullable=False, index=True)
+    section = Column(String(10), nullable=True, index=True)
+    cohort_start = Column(Date, nullable=False)
+    cohort_end = Column(Date, nullable=False)
+    total_students = Column(Integer, nullable=True)
+    total_conversations = Column(Integer, nullable=True)
+    total_user_messages = Column(Integer, nullable=True)
+    total_ai_messages = Column(Integer, nullable=True)
+    total_user_words = Column(Integer, nullable=True)
+    total_ai_words = Column(Integer, nullable=True)
+    total_minutes = Column(Numeric(12, 2), nullable=True)
+    user_messages_after_school = Column(Integer, nullable=True)
+    total_messages_after_school = Column(Integer, nullable=True)
+    after_school_conversations = Column(Integer, nullable=True)
+    avg_minutes_per_conversation = Column(Numeric(8, 2), nullable=True)
+    avg_user_msgs_per_conversation = Column(Numeric(8, 2), nullable=True)
+    avg_ai_msgs_per_conversation = Column(Numeric(8, 2), nullable=True)
+    avg_user_words_per_conversation = Column(Numeric(8, 2), nullable=True)
+    avg_ai_words_per_conversation = Column(Numeric(8, 2), nullable=True)
+    avg_user_words_per_message = Column(Numeric(8, 2), nullable=True)
+    avg_ai_words_per_message = Column(Numeric(8, 2), nullable=True)
+    after_school_user_pct = Column(Numeric(5, 2), nullable=True)
+    metrics_extra = Column(JSON, nullable=True)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    __table_args__ = (
+        UniqueConstraint('school', 'grade', 'section', 'cohort_start', 'cohort_end', name='uq_class_summary_window'),
+    )
+
+
+class HourlyActivityMetrics(Base):
+    __tablename__ = "hourly_activity_metrics"
+
+    id = Column(Integer, primary_key=True, index=True)
+    school = Column(String(100), nullable=False, index=True)
+    grade = Column(Integer, nullable=False, index=True)
+    section = Column(String(10), nullable=True, index=True)
+    window_start = Column(DateTime(timezone=True), nullable=False, index=True)
+    window_end = Column(DateTime(timezone=True), nullable=False)
+    user_message_count = Column(Integer, nullable=True)
+    ai_message_count = Column(Integer, nullable=True)
+    active_users = Column(Integer, nullable=True)
+    after_school_user_count = Column(Integer, nullable=True)
+    metrics_extra = Column(JSON, nullable=True)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    __table_args__ = (
+        UniqueConstraint('school', 'grade', 'section', 'window_start', name='uq_hourly_activity_window'),
+    )
 
 
 class LMHomework(Base):

@@ -145,6 +145,86 @@ export interface StudentOptions {
   sections: string[];
 }
 
+export interface DashboardClassSummary {
+  cohort_start: string;
+  cohort_end: string;
+  total_students: number | null;
+  total_conversations: number | null;
+  total_user_messages: number | null;
+  total_ai_messages: number | null;
+  total_user_words: number | null;
+  total_ai_words: number | null;
+  total_minutes: number | null;
+  avg_minutes_per_conversation: number | null;
+  avg_user_msgs_per_conversation: number | null;
+  avg_ai_msgs_per_conversation: number | null;
+  avg_user_words_per_conversation: number | null;
+  avg_ai_words_per_conversation: number | null;
+  avg_user_words_per_message: number | null;
+  avg_ai_words_per_message: number | null;
+  user_messages_after_school: number | null;
+  total_messages_after_school: number | null;
+  after_school_conversations: number | null;
+  after_school_user_pct: number | null;
+}
+
+export interface DashboardDailyStat {
+  day: string;
+  total_minutes: number | null;
+  total_user_messages: number | null;
+  total_ai_messages: number | null;
+  active_students: number | null;
+  user_messages_after_school: number | null;
+  after_school_conversations: number | null;
+}
+
+export interface DashboardStudentSnapshot {
+  student_id: number;
+  student_name?: string | null;
+  total_minutes: number | null;
+  total_user_messages: number | null;
+  total_user_words: number | null;
+  total_ai_messages: number | null;
+  after_school_user_pct: number | null;
+}
+
+export interface DashboardHourlyBucket {
+  window_start: string;
+  window_end: string;
+  user_message_count: number;
+  ai_message_count: number;
+  active_users: number;
+  after_school_user_count: number;
+}
+
+export interface DashboardResponse {
+  class_summary: DashboardClassSummary | null;
+  recent_days: DashboardDailyStat[];
+  student_snapshots: DashboardStudentSnapshot[];
+  hourly_activity: DashboardHourlyBucket[];
+}
+
+export interface StudentDailyRecord {
+  day: string;
+  user_messages: number | null;
+  ai_messages: number | null;
+  user_words: number | null;
+  ai_words: number | null;
+  minutes_spent: number | null;
+  user_messages_after_school: number | null;
+  total_messages_after_school: number | null;
+}
+
+export interface StudentDailySeries {
+  student_id: number;
+  student_name?: string | null;
+  records: StudentDailyRecord[];
+}
+
+export interface StudentDailyMetricsResponse {
+  students: StudentDailySeries[];
+}
+
 export interface ConversationMessage {
   id: number;
   content: string;
