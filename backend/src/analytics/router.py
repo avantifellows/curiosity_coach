@@ -21,12 +21,20 @@ class MetricsRefreshRequest(BaseModel):
     school: str = Field(..., description="School identifier")
     grade: int = Field(..., ge=1, description="Grade level")
     section: Optional[str] = Field(None, description="Optional section identifier (e.g., 'B')")
-    start_date: Optional[date] = Field(None, description="Restrict computation from this date (inclusive)")
-    end_date: Optional[date] = Field(None, description="Restrict computation to this date (inclusive)")
     include_hourly: bool = Field(True, description="Compute hourly activity metrics for the last 24 hours")
 
     def normalized_section(self) -> Optional[str]:
         return self.section.strip().upper() if self.section else None
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "school": "Ekya School JP Nagar",
+                "grade": 8,
+                "section": "B",
+                "include_hourly": True,
+            }
+        }
 
 
 class MetricsRefreshResponse(BaseModel):
@@ -121,9 +129,17 @@ class StudentDailyMetricsResponse(BaseModel):
 @router.post("/refresh", response_model=MetricsRefreshResponse)
 def refresh_metrics_endpoint(
     payload: MetricsRefreshRequest,
+    start_date: Optional[date] = Query(
+        None,
+        description="Optional start date (inclusive) to limit recomputation",
+    ),
+    end_date: Optional[date] = Query(
+        None,
+        description="Optional end date (inclusive) to limit recomputation",
+    ),
     db: Session = Depends(get_db),
 ) -> MetricsRefreshResponse:
-    if payload.start_date and payload.end_date and payload.end_date < payload.start_date:
+    if start_date and end_date and end_date < start_date:
         raise HTTPException(status_code=400, detail="end_date must be greater than or equal to start_date")
 
     summary: MetricsRefreshSummary = refresh_metrics(
@@ -131,8 +147,8 @@ def refresh_metrics_endpoint(
         school=payload.school,
         grade=payload.grade,
         section=payload.normalized_section(),
-        start_date=payload.start_date,
-        end_date=payload.end_date,
+        start_date=start_date,
+        end_date=end_date,
         include_hourly=payload.include_hourly,
     )
 
