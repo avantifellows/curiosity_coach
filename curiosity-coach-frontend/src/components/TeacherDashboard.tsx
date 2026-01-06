@@ -454,6 +454,10 @@ const TeacherDashboard: React.FC = () => {
       return;
     }
 
+    if (isRefreshing) {
+      return;
+    }
+
     const ids = [primaryStudentId];
     if (comparisonStudentId && comparisonStudentId !== primaryStudentId) {
       ids.push(comparisonStudentId);
@@ -485,6 +489,7 @@ const TeacherDashboard: React.FC = () => {
     school,
     grade,
     section,
+    isRefreshing,
   ]);
 
   return (
