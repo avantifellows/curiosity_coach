@@ -8,6 +8,7 @@ import PromptVersionsView from './components/PromptVersionsView';
 import TeacherView from './components/TeacherView';
 import ClassDetails from './components/ClassDetails';
 import ClassSummary from './components/ClassSummary';
+import TeacherDashboard from './components/TeacherDashboard';
 import TeacherConversationView from './components/TeacherConversationView';
 import StudentAnalysis from './components/StudentAnalysis';
 
@@ -64,6 +65,7 @@ const App: React.FC = () => {
               <Route path="/teacher-view" element={<TeacherView />} />
               <Route path="/class-details" element={<ClassDetails />} />
               <Route path="/class-summary" element={<ClassSummary />} />
+              <Route path="/teacher-dashboard" element={<TeacherDashboard />} />
               <Route path="/class-conversation" element={<TeacherConversationView />} />
               <Route path="/student-analysis" element={<StudentAnalysis />} />
               <Route path="*" element={<Navigate to="/" replace />} />

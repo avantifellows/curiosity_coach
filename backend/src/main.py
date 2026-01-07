@@ -8,6 +8,7 @@ from src.conversations import router as conversations_router
 from src.health import router as health_router
 from src.memories import router as memories_router
 from src.prompts import router as prompts_router
+from src.analytics import router as analytics_router
 from src.tasks import router as tasks_router
 from src.user_personas import router as user_personas_router
 from src.internal import router as internal_router
@@ -111,6 +112,7 @@ def create_app() -> FastAPI:
     app.include_router(feedback_router.router)
     app.include_router(config_router.router)
     app.include_router(students_router.router)
+    app.include_router(analytics_router)
     
     logger.info("FastAPI app created successfully")
     return app
