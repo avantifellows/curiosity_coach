@@ -168,6 +168,7 @@ export interface DashboardClassSummary {
   after_school_user_pct: number | null;
   avg_depth: number | null;
   total_relevant_questions: number | null;
+  top_topics?: ConversationTopic[] | null;
 }
 
 export interface DashboardDailyStat {
@@ -180,6 +181,7 @@ export interface DashboardDailyStat {
   after_school_conversations: number | null;
   avg_depth: number | null;
   total_relevant_questions: number | null;
+  top_topics?: ConversationTopic[] | null;
 }
 
 export interface DashboardStudentSnapshot {
@@ -193,6 +195,7 @@ export interface DashboardStudentSnapshot {
   avg_words_per_message: number | null;
   avg_depth: number | null;
   total_relevant_questions: number | null;
+  top_topics?: ConversationTopic[] | null;
 }
 
 export interface DashboardHourlyBucket {
@@ -251,12 +254,40 @@ export interface ConversationMessage {
   curiosity_score?: number;
 }
 
+export interface ConversationTopic {
+  term: string;
+  weight?: number | null;
+  count?: number | null;
+  total_weight?: number | null;
+  conversation_count?: number | null;
+}
+
+export interface ConversationEvaluationMetrics {
+  depth?: number | null;
+  relevant_question_count?: number | null;
+  topics: ConversationTopic[];
+  computed_at?: string | null;
+  status?: string | null;
+  prompt_version_id?: number | null;
+  depth_sample_size?: number | null;
+  relevant_sample_size?: number | null;
+  conversation_count?: number | null;
+}
+
+export interface ConversationCuriositySummary {
+  average?: number | null;
+  latest?: number | null;
+  sample_size: number;
+}
+
 export interface ConversationWithMessages {
   id: number;
   title: string | null;
   created_at: string;
   updated_at: string;
   messages: ConversationMessage[];
+  evaluation?: ConversationEvaluationMetrics | null;
+  curiosity_summary?: ConversationCuriositySummary | null;
 }
 
 export interface StudentWithConversation {

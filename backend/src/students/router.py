@@ -13,6 +13,7 @@ from src.models import (
     Student,
     Conversation,
     Message,
+    ConversationEvaluation,
     ClassAnalysis,
     StudentAnalysis,
     AnalysisJob,
@@ -22,6 +23,9 @@ from src.students.schemas import (
     StudentWithConversationResponse,
     ConversationWithMessagesResponse,
     ConversationMessageResponse,
+    ConversationEvaluationMetricsResponse,
+    ConversationCuriositySummaryResponse,
+    ConversationTopicResponse,
     PaginatedConversationsResponse,
     ClassAnalysisResponse,
     AnalysisJobStatusResponse,
@@ -126,6 +130,139 @@ def _get_messages_by_conversation(
     for message in messages:
         messages_by_conversation.setdefault(message.conversation_id, []).append(message)
     return messages_by_conversation
+
+
+def _get_evaluations_by_conversation(
+    db: Session,
+    conversation_ids: List[int],
+) -> Dict[int, ConversationEvaluation]:
+    if not conversation_ids:
+        return {}
+
+    evaluations = (
+        db.query(ConversationEvaluation)
+        .filter(ConversationEvaluation.conversation_id.in_(conversation_ids))
+        .all()
+    )
+
+    return {evaluation.conversation_id: evaluation for evaluation in evaluations}
+
+
+def _safe_float(value) -> Optional[float]:
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _safe_int(value) -> Optional[int]:
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _normalize_topics(raw_topics) -> List[ConversationTopicResponse]:
+    topics: List[ConversationTopicResponse] = []
+    if not raw_topics or not isinstance(raw_topics, list):
+        return topics
+
+    for item in raw_topics:
+        if isinstance(item, str):
+            term = item.strip()
+            if term:
+                topics.append(ConversationTopicResponse(term=term))
+        elif isinstance(item, dict):
+            term = item.get('term') or item.get('topic') or item.get('name')
+            if not term:
+                continue
+            weight = _safe_float(item.get('weight') or item.get('total_weight') or item.get('score'))
+            count = _safe_int(item.get('conversation_count') or item.get('count'))
+            topics.append(ConversationTopicResponse(term=str(term), weight=weight, count=count))
+
+    return topics
+
+
+def _build_conversation_evaluation_response(
+    evaluation: Optional[ConversationEvaluation],
+) -> Optional[ConversationEvaluationMetricsResponse]:
+    if not evaluation or not isinstance(evaluation.metrics, dict):
+        return None
+
+    metrics = evaluation.metrics
+
+    depth = _safe_float(metrics.get('depth'))
+    relevant_questions = _safe_int(metrics.get('relevant_question_count'))
+    depth_sample_size = _safe_int(metrics.get('depth_sample_size') or metrics.get('depth_count'))
+    relevant_sample_size = _safe_int(metrics.get('relevant_sample_size') or metrics.get('relevant_count'))
+    conversation_count = _safe_int(metrics.get('conversation_count'))
+
+    topics = _normalize_topics(metrics.get('topics'))
+
+    return ConversationEvaluationMetricsResponse(
+        depth=depth,
+        relevant_question_count=relevant_questions,
+        topics=topics,
+        computed_at=evaluation.computed_at,
+        status=evaluation.status,
+        prompt_version_id=evaluation.prompt_version_id,
+        depth_sample_size=depth_sample_size,
+        relevant_sample_size=relevant_sample_size,
+        conversation_count=conversation_count,
+    )
+
+
+def _build_curiosity_summary(messages: List[Message]) -> Optional[ConversationCuriositySummaryResponse]:
+    scores = [score for score in (message.curiosity_score for message in messages) if isinstance(score, (int, float))]
+    if not scores:
+        return None
+
+    average = sum(scores) / len(scores)
+    latest_score: Optional[int] = None
+    for message in reversed(messages):
+        if isinstance(message.curiosity_score, (int, float)):
+            latest_score = int(message.curiosity_score)
+            break
+
+    return ConversationCuriositySummaryResponse(
+        average=average,
+        latest=latest_score,
+        sample_size=len(scores),
+    )
+
+
+def _build_conversation_payload(
+    conversation: Conversation,
+    messages: List[Message],
+    evaluation: Optional[ConversationEvaluation],
+) -> ConversationWithMessagesResponse:
+    message_payloads = [
+        ConversationMessageResponse(
+            id=message.id,
+            content=message.content,
+            is_user=message.is_user,
+            timestamp=message.timestamp,
+            curiosity_score=message.curiosity_score,
+        )
+        for message in messages
+    ]
+
+    evaluation_payload = _build_conversation_evaluation_response(evaluation)
+    curiosity_summary = _build_curiosity_summary(messages)
+
+    return ConversationWithMessagesResponse(
+        id=conversation.id,
+        title=conversation.title,
+        created_at=conversation.created_at,
+        updated_at=conversation.updated_at,
+        messages=message_payloads,
+        evaluation=evaluation_payload,
+        curiosity_summary=curiosity_summary,
+    )
 
 
 def _get_class_analysis_prompt_version(db: Session) -> Optional[PromptVersion]:
@@ -289,6 +426,7 @@ def list_students(
     user_ids = [student.user_id for student in students]
     conversations_map, conversation_ids = _get_latest_conversations_for_users(db, user_ids)
     messages_by_conversation_raw = _get_messages_by_conversation(db, conversation_ids)
+    evaluations_by_conversation = _get_evaluations_by_conversation(db, conversation_ids)
 
     response: List[StudentWithConversationResponse] = []
     for student in students:
@@ -296,22 +434,12 @@ def list_students(
         latest_conversation_payload: Optional[ConversationWithMessagesResponse] = None
 
         if latest_conversation:
-            message_payloads = [
-                ConversationMessageResponse(
-                    id=message.id,
-                    content=message.content,
-                    is_user=message.is_user,
-                    timestamp=message.timestamp,
-                    curiosity_score=message.curiosity_score,
-                )
-                for message in messages_by_conversation_raw.get(latest_conversation.id, [])
-            ]
-            latest_conversation_payload = ConversationWithMessagesResponse(
-                id=latest_conversation.id,
-                title=latest_conversation.title,
-                created_at=latest_conversation.created_at,
-                updated_at=latest_conversation.updated_at,
-                messages=message_payloads,
+            messages_raw = messages_by_conversation_raw.get(latest_conversation.id, [])
+            evaluation = evaluations_by_conversation.get(latest_conversation.id)
+            latest_conversation_payload = _build_conversation_payload(
+                latest_conversation,
+                messages_raw,
+                evaluation,
             )
 
         response.append(
@@ -345,7 +473,7 @@ def list_student_conversations(
     conversations = conversations[:limit]
 
     conversation_ids = [conversation.id for conversation in conversations]
-    messages_by_conversation: Dict[int, List[ConversationMessageResponse]] = {}
+    messages_by_conversation_raw: Dict[int, List[Message]] = {}
 
     if conversation_ids:
         messages = (
@@ -356,23 +484,15 @@ def list_student_conversations(
         )
 
         for message in messages:
-            messages_by_conversation.setdefault(message.conversation_id, []).append(
-                ConversationMessageResponse(
-                    id=message.id,
-                    content=message.content,
-                    is_user=message.is_user,
-                    timestamp=message.timestamp,
-                    curiosity_score=message.curiosity_score,
-                )
-            )
+            messages_by_conversation_raw.setdefault(message.conversation_id, []).append(message)
+
+    evaluations_by_conversation = _get_evaluations_by_conversation(db, conversation_ids)
 
     response_conversations = [
-        ConversationWithMessagesResponse(
-            id=conversation.id,
-            title=conversation.title,
-            created_at=conversation.created_at,
-            updated_at=conversation.updated_at,
-            messages=messages_by_conversation.get(conversation.id, []),
+        _build_conversation_payload(
+            conversation,
+            messages_by_conversation_raw.get(conversation.id, []),
+            evaluations_by_conversation.get(conversation.id),
         )
         for conversation in conversations
     ]
@@ -405,7 +525,7 @@ def list_all_student_conversations(
     )
 
     conversation_ids = [conversation.id for conversation in conversations]
-    messages_by_conversation: Dict[int, List[ConversationMessageResponse]] = {}
+    messages_by_conversation_raw: Dict[int, List[Message]] = {}
 
     if conversation_ids:
         messages = (
@@ -416,23 +536,15 @@ def list_all_student_conversations(
         )
 
         for message in messages:
-            messages_by_conversation.setdefault(message.conversation_id, []).append(
-                ConversationMessageResponse(
-                    id=message.id,
-                    content=message.content,
-                    is_user=message.is_user,
-                    timestamp=message.timestamp,
-                    curiosity_score=message.curiosity_score,
-                )
-            )
+            messages_by_conversation_raw.setdefault(message.conversation_id, []).append(message)
+
+    evaluations_by_conversation = _get_evaluations_by_conversation(db, conversation_ids)
 
     response_conversations = [
-        ConversationWithMessagesResponse(
-            id=conversation.id,
-            title=conversation.title,
-            created_at=conversation.created_at,
-            updated_at=conversation.updated_at,
-            messages=messages_by_conversation.get(conversation.id, []),
+        _build_conversation_payload(
+            conversation,
+            messages_by_conversation_raw.get(conversation.id, []),
+            evaluations_by_conversation.get(conversation.id),
         )
         for conversation in conversations
     ]

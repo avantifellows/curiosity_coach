@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import List, Optional
 from datetime import datetime
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from src.auth.schemas import StudentResponse
 
@@ -17,12 +17,38 @@ class ConversationMessageResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class ConversationTopicResponse(BaseModel):
+    term: str
+    weight: Optional[float] = None
+    count: Optional[int] = None
+
+
+class ConversationEvaluationMetricsResponse(BaseModel):
+    depth: Optional[float] = None
+    relevant_question_count: Optional[int] = None
+    topics: List[ConversationTopicResponse] = Field(default_factory=list)
+    computed_at: Optional[datetime] = None
+    status: Optional[str] = None
+    prompt_version_id: Optional[int] = None
+    depth_sample_size: Optional[int] = None
+    relevant_sample_size: Optional[int] = None
+    conversation_count: Optional[int] = None
+
+
+class ConversationCuriositySummaryResponse(BaseModel):
+    average: Optional[float] = None
+    latest: Optional[int] = None
+    sample_size: int = 0
+
+
 class ConversationWithMessagesResponse(BaseModel):
     id: int
     title: Optional[str] = None
     created_at: datetime
     updated_at: datetime
     messages: List[ConversationMessageResponse]
+    evaluation: Optional[ConversationEvaluationMetricsResponse] = None
+    curiosity_summary: Optional[ConversationCuriositySummaryResponse] = None
 
     model_config = ConfigDict(from_attributes=True)
 

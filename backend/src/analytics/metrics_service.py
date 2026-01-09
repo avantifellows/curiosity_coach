@@ -1329,24 +1329,30 @@ def get_dashboard_metrics(
                 class_summary_payload['metrics_extra'] = class_eval
                 class_summary_payload['avg_depth'] = class_eval.get('avg_depth')
                 class_summary_payload['total_relevant_questions'] = class_eval.get('total_relevant_questions')
+                if class_eval.get('top_topics'):
+                    class_summary_payload['top_topics'] = class_eval.get('top_topics')
 
-            class_daily_eval = evaluation_rollups.get('class_daily', {})
-            for entry in recent_days:
-                extra = class_daily_eval.get(entry['day'])
-                if extra:
-                    entry['metrics_extra'] = extra
-                    if (extra.get('conversation_count') or 0) > 0:
-                        entry['avg_depth'] = extra.get('avg_depth')
-                        entry['total_relevant_questions'] = extra.get('total_relevant_questions')
+        class_daily_eval = evaluation_rollups.get('class_daily', {})
+        for entry in recent_days:
+            extra = class_daily_eval.get(entry['day'])
+            if extra:
+                entry['metrics_extra'] = extra
+                if (extra.get('conversation_count') or 0) > 0:
+                    entry['avg_depth'] = extra.get('avg_depth')
+                    entry['total_relevant_questions'] = extra.get('total_relevant_questions')
+                    if extra.get('top_topics'):
+                        entry['top_topics'] = extra.get('top_topics')
 
-            student_eval = evaluation_rollups.get('student_summary', {})
-            for entry in student_snapshots:
-                extra = student_eval.get(entry['student_id'])
-                if extra:
-                    entry['metrics_extra'] = extra
-                    if (extra.get('conversation_count') or 0) > 0:
-                        entry['avg_depth'] = extra.get('avg_depth')
-                        entry['total_relevant_questions'] = extra.get('total_relevant_questions')
+        student_eval = evaluation_rollups.get('student_summary', {})
+        for entry in student_snapshots:
+            extra = student_eval.get(entry['student_id'])
+            if extra:
+                entry['metrics_extra'] = extra
+                if (extra.get('conversation_count') or 0) > 0:
+                    entry['avg_depth'] = extra.get('avg_depth')
+                    entry['total_relevant_questions'] = extra.get('total_relevant_questions')
+                    if extra.get('top_topics'):
+                        entry['top_topics'] = extra.get('top_topics')
 
     return {
         'class_summary': class_summary_payload,

@@ -28,6 +28,17 @@ const formatDateTime = (isoString?: string) => {
   };
 };
 
+const formatInteger = (value: number | null | undefined) =>
+  value === null || value === undefined ? '—' : new Intl.NumberFormat().format(value);
+
+const formatOneDecimal = (value: number | null | undefined) =>
+  value === null || value === undefined
+    ? '—'
+    : new Intl.NumberFormat(undefined, {
+        minimumFractionDigits: 1,
+        maximumFractionDigits: 1,
+      }).format(value);
+
 const ClassDetails: React.FC = () => {
   const location = useLocation();
   const navigate = useNavigate();
@@ -94,6 +105,53 @@ const ClassDetails: React.FC = () => {
     ? `${students.length} Student${students.length === 1 ? '' : 's'}`
     : 'Students';
 
+  const topTopics = useMemo(() => {
+    if (!students) {
+      return [];
+    }
+
+    const topicTotals = new Map<string, { term: string; weight: number; count: number }>();
+
+    students.forEach(({ latest_conversation }) => {
+      const topics = latest_conversation?.evaluation?.topics ?? [];
+      topics.forEach((topic) => {
+        if (!topic || !topic.term) {
+          return;
+        }
+        const termKey = topic.term.trim().toLowerCase();
+        if (!termKey) {
+          return;
+        }
+        const weightContribution = typeof topic.weight === 'number' ? topic.weight : 1;
+        const countContribution = typeof topic.count === 'number' ? topic.count : 1;
+
+        const existing = topicTotals.get(termKey) ?? {
+          term: topic.term,
+          weight: 0,
+          count: 0,
+        };
+
+        existing.term = topic.term;
+        existing.weight += weightContribution;
+        existing.count += countContribution;
+        topicTotals.set(termKey, existing);
+      });
+    });
+
+    return Array.from(topicTotals.values())
+      .sort((a, b) => {
+        const weightDiff = (b.weight || 0) - (a.weight || 0);
+        if (Math.abs(weightDiff) > 0.0001) {
+          return weightDiff;
+        }
+        if (b.count !== a.count) {
+          return b.count - a.count;
+        }
+        return a.term.localeCompare(b.term);
+      })
+      .slice(0, 6);
+  }, [students]);
+
   return (
     <div className="min-h-screen bg-slate-50 py-12 px-4">
       <div className="mx-auto w-full max-w-4xl">
@@ -131,11 +189,11 @@ const ClassDetails: React.FC = () => {
               </div>
             </div>
             
-            {/* Summary chips */}
-            {hasClassInfo ? (
-              <div className="flex flex-wrap items-center justify-center gap-3 text-sm font-medium text-slate-600">
-                {summaryChips.map((chip) => (
-                  <div
+          {/* Summary chips */}
+          {hasClassInfo ? (
+            <div className="flex flex-wrap items-center justify-center gap-3 text-sm font-medium text-slate-600">
+              {summaryChips.map((chip) => (
+                <div
                     key={chip.label}
                     className="inline-flex items-center gap-2 rounded-full bg-slate-100/80 px-4 py-2 text-slate-700"
                   >
@@ -148,6 +206,25 @@ const ClassDetails: React.FC = () => {
               <p className="text-sm text-slate-500">
                 No class info provided. Return to the teacher view to enter details.
               </p>
+            )}
+
+            {topTopics.length > 0 && (
+              <div className="flex flex-col items-center gap-2 text-sm text-slate-600">
+                <p className="font-semibold text-slate-700">Top Topics (latest chats)</p>
+                <div className="flex flex-wrap justify-center gap-2">
+                  {topTopics.map((topic) => (
+                    <span
+                      key={topic.term.toLowerCase()}
+                      className="inline-flex items-center gap-1 rounded-full bg-indigo-50 px-3 py-1 text-xs font-semibold text-indigo-700"
+                    >
+                      <span>{topic.term}</span>
+                      {topic.count > 0 ? (
+                        <span className="text-[10px] text-indigo-500">×{formatInteger(topic.count)}</span>
+                      ) : null}
+                    </span>
+                  ))}
+                </div>
+              </div>
             )}
           </section>
 
@@ -173,6 +250,9 @@ const ClassDetails: React.FC = () => {
                       const { date, time } = formatDateTime(latest_conversation?.updated_at);
                       const hasConversation = Boolean(latest_conversation);
                       const lastChatLabel = hasConversation ? latest_conversation?.title || 'New Chat' : 'No conversations yet';
+                      const evaluation = latest_conversation?.evaluation;
+                      const curiositySummary = latest_conversation?.curiosity_summary;
+                      const conversationTopics = evaluation?.topics ?? [];
 
                       return (
                         <li
@@ -195,6 +275,41 @@ const ClassDetails: React.FC = () => {
                               <p>{date}</p>
                               {time && <p className="text-xs">{time}</p>}
                             </div>
+                            {hasConversation && (
+                              <div className="flex w-full flex-col gap-2 text-xs text-slate-600 sm:text-right sm:text-sm">
+                                {evaluation && (
+                                  <div className="flex flex-wrap gap-3 sm:justify-end">
+                                    <span className="font-semibold text-slate-700">Evaluation</span>
+                                    <span>Depth: {formatOneDecimal(evaluation.depth)}</span>
+                                    <span>Relevant Qs: {formatInteger(evaluation.relevant_question_count)}</span>
+                                  </div>
+                                )}
+                                {curiositySummary && (
+                                  <div className="flex flex-wrap gap-3 sm:justify-end">
+                                    <span className="font-semibold text-slate-700">Curiosity</span>
+                                    <span>Avg: {formatOneDecimal(curiositySummary.average)}</span>
+                                    <span>Latest: {formatInteger(curiositySummary.latest)}</span>
+                                  </div>
+                                )}
+                                {conversationTopics.length > 0 && (
+                                  <div className="flex flex-wrap gap-2 sm:justify-end">
+                                    {conversationTopics.slice(0, 3).map((topic) => (
+                                      <span
+                                        key={`${latest_conversation?.id ?? 'topic'}-${topic.term}`}
+                                        className="inline-flex items-center gap-1 rounded-full bg-indigo-50 px-3 py-1 text-[11px] font-medium text-indigo-600"
+                                      >
+                                        <span>{topic.term}</span>
+                                        {typeof topic.weight === 'number' && !Number.isNaN(topic.weight) ? (
+                                          <span className="text-[10px] text-indigo-400">{formatOneDecimal(topic.weight)}</span>
+                                        ) : topic.count ? (
+                                          <span className="text-[10px] text-indigo-400">×{formatInteger(topic.count)}</span>
+                                        ) : null}
+                                      </span>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            )}
                             <button
                               type="button"
                               className="inline-flex items-center justify-center rounded-full px-5 py-2 text-sm font-semibold text-white shadow-lg shadow-indigo-200/60 transition bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-indigo-500"

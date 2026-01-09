@@ -5,6 +5,7 @@ import {
   DashboardResponse,
   StudentDailySeries,
   StudentDailyRecord,
+  ConversationTopic,
   Student,
 } from '../types';
 import {
@@ -476,6 +477,40 @@ const TeacherDashboard: React.FC = () => {
   const hourlyBuckets = useMemo(() => data?.hourly_activity ?? [], [data]);
   const studentOptions = useMemo(() => students, [students]);
 
+  const renderTopicChips = (topics?: ConversationTopic[] | null) => {
+    if (!topics || topics.length === 0) {
+      return <span className="text-slate-400">—</span>;
+    }
+
+    return (
+      <div className="flex flex-wrap gap-1">
+        {topics.slice(0, 3).map((topic) => {
+          const totalWeight =
+            typeof topic.total_weight === 'number' && !Number.isNaN(topic.total_weight)
+              ? topic.total_weight
+              : typeof topic.weight === 'number' && !Number.isNaN(topic.weight)
+              ? topic.weight
+              : null;
+          const totalCount = topic.conversation_count ?? topic.count;
+
+          return (
+            <span
+              key={`${topic.term}-${totalWeight ?? totalCount ?? ''}`}
+              className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600"
+            >
+              <span>{topic.term}</span>
+              {totalWeight !== null ? (
+                <span className="text-[10px] text-slate-400">{formatOneDecimal(totalWeight)}</span>
+              ) : totalCount ? (
+                <span className="text-[10px] text-slate-400">×{totalCount}</span>
+              ) : null}
+            </span>
+          );
+        })}
+      </div>
+    );
+  };
+
   useEffect(() => {
     if (!hasClassContext || !primaryStudentId) {
       setStudentDailySeries([]);
@@ -650,6 +685,7 @@ const TeacherDashboard: React.FC = () => {
                             <th className="py-2 text-left font-semibold text-slate-600">AI Msgs</th>
                             <th className="py-2 text-left font-semibold text-slate-600">Avg Depth</th>
                             <th className="py-2 text-left font-semibold text-slate-600">Relevant Questions</th>
+                            <th className="py-2 text-left font-semibold text-slate-600">Top Topics</th>
                             <th className="py-2 text-left font-semibold text-slate-600">Active Students</th>
                             <th className="py-2 text-left font-semibold text-slate-600">After-school Convos</th>
                           </tr>
@@ -663,6 +699,7 @@ const TeacherDashboard: React.FC = () => {
                               <td className="py-2 text-slate-700">{formatNumber(day.total_ai_messages)}</td>
                               <td className="py-2 text-slate-700">{formatOneDecimal(day.avg_depth)}</td>
                               <td className="py-2 text-slate-700">{formatNumber(day.total_relevant_questions)}</td>
+                              <td className="py-2 text-slate-700">{renderTopicChips(day.top_topics)}</td>
                               <td className="py-2 text-slate-700">{formatNumber(day.active_students)}</td>
                               <td className="py-2 text-slate-700">{formatNumber(day.after_school_conversations)}</td>
                             </tr>
@@ -688,6 +725,7 @@ const TeacherDashboard: React.FC = () => {
                             <th className="py-2 text-left font-semibold text-slate-600">Avg Words/Msg</th>
                             <th className="py-2 text-left font-semibold text-slate-600">Avg Depth</th>
                             <th className="py-2 text-left font-semibold text-slate-600">Relevant Questions</th>
+                            <th className="py-2 text-left font-semibold text-slate-600">Top Topics</th>
                             <th className="py-2 text-left font-semibold text-slate-600">User Msgs</th>
                             <th className="py-2 text-left font-semibold text-slate-600">Words Typed</th>
                             <th className="py-2 text-left font-semibold text-slate-600">Minutes</th>
@@ -703,6 +741,7 @@ const TeacherDashboard: React.FC = () => {
                               <td className="py-2 text-slate-700">{formatOneDecimal(snapshot.avg_words_per_message)}</td>
                               <td className="py-2 text-slate-700">{formatOneDecimal(snapshot.avg_depth)}</td>
                               <td className="py-2 text-slate-700">{formatNumber(snapshot.total_relevant_questions)}</td>
+                              <td className="py-2 text-slate-700">{renderTopicChips(snapshot.top_topics)}</td>
                               <td className="py-2 text-slate-700">{formatNumber(snapshot.total_user_messages)}</td>
                               <td className="py-2 text-slate-700">{formatNumber(snapshot.total_user_words)}</td>
                               <td className="py-2 text-slate-700">{formatMinutes(snapshot.total_minutes)}</td>

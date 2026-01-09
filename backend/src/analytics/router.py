@@ -62,6 +62,12 @@ class MetricsRefreshResponse(BaseModel):
     deleted_rows: dict[str, int]
 
 
+class DashboardTopic(BaseModel):
+    term: str
+    total_weight: Optional[float] = None
+    conversation_count: Optional[int] = None
+
+
 class DashboardClassSummary(BaseModel):
     cohort_start: date
     cohort_end: date
@@ -85,6 +91,7 @@ class DashboardClassSummary(BaseModel):
     after_school_user_pct: Optional[float]
     avg_depth: Optional[float] = None
     total_relevant_questions: Optional[float] = None
+    top_topics: Optional[List[DashboardTopic]] = None
     metrics_extra: Optional[Dict[str, Any]] = None
 
 
@@ -98,6 +105,7 @@ class DashboardDailyStat(BaseModel):
     after_school_conversations: Optional[int]
     avg_depth: Optional[float] = None
     total_relevant_questions: Optional[float] = None
+    top_topics: Optional[List[DashboardTopic]] = None
     metrics_extra: Optional[Dict[str, Any]] = None
 
 
@@ -112,6 +120,7 @@ class DashboardStudentSnapshot(BaseModel):
     avg_words_per_message: Optional[float] = None
     avg_depth: Optional[float] = None
     total_relevant_questions: Optional[float] = None
+    top_topics: Optional[List[DashboardTopic]] = None
     metrics_extra: Optional[Dict[str, Any]] = None
 
 
