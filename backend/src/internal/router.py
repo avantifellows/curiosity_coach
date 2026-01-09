@@ -11,7 +11,7 @@ from src.models import (
     Prompt, PromptVersion, get_conversation, save_message,
     save_message_pipeline_data, update_conversation_core_chat_theme,
     Message, MessagePipelineData, LMHomework,
-    ClassAnalysis, StudentAnalysis, AnalysisJob, Student,
+    ClassAnalysis, StudentAnalysis, AnalysisJob, Student, ConversationEvaluation,
 )
 from src.onboarding.schemas import OpeningMessageCallbackPayload
 from pydantic import BaseModel
@@ -548,11 +548,13 @@ def get_student_transcript(
 class AnalysisCallbackPayload(BaseModel):
     """Payload from Brain service when analysis task completes."""
     job_id: str
-    analysis_kind: str  # "class" or "student"
+    analysis_kind: str  # "class", "student", or "conversation"
     status: str  # "completed" or "failed"
     analysis_text: Optional[str] = None
+    metrics: Optional[dict] = None
     error_message: Optional[str] = None
     last_message_hash: Optional[str] = None
+    prompt_version_id: Optional[int] = None
 
 
 @router.post("/analysis-callback")
@@ -572,46 +574,81 @@ def handle_analysis_callback(
         logger.error(f"Analysis job not found: {payload.job_id}")
         raise HTTPException(status_code=404, detail="Job not found")
     
-    # Get the associated analysis record
-    if payload.analysis_kind == "class" and job.class_analysis_id:
+    analysis: ClassAnalysis | StudentAnalysis | None = None
+    evaluation: ConversationEvaluation | None = None
+
+    if payload.analysis_kind == "class":
+        if not job.class_analysis_id:
+            logger.error(f"Job {payload.job_id} does not reference a class analysis record")
+            raise HTTPException(status_code=400, detail="Job is not associated with a class analysis")
         analysis = db.query(ClassAnalysis).filter(ClassAnalysis.id == job.class_analysis_id).first()
-    elif payload.analysis_kind == "student" and job.student_analysis_id:
+    elif payload.analysis_kind == "student":
+        if not job.student_analysis_id:
+            logger.error(f"Job {payload.job_id} does not reference a student analysis record")
+            raise HTTPException(status_code=400, detail="Job is not associated with a student analysis")
         analysis = db.query(StudentAnalysis).filter(StudentAnalysis.id == job.student_analysis_id).first()
+    elif payload.analysis_kind == "conversation":
+        if not job.conversation_evaluation_id:
+            logger.error(f"Job {payload.job_id} does not reference a conversation evaluation record")
+            raise HTTPException(status_code=400, detail="Job is not associated with a conversation evaluation")
+        evaluation = (
+            db.query(ConversationEvaluation)
+            .filter(ConversationEvaluation.id == job.conversation_evaluation_id)
+            .first()
+        )
     else:
-        logger.error(f"Invalid analysis_kind or missing analysis reference for job {payload.job_id}")
-        raise HTTPException(status_code=400, detail="Invalid analysis_kind or job configuration")
-    
-    if not analysis:
+        logger.error(f"Unsupported analysis_kind '{payload.analysis_kind}' for job {payload.job_id}")
+        raise HTTPException(status_code=400, detail="Unsupported analysis_kind")
+
+    if payload.analysis_kind in {"class", "student"} and not analysis:
         logger.error(f"Analysis record not found for job {payload.job_id}")
         raise HTTPException(status_code=404, detail="Analysis record not found")
+
+    if payload.analysis_kind == "conversation" and not evaluation:
+        logger.error(f"Conversation evaluation record not found for job {payload.job_id}")
+        raise HTTPException(status_code=404, detail="Conversation evaluation record not found")
     
     now = datetime.now(timezone.utc)
     
     if payload.status == "completed":
-        # Update analysis record with results
-        analysis.analysis_text = payload.analysis_text
-        analysis.status = "ready"
-        analysis.computed_at = now
-        if payload.last_message_hash:
-            analysis.last_message_hash = payload.last_message_hash
-        analysis.updated_at = now
-        
+        if payload.analysis_kind == "conversation":
+            evaluation.metrics = payload.metrics or {}
+            evaluation.status = "ready"
+            evaluation.computed_at = now
+            evaluation.updated_at = now
+            if payload.last_message_hash:
+                evaluation.last_message_hash = payload.last_message_hash
+            if payload.prompt_version_id is not None:
+                evaluation.prompt_version_id = payload.prompt_version_id
+        else:
+            # Update analysis record with results
+            analysis.analysis_text = payload.analysis_text
+            analysis.status = "ready"
+            analysis.computed_at = now
+            if payload.last_message_hash:
+                analysis.last_message_hash = payload.last_message_hash
+            analysis.updated_at = now
+
         # Update job
         job.status = "completed"
         job.error_message = None
         job.completed_at = now
         job.updated_at = now
-        
+
         logger.info(f"Analysis completed successfully for job {payload.job_id}")
     else:
         # Mark as failed
-        analysis.status = "failed"
-        analysis.updated_at = now
+        if payload.analysis_kind == "conversation":
+            evaluation.status = "failed"
+            evaluation.updated_at = now
+        else:
+            analysis.status = "failed"
+            analysis.updated_at = now
         
         job.status = "failed"
         job.error_message = payload.error_message or "Analysis failed"
         job.updated_at = now
-        
+
         logger.error(f"Analysis failed for job {payload.job_id}: {payload.error_message}")
     
     db.commit()

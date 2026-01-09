@@ -94,6 +94,7 @@ class Conversation(Base):
     prompt_version = relationship("PromptVersion")
     memory = relationship("ConversationMemory", back_populates="conversation", uselist=False, cascade="all, delete-orphan")
     visit = relationship("ConversationVisit", back_populates="conversation", uselist=False, cascade="all, delete-orphan")
+    evaluation = relationship("ConversationEvaluation", back_populates="conversation", uselist=False, cascade="all, delete-orphan")
 
 class ConversationVisit(Base):
     __tablename__ = "conversation_visits"
@@ -123,6 +124,25 @@ class ConversationMemory(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     conversation = relationship("Conversation", back_populates="memory")
+
+
+class ConversationEvaluation(Base):
+    __tablename__ = "conversation_evaluations"
+
+    id = Column(Integer, primary_key=True, index=True)
+    conversation_id = Column(Integer, ForeignKey("conversations.id", ondelete="CASCADE"), unique=True, nullable=False, index=True)
+    metrics = Column(JSON, nullable=True)
+    status = Column(String(20), nullable=False, default="ready")
+    computed_at = Column(DateTime(timezone=True), nullable=True)
+    last_message_hash = Column(String(64), nullable=True)
+    prompt_version_id = Column(Integer, ForeignKey("prompt_versions.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    conversation = relationship("Conversation", back_populates="evaluation")
+    prompt_version = relationship("PromptVersion")
+    jobs = relationship("AnalysisJob", back_populates="conversation_evaluation", cascade="all, delete-orphan")
+
 
 class Message(Base):
     __tablename__ = "messages"
@@ -394,12 +414,14 @@ class AnalysisJob(Base):
     error_message = Column(Text, nullable=True)
     class_analysis_id = Column(Integer, ForeignKey("class_analyses.id", ondelete="CASCADE"), nullable=True, index=True)
     student_analysis_id = Column(Integer, ForeignKey("student_analyses.id", ondelete="CASCADE"), nullable=True, index=True)
+    conversation_evaluation_id = Column(Integer, ForeignKey("conversation_evaluations.id", ondelete="CASCADE"), nullable=True, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     completed_at = Column(DateTime(timezone=True), nullable=True)
 
     class_analysis = relationship("ClassAnalysis", back_populates="jobs")
     student_analysis = relationship("StudentAnalysis", back_populates="jobs")
+    conversation_evaluation = relationship("ConversationEvaluation", back_populates="jobs")
 
 
 # --- Prompt Versioning Models ---

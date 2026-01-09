@@ -698,20 +698,35 @@ def get_analysis_job_status(
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
 
+    analysis_text: Optional[str] = None
+    computed_at: Optional[datetime] = None
+    analysis_status: Optional[str] = None
+    metrics: Optional[dict] = None
+
     if job.analysis_kind == "class" and job.class_analysis:
         analysis = job.class_analysis
+        analysis_text = analysis.analysis_text
+        computed_at = analysis.computed_at
+        analysis_status = analysis.status
     elif job.analysis_kind == "student" and job.student_analysis:
         analysis = job.student_analysis
-    else:
-        analysis = None
+        analysis_text = analysis.analysis_text
+        computed_at = analysis.computed_at
+        analysis_status = analysis.status
+    elif job.analysis_kind == "conversation" and job.conversation_evaluation:
+        evaluation = job.conversation_evaluation
+        metrics = evaluation.metrics
+        computed_at = evaluation.computed_at
+        analysis_status = evaluation.status
 
     payload = AnalysisJobStatusResponse(
         job_id=job.job_id,
         status=job.status,
-        analysis=getattr(analysis, "analysis_text", None),
-        computed_at=getattr(analysis, "computed_at", None),
+        analysis=analysis_text,
+        computed_at=computed_at,
         error_message=job.error_message,
-        analysis_status=getattr(analysis, "status", None) if analysis else None,
+        analysis_status=analysis_status,
+        metrics=metrics,
     )
 
     return JSONResponse(content=payload.model_dump(mode="json"))

@@ -4,6 +4,7 @@ import {
   DashboardHourlyBucket,
   DashboardResponse,
   StudentDailySeries,
+  StudentDailyRecord,
   Student,
 } from '../types';
 import {
@@ -19,16 +20,20 @@ interface LocationState {
   section?: string;
 }
 
-type StudentMetricKey = 'user_words' | 'user_messages';
+type StudentMetricKey = 'user_words' | 'user_messages' | 'avg_depth' | 'total_relevant_questions';
 
 const METRIC_OPTIONS: { value: StudentMetricKey; label: string }[] = [
   { value: 'user_words', label: 'Words typed' },
   { value: 'user_messages', label: 'User messages' },
+  { value: 'avg_depth', label: 'Avg depth' },
+  { value: 'total_relevant_questions', label: 'Relevant questions' },
 ];
 
 const METRIC_LABEL: Record<StudentMetricKey, string> = {
   user_words: 'Words typed',
   user_messages: 'User messages',
+  avg_depth: 'Avg depth',
+  total_relevant_questions: 'Relevant questions',
 };
 
 const COMPARISON_COLORS = ['#2563eb', '#f97316', '#10b981', '#facc15'];
@@ -48,15 +53,34 @@ const formatPercent = (value: number | null | undefined) =>
     ? '—'
     : `${formatNumber(value, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`;
 
+const formatOneDecimal = (value: number | null | undefined) =>
+  value === null || value === undefined
+    ? '—'
+    : formatNumber(value, { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+
+const IST_TIMEZONE = 'Asia/Kolkata';
+
 const formatDayLabel = (isoDate: string) =>
   new Date(isoDate).toLocaleDateString([], { month: 'short', day: 'numeric' });
 
 const formatHourRange = (startIso: string, endIso: string) => {
   const start = new Date(startIso);
   const end = new Date(endIso);
-  const startLabel = start.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  const endLabel = end.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  const dayLabel = start.toLocaleDateString([], { month: 'short', day: 'numeric' });
+  const startLabel = start.toLocaleTimeString([], {
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZone: IST_TIMEZONE,
+  });
+  const endLabel = end.toLocaleTimeString([], {
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZone: IST_TIMEZONE,
+  });
+  const dayLabel = start.toLocaleDateString([], {
+    month: 'short',
+    day: 'numeric',
+    timeZone: IST_TIMEZONE,
+  });
   return `${dayLabel} · ${startLabel} – ${endLabel}`;
 };
 
@@ -68,6 +92,10 @@ const HourlyActivityChart: React.FC<{ buckets: DashboardHourlyBucket[] }> = ({ b
   const safeMax = maxValue > 0 ? maxValue : 1;
   const xSpan = width - padding.left - padding.right;
   const ySpan = height - padding.top - padding.bottom;
+  const maxLabel =
+    maxValue > 0
+      ? `Max user msgs/hour: ${formatNumber(maxValue)}`
+      : 'No user messages recorded in last 24h';
 
   const points = buckets.map((bucket, index) => {
     const ratio = buckets.length > 1 ? index / (buckets.length - 1) : 0.5;
@@ -123,14 +151,8 @@ const HourlyActivityChart: React.FC<{ buckets: DashboardHourlyBucket[] }> = ({ b
             strokeDasharray="4 6"
           />
         ))}
-        <text
-          x={padding.left}
-          y={padding.top + 12}
-          fill="#475569"
-          fontSize="12"
-          fontWeight={500}
-        >
-          {`Max: ${formatNumber(maxValue)}`}
+        <text x={padding.left} y={padding.top + 12} fill="#475569" fontSize="12" fontWeight={500}>
+          {maxLabel}
         </text>
         <text
           x={padding.left - 8}
@@ -140,6 +162,15 @@ const HourlyActivityChart: React.FC<{ buckets: DashboardHourlyBucket[] }> = ({ b
           textAnchor="end"
         >
           0
+        </text>
+        <text
+          x={padding.left - 40}
+          y={padding.top + ySpan / 2}
+          fill="#94a3b8"
+          fontSize="11"
+          transform={`rotate(-90 ${padding.left - 40} ${padding.top + ySpan / 2})`}
+        >
+          User msgs/hour
         </text>
         {points.length > 0 && (
           <>
@@ -177,16 +208,14 @@ const HourlyActivityChart: React.FC<{ buckets: DashboardHourlyBucket[] }> = ({ b
             fontSize="11"
             textAnchor="middle"
           >
-            {new Date(bucket.window_start).toLocaleTimeString([], { hour: '2-digit' })}
+            {new Date(bucket.window_start).toLocaleTimeString([], {
+              hour: '2-digit',
+              timeZone: IST_TIMEZONE,
+            })}
           </text>
         ))}
-        <text
-          x={padding.left}
-          y={height - 12}
-          fill="#94a3b8"
-          fontSize="11"
-        >
-          Hour of day (local time)
+        <text x={padding.left} y={height - 12} fill="#94a3b8" fontSize="11">
+          Hour of day (IST)
         </text>
       </svg>
     </div>
@@ -234,8 +263,8 @@ const StudentComparisonChart: React.FC<StudentComparisonChartProps> = ({ data, m
   const maxValue = valueLookup.reduce((outerMax, series) => {
     return dayLabels.reduce((innerMax, day) => {
       const record = series.recordMap.get(day);
-      const value = record ? (record[metric] ?? 0) : 0;
-      return Math.max(innerMax, value ?? 0, outerMax);
+      const value = record ? getMetricValue(record, metric) : 0;
+      return Math.max(innerMax, value, outerMax);
     }, outerMax);
   }, 0);
 
@@ -304,8 +333,7 @@ const StudentComparisonChart: React.FC<StudentComparisonChartProps> = ({ data, m
 
               {valueLookup.map((series, seriesIndex) => {
                 const record = series.recordMap.get(day);
-                const rawValue = record ? record[metric] ?? 0 : 0;
-                const value = rawValue ?? 0;
+                const value = record ? getMetricValue(record, metric) : 0;
                 const barHeight = (value / safeMax) * ySpan;
                 const barX = baseX + groupOffset + seriesIndex * (barWidth + barGap);
                 const barY = padding.top + (ySpan - barHeight);
@@ -313,7 +341,7 @@ const StudentComparisonChart: React.FC<StudentComparisonChartProps> = ({ data, m
 
                 const tooltipLines = [
                   `${series.student_name ?? `Student ${series.student_id}`}`,
-                  `${METRIC_LABEL[metric]}: ${value ?? 0}`,
+                  `${METRIC_LABEL[metric]}: ${Math.round(value * 10) / 10}`,
                   dayLabel,
                 ];
 
@@ -443,7 +471,7 @@ const TeacherDashboard: React.FC = () => {
     fetchStudents();
   }, [hasClassContext, school, grade, section]);
 
-  const recentDays = useMemo(() => data?.recent_days ?? [], [data]);
+  const topDays = useMemo(() => data?.recent_days ?? [], [data]);
   const studentSnapshots = useMemo(() => data?.student_snapshots ?? [], [data]);
   const hourlyBuckets = useMemo(() => data?.hourly_activity ?? [], [data]);
   const studentOptions = useMemo(() => students, [students]);
@@ -505,13 +533,37 @@ const TeacherDashboard: React.FC = () => {
               </p>
             )}
           </div>
-          <button
-            type="button"
-            className="inline-flex items-center justify-center rounded-full px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-indigo-200/60 transition bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-indigo-500"
-            onClick={() => navigate(-1)}
-          >
-            Back
-          </button>
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <button
+              type="button"
+              className="inline-flex items-center justify-center rounded-full border border-indigo-600 px-4 py-2 text-xs font-semibold text-indigo-600 shadow-sm transition hover:bg-indigo-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-indigo-500"
+              onClick={() =>
+                navigate('/class-details', {
+                  state: { school, grade, section: section ?? undefined },
+                })
+              }
+            >
+              Class Details
+            </button>
+            <button
+              type="button"
+              className="inline-flex items-center justify-center rounded-full border border-indigo-600 px-4 py-2 text-xs font-semibold text-indigo-600 shadow-sm transition hover:bg-indigo-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-indigo-500"
+              onClick={() =>
+                navigate('/class-summary', {
+                  state: { school, grade, section: section ?? undefined },
+                })
+              }
+            >
+              Class Summary
+            </button>
+            <button
+              type="button"
+              className="inline-flex items-center justify-center rounded-full px-4 py-2 text-xs font-semibold text-white shadow-lg shadow-indigo-200/60 transition bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-indigo-500"
+              onClick={() => navigate('/teacher-view')}
+            >
+              Change Class
+            </button>
+          </div>
         </header>
 
         {!hasClassContext && (
@@ -580,10 +632,12 @@ const TeacherDashboard: React.FC = () => {
 
                 <section className="rounded-2xl bg-white p-6 shadow-sm">
                   <div className="flex items-center justify-between gap-2">
-                    <h2 className="text-lg font-semibold text-slate-900">Recent Days</h2>
-                    <span className="text-xs font-medium text-slate-500">Last {recentDays.length} days</span>
+                    <h2 className="text-lg font-semibold text-slate-900">Top Days</h2>
+                    <span className="text-xs font-medium text-slate-500">
+                      Top {topDays.length} days by user messages
+                    </span>
                   </div>
-                  {recentDays.length === 0 ? (
+                  {topDays.length === 0 ? (
                     <p className="mt-3 text-sm text-slate-500">No daily stats yet. Refresh the metrics to populate this view.</p>
                   ) : (
                     <div className="mt-4 overflow-x-auto">
@@ -594,17 +648,21 @@ const TeacherDashboard: React.FC = () => {
                             <th className="py-2 text-left font-semibold text-slate-600">Minutes</th>
                             <th className="py-2 text-left font-semibold text-slate-600">User Msgs</th>
                             <th className="py-2 text-left font-semibold text-slate-600">AI Msgs</th>
+                            <th className="py-2 text-left font-semibold text-slate-600">Avg Depth</th>
+                            <th className="py-2 text-left font-semibold text-slate-600">Relevant Questions</th>
                             <th className="py-2 text-left font-semibold text-slate-600">Active Students</th>
                             <th className="py-2 text-left font-semibold text-slate-600">After-school Convos</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
-                          {recentDays.map((day) => (
+                          {topDays.map((day) => (
                             <tr key={day.day}>
                               <td className="py-2 text-slate-700">{formatDayLabel(day.day)}</td>
                               <td className="py-2 text-slate-700">{formatMinutes(day.total_minutes)}</td>
                               <td className="py-2 text-slate-700">{formatNumber(day.total_user_messages)}</td>
                               <td className="py-2 text-slate-700">{formatNumber(day.total_ai_messages)}</td>
+                              <td className="py-2 text-slate-700">{formatOneDecimal(day.avg_depth)}</td>
+                              <td className="py-2 text-slate-700">{formatNumber(day.total_relevant_questions)}</td>
                               <td className="py-2 text-slate-700">{formatNumber(day.active_students)}</td>
                               <td className="py-2 text-slate-700">{formatNumber(day.after_school_conversations)}</td>
                             </tr>
@@ -617,7 +675,7 @@ const TeacherDashboard: React.FC = () => {
 
                 <section className="rounded-2xl bg-white p-6 shadow-sm">
                   <div className="flex items-center justify-between gap-2">
-                    <h2 className="text-lg font-semibold text-slate-900">Students (Top 10 by Words Typed)</h2>
+                    <h2 className="text-lg font-semibold text-slate-900">Students (Top 10 by Avg Words per Message)</h2>
                   </div>
                   {studentSnapshots.length === 0 ? (
                     <p className="mt-3 text-sm text-slate-500">No student-level snapshots yet.</p>
@@ -627,8 +685,11 @@ const TeacherDashboard: React.FC = () => {
                         <thead className="bg-slate-50">
                           <tr>
                             <th className="py-2 text-left font-semibold text-slate-600">Student</th>
-                            <th className="py-2 text-left font-semibold text-slate-600">Words Typed</th>
+                            <th className="py-2 text-left font-semibold text-slate-600">Avg Words/Msg</th>
+                            <th className="py-2 text-left font-semibold text-slate-600">Avg Depth</th>
+                            <th className="py-2 text-left font-semibold text-slate-600">Relevant Questions</th>
                             <th className="py-2 text-left font-semibold text-slate-600">User Msgs</th>
+                            <th className="py-2 text-left font-semibold text-slate-600">Words Typed</th>
                             <th className="py-2 text-left font-semibold text-slate-600">Minutes</th>
                             <th className="py-2 text-left font-semibold text-slate-600">After-school %</th>
                           </tr>
@@ -639,8 +700,11 @@ const TeacherDashboard: React.FC = () => {
                               <td className="py-2 text-slate-700">
                                 {snapshot.student_name ?? `Student ${snapshot.student_id}`}
                               </td>
-                              <td className="py-2 text-slate-700">{formatNumber(snapshot.total_user_words)}</td>
+                              <td className="py-2 text-slate-700">{formatOneDecimal(snapshot.avg_words_per_message)}</td>
+                              <td className="py-2 text-slate-700">{formatOneDecimal(snapshot.avg_depth)}</td>
+                              <td className="py-2 text-slate-700">{formatNumber(snapshot.total_relevant_questions)}</td>
                               <td className="py-2 text-slate-700">{formatNumber(snapshot.total_user_messages)}</td>
+                              <td className="py-2 text-slate-700">{formatNumber(snapshot.total_user_words)}</td>
                               <td className="py-2 text-slate-700">{formatMinutes(snapshot.total_minutes)}</td>
                               <td className="py-2 text-slate-700">{formatPercent(snapshot.after_school_user_pct)}</td>
                             </tr>
@@ -780,3 +844,10 @@ const TeacherDashboard: React.FC = () => {
 };
 
 export default TeacherDashboard;
+  const getMetricValue = (record: StudentDailyRecord, key: StudentMetricKey): number => {
+    const raw = record[key];
+    if (raw === null || raw === undefined) {
+      return 0;
+    }
+    return typeof raw === 'number' ? raw : Number(raw) || 0;
+  };

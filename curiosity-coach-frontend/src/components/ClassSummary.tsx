@@ -387,10 +387,14 @@ const ClassSummary: React.FC = () => {
           </section>
 
           <button
-            onClick={() => navigate('/class-details', { state: { school, grade, section } })}
+            onClick={() =>
+              navigate('/teacher-dashboard', {
+                state: { school, grade: gradeNumber ?? grade, section },
+              })
+            }
             className="inline-flex w-full items-center justify-center rounded-full bg-indigo-600 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-indigo-200/60 transition hover:bg-indigo-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-indigo-500"
           >
-            Back to Class Details
+            Back to Dashboard
           </button>
         </div>
       </div>

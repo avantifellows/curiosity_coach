@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
@@ -13,12 +14,15 @@ from src.models import (
     ClassDailyMetrics,
     ClassSummaryMetrics,
     Conversation,
+    ConversationEvaluation,
     HourlyActivityMetrics,
     Message,
     Student,
     StudentDailyMetrics,
     StudentSummaryMetrics,
 )
+
+logger = logging.getLogger(__name__)
 
 
 _AFTER_SCHOOL_SQL_CONDITION = """
@@ -60,6 +64,199 @@ def _ensure_decimal_to_float(value: Optional[Any]) -> Optional[float]:
     if value is None:
         return None
     return _decimal_to_float(value)
+
+
+def _empty_evaluation_bucket() -> Dict[str, Any]:
+    return {
+        'conversation_count': 0,
+        'depth_sum': 0.0,
+        'depth_count': 0,
+        'relevant_sum': 0.0,
+        'relevant_count': 0,
+        'topics': {},  # term -> {'weight': float, 'count': int}
+    }
+
+
+def _update_topic_totals(
+    topic_totals: Dict[str, Dict[str, float]],
+    topics: Optional[Iterable[Dict[str, Any]]],
+) -> None:
+    if not topics:
+        return
+
+    for item in topics:
+        if not isinstance(item, dict):
+            continue
+        term = item.get('term')
+        if not term:
+            continue
+        weight_raw = item.get('weight')
+        try:
+            weight = float(weight_raw)
+        except (TypeError, ValueError):
+            continue
+        term_key = str(term).strip().lower()
+        if not term_key:
+            continue
+        entry = topic_totals.setdefault(term_key, {'weight': 0.0, 'count': 0})
+        entry['weight'] += weight
+        entry['count'] += 1
+
+
+def _finalize_topics(topic_totals: Dict[str, Dict[str, float]], limit: int = 5) -> List[Dict[str, Any]]:
+    if not topic_totals:
+        return []
+    sorted_topics = sorted(
+        topic_totals.items(),
+        key=lambda item: item[1]['weight'],
+        reverse=True,
+    )
+    payload: List[Dict[str, Any]] = []
+    for term, data in sorted_topics[:limit]:
+        payload.append(
+            {
+                'term': term,
+                'total_weight': data['weight'],
+                'conversation_count': data['count'],
+            }
+        )
+    return payload
+
+
+def _finalize_evaluation_bucket(bucket: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    if bucket['conversation_count'] == 0:
+        return None
+
+    depth_average = (
+        bucket['depth_sum'] / bucket['depth_count']
+        if bucket['depth_count']
+        else None
+    )
+    relevant_average = (
+        bucket['relevant_sum'] / bucket['relevant_count']
+        if bucket['relevant_count']
+        else None
+    )
+
+    return {
+        'conversation_count': bucket['conversation_count'],
+        'avg_depth': depth_average,
+        'depth_sample_size': bucket['depth_count'],
+        'avg_relevant_questions': relevant_average,
+        'relevant_sample_size': bucket['relevant_count'],
+        'total_relevant_questions': bucket['relevant_sum'],
+        'top_topics': _finalize_topics(bucket['topics']),
+    }
+
+
+def _collect_conversation_evaluations(
+    db: Session,
+    student_ids: Sequence[int],
+    start_date: date,
+    end_date: date,
+) -> Dict[str, Any]:
+    if not student_ids:
+        return {
+            'class_daily': {},
+            'class_summary': None,
+            'student_daily': {},
+            'student_summary': {},
+        }
+
+    window_start = datetime.combine(start_date, datetime.min.time(), tzinfo=timezone.utc)
+    window_end = datetime.combine(end_date + timedelta(days=1), datetime.min.time(), tzinfo=timezone.utc)
+
+    rows = (
+        db.query(
+            ConversationEvaluation.metrics,
+            ConversationEvaluation.status,
+            Conversation.updated_at,
+            Conversation.created_at,
+            Student.id.label('student_id'),
+        )
+        .join(Conversation, Conversation.id == ConversationEvaluation.conversation_id)
+        .join(Student, Student.user_id == Conversation.user_id)
+        .filter(Student.id.in_(student_ids))
+        .filter(ConversationEvaluation.status == 'ready')
+        .filter(ConversationEvaluation.metrics.isnot(None))
+        .filter(Conversation.updated_at >= window_start)
+        .filter(Conversation.updated_at < window_end)
+        .all()
+    )
+
+    class_daily_buckets: Dict[date, Dict[str, Any]] = {}
+    class_summary_bucket = _empty_evaluation_bucket()
+    student_daily_buckets: Dict[int, Dict[date, Dict[str, Any]]] = {}
+    student_summary_buckets: Dict[int, Dict[str, Any]] = {}
+
+    for metrics, status, updated_at, created_at, student_id in rows:
+        if not isinstance(metrics, dict):
+            continue
+
+        reference_dt = updated_at or created_at
+        if not reference_dt:
+            continue
+        reference_day = reference_dt.date()
+        if reference_day < start_date or reference_day > end_date:
+            continue
+
+        bucket = class_daily_buckets.setdefault(reference_day, _empty_evaluation_bucket())
+        student_daily = student_daily_buckets.setdefault(student_id, {})
+        student_bucket = student_daily.setdefault(reference_day, _empty_evaluation_bucket())
+        student_summary_bucket = student_summary_buckets.setdefault(student_id, _empty_evaluation_bucket())
+
+        for target_bucket in (bucket, class_summary_bucket, student_bucket, student_summary_bucket):
+            target_bucket['conversation_count'] += 1
+            depth = metrics.get('depth')
+            if depth is not None:
+                try:
+                    depth_value = float(depth)
+                except (TypeError, ValueError):
+                    depth_value = None
+                if depth_value is not None:
+                    target_bucket['depth_sum'] += depth_value
+                    target_bucket['depth_count'] += 1
+            relevant = metrics.get('relevant_question_count')
+            if relevant is not None:
+                try:
+                    relevant_value = float(relevant)
+                except (TypeError, ValueError):
+                    relevant_value = None
+                if relevant_value is not None:
+                    target_bucket['relevant_sum'] += relevant_value
+                    target_bucket['relevant_count'] += 1
+            _update_topic_totals(target_bucket['topics'], metrics.get('topics'))
+
+    class_daily_payload: Dict[date, Dict[str, Any]] = {}
+    for day, bucket in class_daily_buckets.items():
+        finalized = _finalize_evaluation_bucket(bucket)
+        if finalized is not None:
+            class_daily_payload[day] = finalized
+
+    student_daily_payload: Dict[int, Dict[date, Dict[str, Any]]] = {}
+    for student_id, buckets in student_daily_buckets.items():
+        daily_payload: Dict[date, Dict[str, Any]] = {}
+        for day, bucket in buckets.items():
+            finalized = _finalize_evaluation_bucket(bucket)
+            if finalized is not None:
+                daily_payload[day] = finalized
+        if daily_payload:
+            student_daily_payload[student_id] = daily_payload
+
+    student_summary_payload: Dict[int, Dict[str, Any]] = {}
+    for student_id, bucket in student_summary_buckets.items():
+        finalized = _finalize_evaluation_bucket(bucket)
+        if finalized is not None:
+            student_summary_payload[student_id] = finalized
+
+    class_summary_payload = _finalize_evaluation_bucket(class_summary_bucket)
+
+    return {
+        'class_daily': class_daily_payload,
+        'class_summary': class_summary_payload,
+        'student_daily': student_daily_payload,
+        'student_summary': student_summary_payload,
+    }
 
 
 def refresh_metrics(
@@ -128,6 +325,9 @@ def refresh_metrics(
         resolved_end,
     )
 
+    class_summary_extra: Optional[Dict[str, Any]] = None
+    student_summary_extra: Dict[int, Dict[str, Any]] = {}
+
     class_daily_rows = _bulk_insert(
         db,
         ClassDailyMetrics,
@@ -156,6 +356,8 @@ def refresh_metrics(
         resolved_end,
         class_daily_records,
         student_daily_records,
+        class_summary_extra,
+        student_summary_extra,
     )
 
     hourly_rows = 0
@@ -547,6 +749,8 @@ def _persist_summaries(
     end_date: date,
     class_daily_records: List[Dict[str, Any]],
     student_daily_records: List[Dict[str, Any]],
+    class_summary_extra: Optional[Dict[str, Any]] = None,
+    student_summary_extra: Optional[Dict[int, Dict[str, Any]]] = None,
 ) -> tuple[int, int]:
     class_summary_row = _compute_class_summary(
         school,
@@ -558,6 +762,7 @@ def _persist_summaries(
     )
     class_summary_rows = 0
     if class_summary_row:
+        class_summary_row.pop('metrics_extra', None)
         class_summary_rows = _bulk_insert(
             db,
             ClassSummaryMetrics,
@@ -572,6 +777,8 @@ def _persist_summaries(
         end_date,
     )
     if student_summary_payload:
+        for record in student_summary_payload:
+            record.pop('metrics_extra', None)
         student_summary_rows = _bulk_insert(
             db,
             StudentSummaryMetrics,
@@ -887,8 +1094,34 @@ def get_student_daily_series(
                 'minutes_spent': _ensure_decimal_to_float(metrics.minutes_spent),
                 'user_messages_after_school': metrics.user_messages_after_school,
                 'total_messages_after_school': metrics.total_messages_after_school,
+                'avg_depth': None,
+                'total_relevant_questions': None,
             }
         )
+
+    eval_start = start_date
+    eval_end = end_date
+    if metrics_rows and (eval_start is None or eval_end is None):
+        days = [row.day for row in metrics_rows]
+        eval_start = eval_start or min(days)
+        eval_end = eval_end or max(days)
+
+    if student_ids and eval_start is not None and eval_end is not None:
+        evaluation_rollups = _collect_conversation_evaluations(
+            db,
+            student_ids,
+            eval_start,
+            eval_end,
+        )
+        student_daily_eval = evaluation_rollups.get('student_daily', {})
+        for student_id, payload in series_map.items():
+            daily_map = student_daily_eval.get(student_id, {})
+            for record in payload['records']:
+                extra = daily_map.get(record['day'])
+                if extra:
+                    record['metrics_extra'] = extra
+                    record['avg_depth'] = extra.get('avg_depth')
+                    record['total_relevant_questions'] = extra.get('total_relevant_questions')
 
     # Ensure deterministic ordering by student name then id for stability
     ordered_series = sorted(
@@ -908,6 +1141,15 @@ def get_dashboard_metrics(
 ) -> Dict[str, Any]:
     school_value = school.strip()
     section_value = section.strip().upper() if section else None
+
+    student_query = db.query(Student).filter(
+        Student.school == school_value,
+        Student.grade == grade,
+        Student.roll_number < 100,
+    )
+    student_query = _apply_section_filter(student_query, Student.section, section_value)
+    students = student_query.all()
+    student_ids = [student.id for student in students]
 
     class_summary_query = db.query(ClassSummaryMetrics).filter(
         ClassSummaryMetrics.school == school_value,
@@ -941,6 +1183,8 @@ def get_dashboard_metrics(
             'total_messages_after_school': class_summary.total_messages_after_school,
             'after_school_conversations': class_summary.after_school_conversations,
             'after_school_user_pct': _decimal_to_float(class_summary.after_school_user_pct),
+            'total_relevant_questions': None,
+            'avg_depth': None,
         }
         summary_window = (class_summary.cohort_start, class_summary.cohort_end)
 
@@ -951,7 +1195,10 @@ def get_dashboard_metrics(
     class_daily_query = _apply_section_filter(class_daily_query, ClassDailyMetrics.section, section_value)
     recent_daily_rows = (
         class_daily_query
-        .order_by(ClassDailyMetrics.day.desc())
+        .order_by(
+            ClassDailyMetrics.total_user_messages.desc().nullslast(),
+            ClassDailyMetrics.day.desc(),
+        )
         .limit(7)
         .all()
     )
@@ -964,8 +1211,16 @@ def get_dashboard_metrics(
             'active_students': row.active_students,
             'user_messages_after_school': row.user_messages_after_school,
             'after_school_conversations': row.after_school_conversations,
+            'avg_depth': None,
+            'total_relevant_questions': None,
         }
-        for row in reversed(recent_daily_rows)
+        for row in recent_daily_rows
+    ]
+
+    recent_days = [
+        entry
+        for entry in recent_days
+        if (entry['total_user_messages'] or 0) > 0
     ]
 
     student_snapshots: List[Dict[str, Any]] = []
@@ -990,25 +1245,36 @@ def get_dashboard_metrics(
             StudentSummaryMetrics.cohort_end == end,
         )
 
-        for summary_row, student in (
-            student_summary_query
-            .order_by(
-                StudentSummaryMetrics.total_user_words.desc().nullslast(),
-                StudentSummaryMetrics.total_minutes.desc().nullslast(),
-            )
-            .limit(10)
-        ):
+        summary_rows = student_summary_query.all()
+        for summary_row, student in summary_rows:
+            total_user_messages = summary_row.total_user_messages or 0
+            total_user_words = summary_row.total_user_words or 0
+            avg_words_per_message: Optional[float]
+            if total_user_messages:
+                avg_words_per_message = float(total_user_words) / float(total_user_messages)
+            else:
+                avg_words_per_message = None
+
             student_snapshots.append(
                 {
                     'student_id': summary_row.student_id,
                     'student_name': student.first_name,
                     'total_minutes': _decimal_to_float(summary_row.total_minutes),
-                    'total_user_messages': summary_row.total_user_messages,
-                    'total_user_words': summary_row.total_user_words,
+                    'total_user_messages': total_user_messages,
+                    'total_user_words': total_user_words,
                     'total_ai_messages': summary_row.total_ai_messages,
                     'after_school_user_pct': _decimal_to_float(summary_row.after_school_user_pct),
+                    'avg_words_per_message': avg_words_per_message,
+                    'avg_depth': None,
+                    'total_relevant_questions': None,
                 }
             )
+
+        student_snapshots.sort(
+            key=lambda entry: entry['avg_words_per_message'] if entry['avg_words_per_message'] is not None else -1,
+            reverse=True,
+        )
+        student_snapshots = student_snapshots[:10]
 
     hourly_query = db.query(HourlyActivityMetrics).filter(
         HourlyActivityMetrics.school == school_value,
@@ -1036,6 +1302,51 @@ def get_dashboard_metrics(
         }
         for row in hourly_rows
     ]
+
+    if student_ids:
+        eval_start: Optional[date] = None
+        eval_end: Optional[date] = None
+
+        if summary_window is not None:
+            eval_start, eval_end = summary_window
+
+        if recent_days:
+            first_day = recent_days[0]['day']
+            last_day = recent_days[-1]['day']
+            eval_start = min(eval_start or first_day, first_day)
+            eval_end = max(eval_end or last_day, last_day)
+
+        if eval_start is not None and eval_end is not None:
+            evaluation_rollups = _collect_conversation_evaluations(
+                db,
+                student_ids,
+                eval_start,
+                eval_end,
+            )
+
+            class_eval = evaluation_rollups.get('class_summary')
+            if class_summary_payload and class_eval:
+                class_summary_payload['metrics_extra'] = class_eval
+                class_summary_payload['avg_depth'] = class_eval.get('avg_depth')
+                class_summary_payload['total_relevant_questions'] = class_eval.get('total_relevant_questions')
+
+            class_daily_eval = evaluation_rollups.get('class_daily', {})
+            for entry in recent_days:
+                extra = class_daily_eval.get(entry['day'])
+                if extra:
+                    entry['metrics_extra'] = extra
+                    if (extra.get('conversation_count') or 0) > 0:
+                        entry['avg_depth'] = extra.get('avg_depth')
+                        entry['total_relevant_questions'] = extra.get('total_relevant_questions')
+
+            student_eval = evaluation_rollups.get('student_summary', {})
+            for entry in student_snapshots:
+                extra = student_eval.get(entry['student_id'])
+                if extra:
+                    entry['metrics_extra'] = extra
+                    if (extra.get('conversation_count') or 0) > 0:
+                        entry['avg_depth'] = extra.get('avg_depth')
+                        entry['total_relevant_questions'] = extra.get('total_relevant_questions')
 
     return {
         'class_summary': class_summary_payload,
@@ -1082,6 +1393,7 @@ def _attach_cohort_fields(
         record['school'] = school
         record['grade'] = grade
         record['section'] = section
+        record.pop('metrics_extra', None)
     return records
 
 

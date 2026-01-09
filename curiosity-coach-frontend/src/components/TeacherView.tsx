@@ -77,7 +77,9 @@ const TeacherView: React.FC = () => {
     }
 
     setIsSubmitting(true);
-    navigate('/class-details', { state: { school: trimmedSchool, grade: gradeNumber, section: normalizedSection } });
+    navigate('/teacher-dashboard', {
+      state: { school: trimmedSchool, grade: gradeNumber, section: normalizedSection },
+    });
     setIsSubmitting(false);
   };
 
@@ -183,4 +185,3 @@ const TeacherView: React.FC = () => {
 };
 
 export default TeacherView;
-

@@ -166,6 +166,8 @@ export interface DashboardClassSummary {
   total_messages_after_school: number | null;
   after_school_conversations: number | null;
   after_school_user_pct: number | null;
+  avg_depth: number | null;
+  total_relevant_questions: number | null;
 }
 
 export interface DashboardDailyStat {
@@ -176,6 +178,8 @@ export interface DashboardDailyStat {
   active_students: number | null;
   user_messages_after_school: number | null;
   after_school_conversations: number | null;
+  avg_depth: number | null;
+  total_relevant_questions: number | null;
 }
 
 export interface DashboardStudentSnapshot {
@@ -186,6 +190,9 @@ export interface DashboardStudentSnapshot {
   total_user_words: number | null;
   total_ai_messages: number | null;
   after_school_user_pct: number | null;
+  avg_words_per_message: number | null;
+  avg_depth: number | null;
+  total_relevant_questions: number | null;
 }
 
 export interface DashboardHourlyBucket {
@@ -213,6 +220,8 @@ export interface StudentDailyRecord {
   minutes_spent: number | null;
   user_messages_after_school: number | null;
   total_messages_after_school: number | null;
+  avg_depth?: number | null;
+  total_relevant_questions?: number | null;
 }
 
 export interface StudentDailySeries {

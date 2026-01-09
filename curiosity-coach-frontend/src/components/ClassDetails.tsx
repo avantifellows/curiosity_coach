@@ -111,7 +111,7 @@ const ClassDetails: React.FC = () => {
                   className="inline-flex items-center justify-center rounded-full px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-indigo-200/60 transition bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-indigo-500 whitespace-nowrap"
                   onClick={() => {
                     navigate('/class-summary', {
-                      state: { school, grade, section },
+                      state: { school, grade: gradeNumber ?? grade, section },
                     });
                   }}
                 >
@@ -122,7 +122,7 @@ const ClassDetails: React.FC = () => {
                   className="inline-flex items-center justify-center rounded-full border border-indigo-600 px-5 py-2.5 text-sm font-semibold text-indigo-600 shadow-sm transition hover:bg-indigo-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-indigo-500 whitespace-nowrap"
                   onClick={() => {
                     navigate('/teacher-dashboard', {
-                      state: { school, grade: gradeNumber, section },
+                      state: { school, grade: gradeNumber ?? grade, section },
                     });
                   }}
                 >
@@ -219,10 +219,14 @@ const ClassDetails: React.FC = () => {
           </section>
 
           <button
-            onClick={() => navigate('/teacher-view')}
+            onClick={() =>
+              navigate('/teacher-dashboard', {
+                state: { school, grade: gradeNumber ?? grade, section },
+              })
+            }
             className="inline-flex w-full items-center justify-center rounded-full bg-indigo-600 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-indigo-200/60 transition hover:bg-indigo-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-indigo-500"
           >
-            Back to Teacher View
+            Back to Dashboard
           </button>
         </div>
       </div>

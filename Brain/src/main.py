@@ -44,6 +44,94 @@ DEFAULT_CURIOSITY_SCORE_INCREMENT = 4
 _CURIOSITY_TAG_PATTERN = re.compile(r"\[\[curiosity_score_signal:(\d{1,3})\]\]", re.IGNORECASE)
 
 
+def _strip_json_markdown(raw: str) -> str:
+    text = raw.strip()
+    if "```" not in text:
+        return text
+
+    lower = text.lower()
+    if "```json" in lower:
+        _, _, remainder = lower.partition("```json")
+        # Use original casing for the remainder using index
+        start = lower.index("```json") + len("```json")
+        remainder = text[start:]
+    else:
+        parts = text.split("```", 1)
+        remainder = parts[1] if len(parts) > 1 else text
+
+    if "```" in remainder:
+        remainder = remainder.split("```", 1)[0]
+
+    return remainder.strip()
+
+
+def _parse_evaluation_metrics(raw_response: str) -> Dict[str, Any]:
+    cleaned = _strip_json_markdown(raw_response)
+    try:
+        data = json.loads(cleaned)
+    except json.JSONDecodeError as exc:
+        raise ValueError("Conversation evaluation prompt returned invalid JSON") from exc
+
+    metrics: Dict[str, Any] = {}
+
+    depth_value = data.get("depth")
+    if depth_value is not None:
+        try:
+            depth_int = int(depth_value)
+            metrics["depth"] = max(0, min(3, depth_int))
+        except (TypeError, ValueError):
+            logger.warning("Invalid depth value in evaluation response", extra={"value": depth_value})
+
+    relevant_value = (
+        data.get("relevant_question_count")
+        if data.get("relevant_question_count") is not None
+        else data.get("relevant_questions")
+    )
+    if relevant_value is not None:
+        try:
+            relevant_int = int(relevant_value)
+            metrics["relevant_question_count"] = max(0, relevant_int)
+        except (TypeError, ValueError):
+            logger.warning(
+                "Invalid relevant question count in evaluation response",
+                extra={"value": relevant_value},
+            )
+
+    topics_source = data.get("topics") or data.get("top_topics") or data.get("keywords")
+    normalized_topics: List[Dict[str, Any]] = []
+    if isinstance(topics_source, list):
+        for item in topics_source:
+            term: Optional[str] = None
+            weight_value: Optional[float] = None
+
+            if isinstance(item, str):
+                term = item.strip()
+            elif isinstance(item, dict):
+                term = (item.get("term") or item.get("topic") or item.get("word") or "").strip()
+                weight_candidate = (
+                    item.get("weight")
+                    if item.get("weight") is not None
+                    else item.get("score")
+                )
+                if weight_candidate is None:
+                    weight_candidate = item.get("count")
+                try:
+                    if weight_candidate is not None:
+                        weight_value = float(weight_candidate)
+                except (TypeError, ValueError):
+                    weight_value = None
+
+            if not term:
+                continue
+
+            weight = max(0.0, float(weight_value)) if weight_value is not None else 1.0
+            normalized_topics.append({"term": term, "weight": weight})
+
+    metrics["topics"] = normalized_topics[:5]
+
+    return metrics
+
+
 async def get_current_curiosity_score(
     conversation_id: Optional[int],
     prefetched_messages: Optional[List[Dict[str, Any]]] = None,
@@ -287,6 +375,7 @@ class BatchTaskRequest(BaseModel):
     # Fields for analysis tasks
     job_id: Optional[str] = None
     last_message_hash: Optional[str] = None
+    prompt_version_id: Optional[int] = None
     # Class analysis fields
     school: Optional[str] = None
     grade: Optional[int] = None
@@ -1362,6 +1451,88 @@ async def process_memory_generation_batch(conversation_ids: List[int]):
             # Continue to the next conversation even if one fails
 
 
+async def process_conversation_evaluation_task(
+    job_id: str,
+    conversation_id: int,
+    last_message_hash: Optional[str] = None,
+    prompt_version_id: Optional[int] = None,
+):
+    """Handle conversation-level evaluation analysis."""
+    logger.info(
+        "Processing EVALUATION_ANALYSIS task",
+        extra={
+            "job_id": job_id,
+            "conversation_id": conversation_id,
+        },
+    )
+    backend_url = os.getenv("BACKEND_CALLBACK_BASE_URL", "http://localhost:5000")
+    callback_url = f"{backend_url}/api/internal/analysis-callback"
+
+    try:
+        history = await api_service.get_conversation_history(conversation_id)
+        if not history:
+            raise ValueError("Conversation history is empty or unavailable")
+
+        prompt_template = await api_service.get_prompt_template(
+            "conversation_evaluation_analysis",
+            prefer_production=True,
+        )
+        if not prompt_template:
+            raise ValueError("Prompt 'conversation_evaluation_analysis' not found")
+
+        formatted_history = "\n".join(
+            [
+                f"{'User' if message.get('is_user') else 'AI'}: {message.get('content', '')}"
+                for message in history
+                if isinstance(message, dict) and message.get('content')
+            ]
+        )
+        if not formatted_history.strip():
+            raise ValueError("Conversation history has no content to evaluate")
+
+        formatted_prompt = prompt_template.replace(
+            "{{CONVERSATION_HISTORY}}", formatted_history
+        )
+
+        llm_service = LLMService()
+        response_dict = await asyncio.to_thread(
+            llm_service.generate_response,
+            formatted_prompt,
+            "conversation_evaluation",
+            True,
+        )
+        raw_response = response_dict.get("raw_response") if isinstance(response_dict, dict) else None
+        if not raw_response:
+            raise ValueError("LLM did not return a response for conversation evaluation")
+
+        metrics = _parse_evaluation_metrics(raw_response)
+
+        callback_payload = {
+            "job_id": job_id,
+            "analysis_kind": "conversation",
+            "status": "completed",
+            "metrics": metrics,
+            "last_message_hash": last_message_hash,
+            "prompt_version_id": prompt_version_id,
+        }
+        await api_service.send_analysis_callback(callback_url, callback_payload)
+
+    except Exception as exc:
+        logger.error(
+            "Error processing conversation evaluation job",
+            exc_info=True,
+            extra={"job_id": job_id, "conversation_id": conversation_id},
+        )
+        error_payload = {
+            "job_id": job_id,
+            "analysis_kind": "conversation",
+            "status": "failed",
+            "error_message": str(exc),
+        }
+        await api_service.send_analysis_callback(callback_url, error_payload)
+
+
+
 async def process_class_analysis_task(
     job_id: str, 
     school: str, 
@@ -1519,6 +1690,22 @@ async def handle_batch_tasks(task_request: BatchTaskRequest, background_tasks: B
             raise HTTPException(status_code=400, detail="conversation_id and flows are required")
         background_tasks.add_task(analytics_runner.run_flows, task_request.conversation_id, task_request.flows)
         return {"message": f"Accepted analytics flows for conversation_id={task_request.conversation_id}", "flows": task_request.flows}
+
+    elif task_request.task_type == "EVALUATION_ANALYSIS":
+        if not task_request.job_id or not task_request.conversation_id:
+            raise HTTPException(status_code=400, detail="job_id and conversation_id are required for EVALUATION_ANALYSIS")
+        background_tasks.add_task(
+            process_conversation_evaluation_task,
+            task_request.job_id,
+            task_request.conversation_id,
+            task_request.last_message_hash,
+            task_request.prompt_version_id,
+        )
+        logger.info(
+            "Queued EVALUATION_ANALYSIS task",
+            extra={"job_id": task_request.job_id, "conversation_id": task_request.conversation_id},
+        )
+        return {"message": f"Accepted EVALUATION_ANALYSIS task for job_id: {task_request.job_id}"}
 
     elif task_request.task_type == "CLASS_ANALYSIS":
         if not task_request.job_id or not task_request.school or task_request.grade is None:

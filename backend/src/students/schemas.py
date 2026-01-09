@@ -51,3 +51,4 @@ class AnalysisJobStatusResponse(BaseModel):
     computed_at: Optional[datetime] = None
     error_message: Optional[str] = None
     analysis_status: Optional[str] = None
+    metrics: Optional[dict] = None
