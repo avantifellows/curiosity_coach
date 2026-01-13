@@ -68,6 +68,11 @@ class DashboardTopic(BaseModel):
     conversation_count: Optional[int] = None
 
 
+class DepthLevelStat(BaseModel):
+    level: int
+    count: int
+
+
 class DashboardClassSummary(BaseModel):
     cohort_start: date
     cohort_end: date
@@ -89,8 +94,9 @@ class DashboardClassSummary(BaseModel):
     total_messages_after_school: Optional[int]
     after_school_conversations: Optional[int]
     after_school_user_pct: Optional[float]
-    avg_depth: Optional[float] = None
     total_relevant_questions: Optional[float] = None
+    avg_attention_span: Optional[float] = None
+    depth_levels: Optional[List[DepthLevelStat]] = None
     top_topics: Optional[List[DashboardTopic]] = None
     metrics_extra: Optional[Dict[str, Any]] = None
 
@@ -103,8 +109,9 @@ class DashboardDailyStat(BaseModel):
     active_students: Optional[int]
     user_messages_after_school: Optional[int]
     after_school_conversations: Optional[int]
-    avg_depth: Optional[float] = None
     total_relevant_questions: Optional[float] = None
+    avg_attention_span: Optional[float] = None
+    depth_levels: Optional[List[DepthLevelStat]] = None
     top_topics: Optional[List[DashboardTopic]] = None
     metrics_extra: Optional[Dict[str, Any]] = None
 
@@ -118,8 +125,9 @@ class DashboardStudentSnapshot(BaseModel):
     total_ai_messages: Optional[int]
     after_school_user_pct: Optional[float]
     avg_words_per_message: Optional[float] = None
-    avg_depth: Optional[float] = None
     total_relevant_questions: Optional[float] = None
+    avg_attention_span: Optional[float] = None
+    depth_levels: Optional[List[DepthLevelStat]] = None
     top_topics: Optional[List[DashboardTopic]] = None
     metrics_extra: Optional[Dict[str, Any]] = None
 
@@ -149,9 +157,9 @@ class StudentDailyPoint(BaseModel):
     minutes_spent: Optional[float]
     user_messages_after_school: Optional[int]
     total_messages_after_school: Optional[int]
-    avg_depth: Optional[float] = None
     total_relevant_questions: Optional[float] = None
     metrics_extra: Optional[Dict[str, Any]] = None
+    depth_levels: Optional[List[DepthLevelStat]] = None
 
 
 class StudentDailySeries(BaseModel):

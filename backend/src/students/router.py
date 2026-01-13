@@ -182,7 +182,17 @@ def _normalize_topics(raw_topics) -> List[ConversationTopicResponse]:
                 continue
             weight = _safe_float(item.get('weight') or item.get('total_weight') or item.get('score'))
             count = _safe_int(item.get('conversation_count') or item.get('count'))
-            topics.append(ConversationTopicResponse(term=str(term), weight=weight, count=count))
+            total_weight = _safe_float(item.get('total_weight'))
+            conversation_count = _safe_int(item.get('conversation_count'))
+            topics.append(
+                ConversationTopicResponse(
+                    term=str(term),
+                    weight=weight,
+                    count=count,
+                    total_weight=total_weight,
+                    conversation_count=conversation_count,
+                )
+            )
 
     return topics
 
@@ -197,6 +207,7 @@ def _build_conversation_evaluation_response(
 
     depth = _safe_float(metrics.get('depth'))
     relevant_questions = _safe_int(metrics.get('relevant_question_count'))
+    attention_span = _safe_float(metrics.get('attention_span'))
     depth_sample_size = _safe_int(metrics.get('depth_sample_size') or metrics.get('depth_count'))
     relevant_sample_size = _safe_int(metrics.get('relevant_sample_size') or metrics.get('relevant_count'))
     conversation_count = _safe_int(metrics.get('conversation_count'))
@@ -207,6 +218,10 @@ def _build_conversation_evaluation_response(
         depth=depth,
         relevant_question_count=relevant_questions,
         topics=topics,
+        attention_span=attention_span,
+        avg_attention_span=_safe_float(metrics.get('avg_attention_span')),
+        attention_sample_size=_safe_int(metrics.get('attention_sample_size')),
+        total_attention_span=_safe_float(metrics.get('total_attention_span')),
         computed_at=evaluation.computed_at,
         status=evaluation.status,
         prompt_version_id=evaluation.prompt_version_id,
@@ -240,6 +255,7 @@ def _build_conversation_payload(
     messages: List[Message],
     evaluation: Optional[ConversationEvaluation],
 ) -> ConversationWithMessagesResponse:
+    has_user_message = any(message.is_user for message in messages)
     message_payloads = [
         ConversationMessageResponse(
             id=message.id,
@@ -251,8 +267,16 @@ def _build_conversation_payload(
         for message in messages
     ]
 
-    evaluation_payload = _build_conversation_evaluation_response(evaluation)
-    curiosity_summary = _build_curiosity_summary(messages)
+    evaluation_payload = (
+        _build_conversation_evaluation_response(evaluation)
+        if has_user_message
+        else None
+    )
+    curiosity_summary = (
+        _build_curiosity_summary(messages)
+        if has_user_message
+        else None
+    )
 
     return ConversationWithMessagesResponse(
         id=conversation.id,

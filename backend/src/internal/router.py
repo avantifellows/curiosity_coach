@@ -612,7 +612,8 @@ def handle_analysis_callback(
     
     if payload.status == "completed":
         if payload.analysis_kind == "conversation":
-            evaluation.metrics = payload.metrics or {}
+            metrics = payload.metrics or {}
+            evaluation.metrics = metrics
             evaluation.status = "ready"
             evaluation.computed_at = now
             evaluation.updated_at = now
@@ -620,6 +621,11 @@ def handle_analysis_callback(
                 evaluation.last_message_hash = payload.last_message_hash
             if payload.prompt_version_id is not None:
                 evaluation.prompt_version_id = payload.prompt_version_id
+            attention_value = metrics.get('attention_span') if isinstance(metrics, dict) else None
+            try:
+                evaluation.attention_span = float(attention_value) if attention_value is not None else None
+            except (TypeError, ValueError):
+                evaluation.attention_span = None
         else:
             # Update analysis record with results
             analysis.analysis_text = payload.analysis_text

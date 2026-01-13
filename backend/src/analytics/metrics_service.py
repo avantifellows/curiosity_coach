@@ -25,6 +25,9 @@ from src.models import (
 logger = logging.getLogger(__name__)
 
 
+DEPTH_LEVELS = (0, 1, 2, 3)
+
+
 _AFTER_SCHOOL_SQL_CONDITION = """
 CASE
     WHEN EXTRACT(DOW FROM m.timestamp AT TIME ZONE 'UTC') IN (0, 6) THEN TRUE
@@ -69,10 +72,11 @@ def _ensure_decimal_to_float(value: Optional[Any]) -> Optional[float]:
 def _empty_evaluation_bucket() -> Dict[str, Any]:
     return {
         'conversation_count': 0,
-        'depth_sum': 0.0,
-        'depth_count': 0,
+        'depth_counts': {level: 0 for level in DEPTH_LEVELS},
         'relevant_sum': 0.0,
         'relevant_count': 0,
+        'attention_sum': 0.0,
+        'attention_count': 0,
         'topics': {},  # term -> {'weight': float, 'count': int}
     }
 
@@ -127,24 +131,35 @@ def _finalize_evaluation_bucket(bucket: Dict[str, Any]) -> Optional[Dict[str, An
     if bucket['conversation_count'] == 0:
         return None
 
-    depth_average = (
-        bucket['depth_sum'] / bucket['depth_count']
-        if bucket['depth_count']
-        else None
-    )
     relevant_average = (
         bucket['relevant_sum'] / bucket['relevant_count']
         if bucket['relevant_count']
         else None
     )
+    attention_average = (
+        bucket['attention_sum'] / bucket['attention_count']
+        if bucket['attention_count']
+        else None
+    )
+
+    depth_counts: Dict[int, int] = bucket.get('depth_counts', {})
+    depth_levels = [
+        {'level': int(level), 'count': int(count)}
+        for level, count in sorted(depth_counts.items(), reverse=True)
+        if count
+    ]
+    depth_sample_size = sum(depth_counts.values())
 
     return {
         'conversation_count': bucket['conversation_count'],
-        'avg_depth': depth_average,
-        'depth_sample_size': bucket['depth_count'],
+        'depth_levels': depth_levels,
+        'depth_sample_size': depth_sample_size,
         'avg_relevant_questions': relevant_average,
         'relevant_sample_size': bucket['relevant_count'],
         'total_relevant_questions': bucket['relevant_sum'],
+        'avg_attention_span': attention_average,
+        'attention_sample_size': bucket['attention_count'],
+        'total_attention_span': bucket['attention_sum'],
         'top_topics': _finalize_topics(bucket['topics']),
     }
 
@@ -179,6 +194,7 @@ def _collect_conversation_evaluations(
         .filter(Student.id.in_(student_ids))
         .filter(ConversationEvaluation.status == 'ready')
         .filter(ConversationEvaluation.metrics.isnot(None))
+        .filter(Conversation.messages.any(Message.is_user.is_(True)))
         .filter(Conversation.updated_at >= window_start)
         .filter(Conversation.updated_at < window_end)
         .all()
@@ -210,12 +226,13 @@ def _collect_conversation_evaluations(
             depth = metrics.get('depth')
             if depth is not None:
                 try:
-                    depth_value = float(depth)
+                    depth_value = int(depth)
                 except (TypeError, ValueError):
                     depth_value = None
-                if depth_value is not None:
-                    target_bucket['depth_sum'] += depth_value
-                    target_bucket['depth_count'] += 1
+                if depth_value is not None and depth_value in DEPTH_LEVELS:
+                    target_bucket['depth_counts'][depth_value] = (
+                        target_bucket['depth_counts'].get(depth_value, 0) + 1
+                    )
             relevant = metrics.get('relevant_question_count')
             if relevant is not None:
                 try:
@@ -225,6 +242,15 @@ def _collect_conversation_evaluations(
                 if relevant_value is not None:
                     target_bucket['relevant_sum'] += relevant_value
                     target_bucket['relevant_count'] += 1
+            attention = metrics.get('attention_span')
+            if attention is not None:
+                try:
+                    attention_value = float(attention)
+                except (TypeError, ValueError):
+                    attention_value = None
+                if attention_value is not None:
+                    target_bucket['attention_sum'] += attention_value
+                    target_bucket['attention_count'] += 1
             _update_topic_totals(target_bucket['topics'], metrics.get('topics'))
 
     class_daily_payload: Dict[date, Dict[str, Any]] = {}
@@ -1094,8 +1120,9 @@ def get_student_daily_series(
                 'minutes_spent': _ensure_decimal_to_float(metrics.minutes_spent),
                 'user_messages_after_school': metrics.user_messages_after_school,
                 'total_messages_after_school': metrics.total_messages_after_school,
-                'avg_depth': None,
+                'depth_levels': None,
                 'total_relevant_questions': None,
+                'avg_attention_span': None,
             }
         )
 
@@ -1120,8 +1147,9 @@ def get_student_daily_series(
                 extra = daily_map.get(record['day'])
                 if extra:
                     record['metrics_extra'] = extra
-                    record['avg_depth'] = extra.get('avg_depth')
+                    record['depth_levels'] = extra.get('depth_levels')
                     record['total_relevant_questions'] = extra.get('total_relevant_questions')
+                    record['avg_attention_span'] = extra.get('avg_attention_span')
 
     # Ensure deterministic ordering by student name then id for stability
     ordered_series = sorted(
@@ -1184,7 +1212,9 @@ def get_dashboard_metrics(
             'after_school_conversations': class_summary.after_school_conversations,
             'after_school_user_pct': _decimal_to_float(class_summary.after_school_user_pct),
             'total_relevant_questions': None,
-            'avg_depth': None,
+            'depth_levels': None,
+            'avg_attention_span': None,
+            'top_topics': None,
         }
         summary_window = (class_summary.cohort_start, class_summary.cohort_end)
 
@@ -1199,7 +1229,7 @@ def get_dashboard_metrics(
             ClassDailyMetrics.total_user_messages.desc().nullslast(),
             ClassDailyMetrics.day.desc(),
         )
-        .limit(7)
+        .limit(10)
         .all()
     )
     recent_days = [
@@ -1211,8 +1241,10 @@ def get_dashboard_metrics(
             'active_students': row.active_students,
             'user_messages_after_school': row.user_messages_after_school,
             'after_school_conversations': row.after_school_conversations,
-            'avg_depth': None,
+            'depth_levels': None,
             'total_relevant_questions': None,
+            'avg_attention_span': None,
+            'top_topics': None,
         }
         for row in recent_daily_rows
     ]
@@ -1265,8 +1297,10 @@ def get_dashboard_metrics(
                     'total_ai_messages': summary_row.total_ai_messages,
                     'after_school_user_pct': _decimal_to_float(summary_row.after_school_user_pct),
                     'avg_words_per_message': avg_words_per_message,
-                    'avg_depth': None,
+                    'depth_levels': None,
                     'total_relevant_questions': None,
+                    'avg_attention_span': None,
+                    'top_topics': None,
                 }
             )
 
@@ -1327,32 +1361,35 @@ def get_dashboard_metrics(
             class_eval = evaluation_rollups.get('class_summary')
             if class_summary_payload and class_eval:
                 class_summary_payload['metrics_extra'] = class_eval
-                class_summary_payload['avg_depth'] = class_eval.get('avg_depth')
+                class_summary_payload['depth_levels'] = class_eval.get('depth_levels')
                 class_summary_payload['total_relevant_questions'] = class_eval.get('total_relevant_questions')
+                class_summary_payload['avg_attention_span'] = class_eval.get('avg_attention_span')
                 if class_eval.get('top_topics'):
                     class_summary_payload['top_topics'] = class_eval.get('top_topics')
 
-        class_daily_eval = evaluation_rollups.get('class_daily', {})
-        for entry in recent_days:
-            extra = class_daily_eval.get(entry['day'])
-            if extra:
-                entry['metrics_extra'] = extra
-                if (extra.get('conversation_count') or 0) > 0:
-                    entry['avg_depth'] = extra.get('avg_depth')
-                    entry['total_relevant_questions'] = extra.get('total_relevant_questions')
-                    if extra.get('top_topics'):
-                        entry['top_topics'] = extra.get('top_topics')
+            class_daily_eval = evaluation_rollups.get('class_daily', {})
+            for entry in recent_days:
+                extra = class_daily_eval.get(entry['day'])
+                if extra:
+                    entry['metrics_extra'] = extra
+                    if (extra.get('conversation_count') or 0) > 0:
+                        entry['depth_levels'] = extra.get('depth_levels')
+                        entry['total_relevant_questions'] = extra.get('total_relevant_questions')
+                        entry['avg_attention_span'] = extra.get('avg_attention_span')
+                        if extra.get('top_topics'):
+                            entry['top_topics'] = extra.get('top_topics')
 
-        student_eval = evaluation_rollups.get('student_summary', {})
-        for entry in student_snapshots:
-            extra = student_eval.get(entry['student_id'])
-            if extra:
-                entry['metrics_extra'] = extra
-                if (extra.get('conversation_count') or 0) > 0:
-                    entry['avg_depth'] = extra.get('avg_depth')
-                    entry['total_relevant_questions'] = extra.get('total_relevant_questions')
-                    if extra.get('top_topics'):
-                        entry['top_topics'] = extra.get('top_topics')
+            student_eval = evaluation_rollups.get('student_summary', {})
+            for entry in student_snapshots:
+                extra = student_eval.get(entry['student_id'])
+                if extra:
+                    entry['metrics_extra'] = extra
+                    if (extra.get('conversation_count') or 0) > 0:
+                        entry['depth_levels'] = extra.get('depth_levels')
+                        entry['total_relevant_questions'] = extra.get('total_relevant_questions')
+                        entry['avg_attention_span'] = extra.get('avg_attention_span')
+                        if extra.get('top_topics'):
+                            entry['top_topics'] = extra.get('top_topics')
 
     return {
         'class_summary': class_summary_payload,

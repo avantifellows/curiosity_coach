@@ -21,12 +21,18 @@ class ConversationTopicResponse(BaseModel):
     term: str
     weight: Optional[float] = None
     count: Optional[int] = None
+    total_weight: Optional[float] = None
+    conversation_count: Optional[int] = None
 
 
 class ConversationEvaluationMetricsResponse(BaseModel):
     depth: Optional[float] = None
     relevant_question_count: Optional[int] = None
     topics: List[ConversationTopicResponse] = Field(default_factory=list)
+    attention_span: Optional[float] = None
+    avg_attention_span: Optional[float] = None
+    attention_sample_size: Optional[int] = None
+    total_attention_span: Optional[float] = None
     computed_at: Optional[datetime] = None
     status: Optional[str] = None
     prompt_version_id: Optional[int] = None

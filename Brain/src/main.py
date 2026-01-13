@@ -15,6 +15,9 @@ from botocore.exceptions import NoCredentialsError, PartialCredentialsError, Cli
 from mangum import Mangum
 from pathlib import Path
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
+import threading
+from functools import partial
 from src.core.core_theme_extractor import extract_core_theme_from_conversation, update_conversation_theme
 from src.core.core_theme_config import CORE_THEME_EXTRACTION_ENABLED, CORE_THEME_TRIGGER_MESSAGE_COUNT, CORE_THEME_MAX_RETRIES, CORE_THEME_PROMPT_NAME
 # Add these imports at the top of main.py
@@ -38,6 +41,9 @@ BACKEND_CALLBACK_BASE_URL = os.getenv("BACKEND_CALLBACK_BASE_URL", "http://local
 
 BACKEND_CALLBACK_ROUTE = os.getenv("BACKEND_CALLBACK_ROUTE", "/api/internal/brain_response")
 BACKEND_CALLBACK_URL = f"{BACKEND_CALLBACK_BASE_URL}{BACKEND_CALLBACK_ROUTE}"
+
+
+EVALUATION_EXECUTOR = ThreadPoolExecutor(max_workers=3)
 
 DEFAULT_CURIOSITY_SCORE_INCREMENT = 4
 
@@ -95,6 +101,17 @@ def _parse_evaluation_metrics(raw_response: str) -> Dict[str, Any]:
             logger.warning(
                 "Invalid relevant question count in evaluation response",
                 extra={"value": relevant_value},
+            )
+
+    attention_value = data.get("attention_span") or data.get("attention")
+    if attention_value is not None:
+        try:
+            attention_float = float(attention_value)
+            metrics["attention_span"] = max(0.0, attention_float)
+        except (TypeError, ValueError):
+            logger.warning(
+                "Invalid attention span in evaluation response",
+                extra={"value": attention_value},
             )
 
     topics_source = data.get("topics") or data.get("top_topics") or data.get("keywords")
@@ -1495,11 +1512,24 @@ async def process_conversation_evaluation_task(
         )
 
         llm_service = LLMService()
-        response_dict = await asyncio.to_thread(
-            llm_service.generate_response,
-            formatted_prompt,
-            "conversation_evaluation",
-            True,
+        loop = asyncio.get_running_loop()
+        def _generate_with_logging(service: LLMService, prompt: str, call_type: str, json_mode: bool):
+            logger.info(
+                "Starting LLM evaluation on thread %s for conversation %s",
+                threading.current_thread().name,
+                conversation_id,
+            )
+            return service.generate_response(prompt, call_type, json_mode)
+
+        response_dict = await loop.run_in_executor(
+            EVALUATION_EXECUTOR,
+            partial(
+                _generate_with_logging,
+                llm_service,
+                formatted_prompt,
+                "conversation_evaluation",
+                True,
+            ),
         )
         raw_response = response_dict.get("raw_response") if isinstance(response_dict, dict) else None
         if not raw_response:

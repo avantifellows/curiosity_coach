@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, Date, ForeignKey, Text, JSON, Numeric, ForeignKeyConstraint, UniqueConstraint, CheckConstraint, and_
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, Date, ForeignKey, Text, JSON, Numeric, Float, ForeignKeyConstraint, UniqueConstraint, CheckConstraint, and_
 from sqlalchemy.orm import relationship, Session
 from sqlalchemy.sql import func
 from src.database import Base
@@ -136,6 +136,7 @@ class ConversationEvaluation(Base):
     computed_at = Column(DateTime(timezone=True), nullable=True)
     last_message_hash = Column(String(64), nullable=True)
     prompt_version_id = Column(Integer, ForeignKey("prompt_versions.id", ondelete="SET NULL"), nullable=True)
+    attention_span = Column(Float, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 

@@ -166,8 +166,9 @@ export interface DashboardClassSummary {
   total_messages_after_school: number | null;
   after_school_conversations: number | null;
   after_school_user_pct: number | null;
-  avg_depth: number | null;
   total_relevant_questions: number | null;
+  avg_attention_span?: number | null;
+  depth_levels?: DepthLevelStat[] | null;
   top_topics?: ConversationTopic[] | null;
 }
 
@@ -179,8 +180,9 @@ export interface DashboardDailyStat {
   active_students: number | null;
   user_messages_after_school: number | null;
   after_school_conversations: number | null;
-  avg_depth: number | null;
   total_relevant_questions: number | null;
+  avg_attention_span?: number | null;
+  depth_levels?: DepthLevelStat[] | null;
   top_topics?: ConversationTopic[] | null;
 }
 
@@ -193,8 +195,9 @@ export interface DashboardStudentSnapshot {
   total_ai_messages: number | null;
   after_school_user_pct: number | null;
   avg_words_per_message: number | null;
-  avg_depth: number | null;
   total_relevant_questions: number | null;
+  avg_attention_span?: number | null;
+  depth_levels?: DepthLevelStat[] | null;
   top_topics?: ConversationTopic[] | null;
 }
 
@@ -223,8 +226,9 @@ export interface StudentDailyRecord {
   minutes_spent: number | null;
   user_messages_after_school: number | null;
   total_messages_after_school: number | null;
-  avg_depth?: number | null;
   total_relevant_questions?: number | null;
+  avg_attention_span?: number | null;
+  depth_levels?: DepthLevelStat[] | null;
 }
 
 export interface StudentDailySeries {
@@ -262,10 +266,19 @@ export interface ConversationTopic {
   conversation_count?: number | null;
 }
 
+export interface DepthLevelStat {
+  level: number;
+  count: number;
+}
+
 export interface ConversationEvaluationMetrics {
   depth?: number | null;
   relevant_question_count?: number | null;
   topics: ConversationTopic[];
+  attention_span?: number | null;
+  avg_attention_span?: number | null;
+  attention_sample_size?: number | null;
+  total_attention_span?: number | null;
   computed_at?: string | null;
   status?: string | null;
   prompt_version_id?: number | null;
