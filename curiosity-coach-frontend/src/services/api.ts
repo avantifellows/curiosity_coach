@@ -200,11 +200,12 @@ export const getStudentDailyMetrics = async (
 export const getStudentConversations = async (
   studentId: number,
   limit = 3,
-  offset = 0
+  offset = 0,
+  day?: string | null
 ): Promise<PaginatedStudentConversations> => {
   try {
     const response = await API.get<PaginatedStudentConversations>(`/students/${studentId}/conversations`, {
-      params: { limit, offset },
+      params: { limit, offset, day: day ?? undefined },
     });
     return response.data;
   } catch (error: any) {

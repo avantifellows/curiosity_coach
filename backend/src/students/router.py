@@ -6,7 +6,7 @@ from sqlalchemy import func, and_
 import logging
 import hashlib
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta, date
 
 from src.database import get_db
 from src.models import (
@@ -480,6 +480,7 @@ def list_student_conversations(
     student_id: int,
     limit: int = Query(3, ge=1, le=50),
     offset: int = Query(0, ge=0),
+    day: Optional[date] = Query(None, description="Optional day filter (YYYY-MM-DD)"),
     db: Session = Depends(get_db),
 ):
     student = db.query(Student).filter(Student.id == student_id).first()
@@ -491,6 +492,11 @@ def list_student_conversations(
         .filter(Conversation.user_id == student.user_id)
         .order_by(Conversation.updated_at.desc())
     )
+    if day:
+        window_start = datetime.combine(day, datetime.min.time(), tzinfo=timezone.utc)
+        window_end = window_start + timedelta(days=1)
+        timestamp = func.coalesce(Conversation.updated_at, Conversation.created_at)
+        base_query = base_query.filter(timestamp >= window_start, timestamp < window_end)
 
     conversations = base_query.offset(offset).limit(limit + 1).all()
     has_more = len(conversations) > limit

@@ -161,6 +161,8 @@ class StudentDailyPoint(BaseModel):
     avg_attention_span: Optional[float] = None
     metrics_extra: Optional[Dict[str, Any]] = None
     depth_levels: Optional[List[DepthLevelStat]] = None
+    max_depth: Optional[int] = None
+    max_depth_conversation_id: Optional[int] = None
 
 
 class StudentDailySeries(BaseModel):

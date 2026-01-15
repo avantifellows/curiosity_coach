@@ -70,6 +70,9 @@ def _empty_evaluation_bucket() -> Dict[str, Any]:
     return {
         'conversation_count': 0,
         'depth_counts': {},
+        'max_depth': None,
+        'max_depth_conversation_id': None,
+        'max_depth_timestamp': None,
         'relevant_sum': 0.0,
         'relevant_count': 0,
         'attention_sum': 0.0,
@@ -151,6 +154,8 @@ def _finalize_evaluation_bucket(bucket: Dict[str, Any]) -> Optional[Dict[str, An
         'conversation_count': bucket['conversation_count'],
         'depth_levels': depth_levels,
         'depth_sample_size': depth_sample_size,
+        'max_depth': bucket.get('max_depth'),
+        'max_depth_conversation_id': bucket.get('max_depth_conversation_id'),
         'avg_relevant_questions': relevant_average,
         'relevant_sample_size': bucket['relevant_count'],
         'total_relevant_questions': bucket['relevant_sum'],
@@ -185,6 +190,7 @@ def _collect_conversation_evaluations(
             Conversation.updated_at,
             Conversation.created_at,
             Student.id.label('student_id'),
+            Conversation.id.label('conversation_id'),
         )
         .join(Conversation, Conversation.id == ConversationEvaluation.conversation_id)
         .join(Student, Student.user_id == Conversation.user_id)
@@ -202,7 +208,7 @@ def _collect_conversation_evaluations(
     student_daily_buckets: Dict[int, Dict[date, Dict[str, Any]]] = {}
     student_summary_buckets: Dict[int, Dict[str, Any]] = {}
 
-    for metrics, status, updated_at, created_at, student_id in rows:
+    for metrics, status, updated_at, created_at, student_id, conversation_id in rows:
         if not isinstance(metrics, dict):
             continue
 
@@ -229,6 +235,16 @@ def _collect_conversation_evaluations(
                 if depth_value is not None:
                     depth_counts = target_bucket.setdefault('depth_counts', {})
                     depth_counts[depth_value] = depth_counts.get(depth_value, 0) + 1
+                    current_max = target_bucket.get('max_depth')
+                    if current_max is None or depth_value > current_max:
+                        target_bucket['max_depth'] = depth_value
+                        target_bucket['max_depth_conversation_id'] = conversation_id
+                        target_bucket['max_depth_timestamp'] = reference_dt
+                    elif depth_value == current_max:
+                        current_ts = target_bucket.get('max_depth_timestamp')
+                        if current_ts is None or (reference_dt and reference_dt > current_ts):
+                            target_bucket['max_depth_conversation_id'] = conversation_id
+                            target_bucket['max_depth_timestamp'] = reference_dt
             relevant = metrics.get('relevant_question_count')
             if relevant is not None:
                 try:
@@ -1144,6 +1160,8 @@ def get_student_daily_series(
                 if extra:
                     record['metrics_extra'] = extra
                     record['depth_levels'] = extra.get('depth_levels')
+                    record['max_depth'] = extra.get('max_depth')
+                    record['max_depth_conversation_id'] = extra.get('max_depth_conversation_id')
                     record['total_relevant_questions'] = extra.get('total_relevant_questions')
                     record['avg_attention_span'] = extra.get('avg_attention_span')
 

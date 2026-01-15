@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
   DashboardHourlyBucket,
@@ -269,6 +269,9 @@ const HourlyActivityChart: React.FC<{ buckets: DashboardHourlyBucket[] }> = ({ b
 
 const getMetricValue = (record: StudentDailyRecord, key: StudentMetricKey): number => {
   if (key === 'depth_levels') {
+    if (typeof record.max_depth === 'number') {
+      return record.max_depth;
+    }
     return maxDepthLevel(record.depth_levels);
   }
 
@@ -282,9 +285,13 @@ const getMetricValue = (record: StudentDailyRecord, key: StudentMetricKey): numb
 interface StudentComparisonChartProps {
   data: StudentDailySeries[];
   metric: StudentMetricKey;
+  onBarClick?: (series: StudentDailySeries, record: StudentDailyRecord, metric: StudentMetricKey) => void;
 }
 
-const NumericStudentComparisonChart: React.FC<StudentComparisonChartProps> = ({ data, metric }) => {
+const NumericStudentComparisonChart: React.FC<StudentComparisonChartProps> = ({ data, metric, onBarClick }) => {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const [tooltip, setTooltip] = useState<{ x: number; y: number; lines: string[] } | null>(null);
+
   if (!data.length) {
     return null;
   }
@@ -340,8 +347,14 @@ const NumericStudentComparisonChart: React.FC<StudentComparisonChartProps> = ({ 
   const tickValues = Array.from({ length: tickCount + 1 }, (_, idx) => (safeMax / tickCount) * idx);
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
-      <svg viewBox={`0 0 ${chartWidth} ${chartHeight}`} className="block w-full" role="img" aria-label="Student comparison chart">
+    <div ref={containerRef} className="relative overflow-hidden rounded-2xl border border-slate-200 bg-white">
+      <svg
+        viewBox={`0 0 ${chartWidth} ${chartHeight}`}
+        className="block w-full"
+        role="img"
+        aria-label="Student comparison chart"
+        onMouseLeave={() => setTooltip(null)}
+      >
         <rect x={0} y={0} width={chartWidth} height={chartHeight} fill="#f8fafc" />
         <line
           x1={padding.left}
@@ -398,10 +411,16 @@ const NumericStudentComparisonChart: React.FC<StudentComparisonChartProps> = ({ 
 
                 const formattedValue =
                   metric === 'depth_levels' ? Math.round(value) : Math.round(value * 10) / 10;
+                const clickHint = onBarClick
+                  ? metric === 'depth_levels' && record?.max_depth_conversation_id
+                    ? 'Click to open max-depth chat'
+                    : 'Click to view conversations'
+                  : null;
                 const tooltipLines = [
                   `${series.student_name ?? `Student ${series.student_id}`}`,
                   `${METRIC_LABEL[metric]}: ${formattedValue}`,
                   dayLabel,
+                  ...(clickHint ? [clickHint] : []),
                 ];
 
                 return (
@@ -413,8 +432,25 @@ const NumericStudentComparisonChart: React.FC<StudentComparisonChartProps> = ({ 
                       height={barHeight}
                       fill={color}
                       rx={4}
+                      className={onBarClick ? 'cursor-pointer' : undefined}
+                      onClick={() => {
+                        if (record && onBarClick) {
+                          onBarClick(series, record, metric);
+                        }
+                      }}
+                      onMouseMove={(event) => {
+                        const bounds = containerRef.current?.getBoundingClientRect();
+                        if (!bounds) {
+                          return;
+                        }
+                        setTooltip({
+                          x: event.clientX - bounds.left + 12,
+                          y: event.clientY - bounds.top + 12,
+                          lines: tooltipLines,
+                        });
+                      }}
+                      onMouseLeave={() => setTooltip(null)}
                     >
-                      <title>{tooltipLines.join('\n')}</title>
                     </rect>
                   </g>
                 );
@@ -431,12 +467,22 @@ const NumericStudentComparisonChart: React.FC<StudentComparisonChartProps> = ({ 
           Day
         </text>
       </svg>
+      {tooltip && (
+        <div
+          className="pointer-events-none absolute z-10 max-w-[220px] rounded-xl bg-slate-900/90 px-3 py-2 text-xs text-white shadow-lg"
+          style={{ left: tooltip.x, top: tooltip.y }}
+        >
+          {tooltip.lines.map((line) => (
+            <div key={line}>{line}</div>
+          ))}
+        </div>
+      )}
     </div>
   );
 };
 
-const StudentComparisonChart: React.FC<StudentComparisonChartProps> = ({ data, metric }) => (
-  <NumericStudentComparisonChart data={data} metric={metric} />
+const StudentComparisonChart: React.FC<StudentComparisonChartProps> = ({ data, metric, onBarClick }) => (
+  <NumericStudentComparisonChart data={data} metric={metric} onBarClick={onBarClick} />
 );
 
 const TeacherDashboard: React.FC = () => {
@@ -464,6 +510,29 @@ const TeacherDashboard: React.FC = () => {
   const [refreshError, setRefreshError] = useState<string | null>(null);
 
   const hasClassContext = Boolean(school && grade);
+
+  const handleComparisonBarClick = useCallback(
+    (series: StudentDailySeries, record: StudentDailyRecord, metric: StudentMetricKey) => {
+      if (!school || !grade || !record?.day) {
+        return;
+      }
+      const params = new URLSearchParams({
+        student_id: String(series.student_id),
+        day: record.day,
+        school,
+        grade: String(grade),
+      });
+      if (section) {
+        params.set('section', section);
+      }
+      if (metric === 'depth_levels' && record.max_depth_conversation_id) {
+        params.set('conversation_id', String(record.max_depth_conversation_id));
+      }
+      const url = `/class-conversation?${params.toString()}`;
+      window.open(url, '_blank', 'noopener,noreferrer');
+    },
+    [school, grade, section]
+  );
 
   useEffect(() => {
     if (!hasClassContext || !school || !grade) {
@@ -887,7 +956,14 @@ const TeacherDashboard: React.FC = () => {
                           </span>
                         ))}
                       </div>
-                      <StudentComparisonChart data={studentDailySeries} metric={selectedMetric} />
+                      <StudentComparisonChart
+                        data={studentDailySeries}
+                        metric={selectedMetric}
+                        onBarClick={handleComparisonBarClick}
+                      />
+                      <p className="mt-3 text-xs text-slate-500">
+                        Tip: click a bar to open that day&rsquo;s conversations. Depth opens the max-depth chat when available.
+                      </p>
                     </div>
                   )}
                 </section>

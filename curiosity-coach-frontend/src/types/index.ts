@@ -229,6 +229,8 @@ export interface StudentDailyRecord {
   total_relevant_questions?: number | null;
   avg_attention_span?: number | null;
   depth_levels?: DepthLevelStat[] | null;
+  max_depth?: number | null;
+  max_depth_conversation_id?: number | null;
 }
 
 export interface StudentDailySeries {

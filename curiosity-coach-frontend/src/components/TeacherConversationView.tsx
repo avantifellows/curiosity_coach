@@ -1,7 +1,7 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { ConversationWithMessages, Student, UserPersona, UserPersonaData } from '../types';
-import { getStudentConversations, getUserPersona } from '../services/api';
+import { getStudentConversations, getStudentsForClass, getUserPersona } from '../services/api';
 
 interface ConversationLocationState {
   student?: Student;
@@ -89,12 +89,25 @@ const TeacherConversationView: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const state = (location.state as ConversationLocationState) || {};
-  const student = state.student;
-  const classInfo = {
-    school: state.school ?? student?.school,
-    grade: state.grade ?? student?.grade,
-    section: state.section ?? student?.section ?? undefined,
-  };
+  const searchParams = useMemo(() => new URLSearchParams(location.search), [location.search]);
+  const studentIdParam = Number(searchParams.get('student_id'));
+  const dayParam = searchParams.get('day') || null;
+  const conversationIdParam = Number(searchParams.get('conversation_id'));
+  const studentId = Number.isNaN(studentIdParam) ? null : studentIdParam;
+  const highlightConversationId = Number.isNaN(conversationIdParam) ? null : conversationIdParam;
+
+  const [student, setStudent] = useState<Student | null>(state.student ?? null);
+  const [dayFilter, setDayFilter] = useState<string | null>(dayParam);
+  const highlightedRef = useRef<HTMLLIElement | null>(null);
+
+  const classInfo = useMemo(() => {
+    const school = state.school ?? searchParams.get('school') ?? student?.school ?? undefined;
+    const gradeParam = state.grade ?? searchParams.get('grade') ?? student?.grade;
+    const gradeValue = typeof gradeParam === 'number' ? gradeParam : Number(gradeParam);
+    const grade = Number.isNaN(gradeValue) ? undefined : gradeValue;
+    const section = state.section ?? searchParams.get('section') ?? student?.section ?? undefined;
+    return { school, grade, section };
+  }, [state.grade, state.school, state.section, searchParams, student]);
   const [conversations, setConversations] = useState<ConversationWithMessages[]>([]);
   const [nextOffset, setNextOffset] = useState<number | null>(null);
   const [isInitialLoading, setIsInitialLoading] = useState(false);
@@ -103,6 +116,11 @@ const TeacherConversationView: React.FC = () => {
   const [persona, setPersona] = useState<UserPersona | null>(null);
   const [personaLoading, setPersonaLoading] = useState(false);
   const [showAfterSchoolOnly, setShowAfterSchoolOnly] = useState(false);
+  const [studentLoading, setStudentLoading] = useState(false);
+
+  useEffect(() => {
+    setDayFilter(dayParam);
+  }, [dayParam]);
 
   const fetchConversations = useCallback(
     async (offset = 0) => {
@@ -116,7 +134,8 @@ const TeacherConversationView: React.FC = () => {
       }
       setError(null);
       try {
-        const data = await getStudentConversations(student.id, PAGE_SIZE, offset);
+        const limit = dayFilter ? 50 : PAGE_SIZE;
+        const data = await getStudentConversations(student.id, limit, offset, dayFilter);
         setConversations((prev) => (offset === 0 ? data.conversations : [...prev, ...data.conversations]));
         setNextOffset(data.next_offset);
       } catch (err) {
@@ -127,12 +146,33 @@ const TeacherConversationView: React.FC = () => {
         setIsLoadMore(false);
       }
     },
-    [student]
+    [student, dayFilter]
   );
 
   useEffect(() => {
     if (!student) {
-      setError('No student selected.');
+      if (!studentId || !classInfo.school || !classInfo.grade) {
+        setError('No student selected.');
+        return;
+      }
+      const fetchStudent = async () => {
+        setStudentLoading(true);
+        try {
+          const roster = await getStudentsForClass(classInfo.school!, classInfo.grade!, classInfo.section ?? null);
+          const match = roster.find((entry) => entry.student.id === studentId);
+          if (match) {
+            setStudent(match.student);
+          } else {
+            setError('Student not found for this class.');
+          }
+        } catch (err) {
+          console.error('Failed to fetch student details:', err);
+          setError('Failed to load student details.');
+        } finally {
+          setStudentLoading(false);
+        }
+      };
+      fetchStudent();
       return;
     }
     fetchConversations(0);
@@ -152,7 +192,13 @@ const TeacherConversationView: React.FC = () => {
     };
     
     fetchPersona();
-  }, [student, fetchConversations]);
+  }, [student, studentId, classInfo.school, classInfo.grade, classInfo.section, fetchConversations]);
+
+  useEffect(() => {
+    if (highlightConversationId && highlightedRef.current && !isInitialLoading) {
+      highlightedRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }, [highlightConversationId, isInitialLoading, conversations]);
 
   const handleLoadMore = () => {
     if (nextOffset == null || isLoadMore) {
@@ -165,7 +211,9 @@ const TeacherConversationView: React.FC = () => {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
         <div className="max-w-md w-full bg-white rounded-2xl shadow p-6 space-y-4 text-center">
-          <p className="text-slate-700">No student selected.</p>
+          <p className="text-slate-700">
+            {studentLoading ? 'Loading student details...' : 'No student selected.'}
+          </p>
           <button
             onClick={() => navigate(-1)}
             className="inline-flex items-center justify-center rounded-full bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-indigo-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-indigo-500"
@@ -240,6 +288,27 @@ const TeacherConversationView: React.FC = () => {
               <h1 className="mt-3 text-3xl font-semibold text-slate-900">{student.first_name}&rsquo;s conversations</h1>
               <p className="text-sm text-slate-500">History ordered by most recent chats first.</p>
               {classLabel && <p className="text-xs text-slate-500">{classLabel}</p>}
+              {dayFilter && (
+                <div className="mt-3 inline-flex items-center gap-2 rounded-full bg-indigo-50 px-3 py-1 text-xs font-semibold text-indigo-700">
+                  <span>Filtered to {new Date(dayFilter).toLocaleDateString()}</span>
+                  <button
+                    type="button"
+                    className="text-[11px] font-semibold text-indigo-600 hover:text-indigo-800"
+                    onClick={() => {
+                      setDayFilter(null);
+                      const nextParams = new URLSearchParams(location.search);
+                      nextParams.delete('day');
+                      nextParams.delete('conversation_id');
+                      navigate(
+                        { pathname: location.pathname, search: nextParams.toString() },
+                        { replace: true, state }
+                      );
+                    }}
+                  >
+                    Clear
+                  </button>
+                </div>
+              )}
               
               {/* Checkbox for after-school hours filter */}
               <div className="mt-4">
@@ -296,14 +365,29 @@ const TeacherConversationView: React.FC = () => {
             </p>
           ) : (
             <ul className="space-y-6">
-              {filteredConversations.map((conversation) => (
-                <li key={conversation.id} className="rounded-2xl border border-slate-100 p-5 shadow-sm">
+              {filteredConversations.map((conversation) => {
+                const isHighlighted = highlightConversationId === conversation.id;
+                return (
+                <li
+                  key={conversation.id}
+                  ref={isHighlighted ? highlightedRef : null}
+                  className={`rounded-2xl border p-5 shadow-sm ${
+                    isHighlighted
+                      ? 'border-indigo-200 bg-indigo-50/40 shadow-indigo-100'
+                      : 'border-slate-100'
+                  }`}
+                >
                   <div className="flex flex-col gap-2 border-b border-slate-100 pb-4 sm:flex-row sm:items-center sm:justify-between">
                     <div>
                       <p className="text-lg font-semibold text-slate-900">
                         {conversation.title || 'Untitled conversation'}
                       </p>
                       <p className="text-xs uppercase tracking-wide text-slate-500">Conversation #{conversation.id}</p>
+                      {isHighlighted && (
+                        <span className="mt-2 inline-flex items-center rounded-full bg-indigo-100 px-2.5 py-0.5 text-[11px] font-semibold text-indigo-700">
+                          Max depth
+                        </span>
+                      )}
                     </div>
                     <div className="flex flex-col items-start sm:items-end gap-1">
                       {(() => {
@@ -386,7 +470,7 @@ const TeacherConversationView: React.FC = () => {
                     )}
                   </div>
                 </li>
-              ))}
+              )})}
             </ul>
           )}
 
