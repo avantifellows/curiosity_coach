@@ -1318,11 +1318,6 @@ def get_dashboard_metrics(
                 }
             )
 
-        student_snapshots.sort(
-            key=lambda entry: entry['avg_words_per_message'] if entry['avg_words_per_message'] is not None else -1,
-            reverse=True,
-        )
-        student_snapshots = student_snapshots[:10]
 
     hourly_query = db.query(HourlyActivityMetrics).filter(
         HourlyActivityMetrics.school == school_value,

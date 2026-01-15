@@ -24,13 +24,14 @@ interface LocationState {
 
 type StudentMetricKey =
   | 'user_words'
+  | 'user_words_per_message'
   | 'user_messages'
   | 'depth_levels'
   | 'total_relevant_questions'
   | 'avg_attention_span';
 
 const METRIC_OPTIONS: { value: StudentMetricKey; label: string }[] = [
-  { value: 'user_words', label: 'Words typed' },
+  { value: 'user_words_per_message', label: 'Words typed per message' },
   { value: 'user_messages', label: 'User messages' },
   { value: 'depth_levels', label: 'Max depth' },
   { value: 'total_relevant_questions', label: 'Relevant questions' },
@@ -39,6 +40,7 @@ const METRIC_OPTIONS: { value: StudentMetricKey; label: string }[] = [
 
 const METRIC_LABEL: Record<StudentMetricKey, string> = {
   user_words: 'Words typed',
+  user_words_per_message: 'Words typed per message',
   user_messages: 'User messages',
   depth_levels: 'Max depth',
   total_relevant_questions: 'Relevant questions',
@@ -47,13 +49,19 @@ const METRIC_LABEL: Record<StudentMetricKey, string> = {
 
 const COMPARISON_COLORS = ['#2563eb', '#f97316', '#10b981', '#facc15'];
 const TOP_DAYS_LIMIT = 10;
-const BASE_DEPTH_BADGE_COLORS: Record<number, string> = {
-  0: '#fee2e2',
-  1: '#ffedd5',
-  2: '#fef9c3',
-  3: '#dcfce7',
-};
 const DEPTH_BADGE_TEXT = '#1f2937';
+const TOP_STUDENT_NAMES = [
+  'Aanya',
+  'Abhigna',
+  'Kiara',
+  'Niharika',
+  'Saraswatee',
+  'Sihi',
+  'Siya',
+]; // manual eval by dinesh & surya
+const TOP_STUDENT_ORDER = new Map(
+  TOP_STUDENT_NAMES.map((name, index) => [name.toLowerCase(), index])
+);
 
 const formatNumber = (value: number | null | undefined, options?: Intl.NumberFormatOptions) => {
   if (value === null || value === undefined) {
@@ -101,23 +109,16 @@ const formatHourRange = (startIso: string, endIso: string) => {
   return `${dayLabel} · ${startLabel} – ${endLabel}`;
 };
 
-const depthLevelSort = (a: DepthLevelStat, b: DepthLevelStat) => {
-  const countDiff = (b.count ?? 0) - (a.count ?? 0);
-  if (countDiff !== 0) {
-    return countDiff;
-  }
-  return (b.level ?? 0) - (a.level ?? 0);
-};
+const depthLevelSort = (a: DepthLevelStat, b: DepthLevelStat) => (a.level ?? 0) - (b.level ?? 0);
 
-const getDepthBadgeStyle = (level: number) => {
-  const baseColor = BASE_DEPTH_BADGE_COLORS[level];
-  if (baseColor) {
-    return { backgroundColor: baseColor, color: DEPTH_BADGE_TEXT };
-  }
-  const hue = (Math.abs(level) * 37) % 360;
+const getDepthBadgeStyle = (level: number, maxLevel: number) => {
+  const safeMax = Math.max(1, maxLevel);
+  const safeLevel = Math.max(0, level);
+  const hue = Math.round((safeLevel / safeMax) * 120);
+  const lightness = 86 - Math.min(18, safeLevel * 2);
   return {
-    backgroundColor: `hsl(${hue} 70% 90%)`,
-    color: `hsl(${hue} 30% 30%)`,
+    backgroundColor: `hsl(${hue} 70% ${lightness}%)`,
+    color: DEPTH_BADGE_TEXT,
   };
 };
 
@@ -275,7 +276,16 @@ const getMetricValue = (record: StudentDailyRecord, key: StudentMetricKey): numb
     return maxDepthLevel(record.depth_levels);
   }
 
-  const raw = record[key];
+  if (key === 'user_words_per_message') {
+    const words = record.user_words;
+    const messages = record.user_messages;
+    if (typeof words !== 'number' || typeof messages !== 'number' || messages <= 0) {
+      return 0;
+    }
+    return words / messages;
+  }
+
+  const raw = record[key as keyof StudentDailyRecord];
   if (raw === null || raw === undefined) {
     return 0;
   }
@@ -534,6 +544,25 @@ const TeacherDashboard: React.FC = () => {
     [school, grade, section]
   );
 
+  const handleStudentSnapshotClick = useCallback(
+    (studentId: number) => {
+      if (!school || !grade) {
+        return;
+      }
+      const params = new URLSearchParams({
+        student_id: String(studentId),
+        school,
+        grade: String(grade),
+      });
+      if (section) {
+        params.set('section', section);
+      }
+      const url = `/class-conversation?${params.toString()}`;
+      window.open(url, '_blank', 'noopener,noreferrer');
+    },
+    [school, grade, section]
+  );
+
   useEffect(() => {
     if (!hasClassContext || !school || !grade) {
       setError('Class details are missing. Please return to the Teacher View and select a class.');
@@ -607,7 +636,20 @@ const TeacherDashboard: React.FC = () => {
     const recent = data?.recent_days ?? [];
     return recent.slice(0, TOP_DAYS_LIMIT);
   }, [data]);
-  const studentSnapshots = useMemo(() => data?.student_snapshots ?? [], [data]);
+  const studentSnapshots = useMemo(() => {
+    const snapshots = data?.student_snapshots ?? [];
+    const filtered = snapshots.filter((snapshot) => {
+      const name = snapshot.student_name?.trim().toLowerCase();
+      return name ? TOP_STUDENT_ORDER.has(name) : false;
+    });
+    return filtered.sort((a, b) => {
+      const aName = a.student_name?.trim().toLowerCase() ?? '';
+      const bName = b.student_name?.trim().toLowerCase() ?? '';
+      const aIndex = TOP_STUDENT_ORDER.get(aName) ?? Number.MAX_SAFE_INTEGER;
+      const bIndex = TOP_STUDENT_ORDER.get(bName) ?? Number.MAX_SAFE_INTEGER;
+      return aIndex - bIndex;
+    });
+  }, [data]);
   const hourlyBuckets = useMemo(() => data?.hourly_activity ?? [], [data]);
   const studentOptions = useMemo(() => students, [students]);
 
@@ -666,13 +708,12 @@ const TeacherDashboard: React.FC = () => {
     }
 
     const tooltip = sortedLevels.map((item) => `D${item.level}: ${item.count}`).join('\n');
-    const topLevels = sortedLevels.slice(0, 3);
-    const hiddenCount = sortedLevels.length - topLevels.length;
-    const badges = topLevels.map((item) => (
+    const maxLevel = sortedLevels.reduce((maxValue, item) => Math.max(maxValue, item.level), 0);
+    const badges = sortedLevels.map((item) => (
       <span
         key={`depth-${item.level}`}
         className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium"
-        style={getDepthBadgeStyle(item.level)}
+        style={getDepthBadgeStyle(item.level, maxLevel)}
         title={tooltip}
       >
         <span>D{item.level}</span>
@@ -680,21 +721,8 @@ const TeacherDashboard: React.FC = () => {
       </span>
     ));
 
-    if (hiddenCount > 0) {
-      badges.push(
-        <span
-          key="depth-more"
-          className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium"
-          style={getDepthBadgeStyle(sortedLevels[0].level)}
-          title={tooltip}
-        >
-          <span>+{hiddenCount} more</span>
-        </span>
-      );
-    }
-
     return badges.length ? (
-      <div className="flex flex-col items-start gap-1">{badges}</div>
+      <div className="flex flex-wrap items-center gap-1">{badges}</div>
     ) : (
       <span className="text-slate-400">—</span>
     );
@@ -970,10 +998,10 @@ const TeacherDashboard: React.FC = () => {
 
                 <section className="rounded-2xl bg-white p-6 shadow-sm">
                   <div className="flex items-center justify-between gap-2">
-                    <h2 className="text-lg font-semibold text-slate-900">Students (Top 10 by Avg Words per Message)</h2>
+                    <h2 className="text-lg font-semibold text-slate-900">Top Students</h2>
                   </div>
                   {studentSnapshots.length === 0 ? (
-                    <p className="mt-3 text-sm text-slate-500">No student-level snapshots yet.</p>
+                    <p className="mt-3 text-sm text-slate-500">No snapshots for the selected top students yet.</p>
                   ) : (
                     <div className="mt-4 overflow-x-auto">
                       <table className="min-w-full divide-y divide-slate-200 text-sm">
@@ -981,12 +1009,15 @@ const TeacherDashboard: React.FC = () => {
                           <tr>
                             <th className="py-2 text-left font-semibold text-slate-600">Student</th>
                             <th className="py-2 text-left font-semibold text-slate-600 whitespace-normal">
+                              User
+                              <span className="block leading-tight">Msgs</span>
+                            </th>
+                            <th className="py-2 text-left font-semibold text-slate-600 whitespace-normal">
                               Avg
                               <span className="block leading-tight">Words/Msg</span>
                             </th>
-                            <th className="py-2 text-left font-semibold text-slate-600 whitespace-normal">
-                              Depth
-                              <span className="block leading-tight">Mix</span>
+                            <th className="w-[200px] max-w-[200px] py-2 text-left font-semibold text-slate-600">
+                              Depth Mix
                             </th>
                             <th className="py-2 text-left font-semibold text-slate-600 whitespace-normal">
                               Relevant
@@ -1000,36 +1031,30 @@ const TeacherDashboard: React.FC = () => {
                               Top
                               <span className="block leading-tight">Topics</span>
                             </th>
-                            <th className="py-2 text-left font-semibold text-slate-600 whitespace-normal">
-                              User
-                              <span className="block leading-tight">Msgs</span>
-                            </th>
-                            <th className="py-2 text-left font-semibold text-slate-600 whitespace-normal">
-                              Words
-                              <span className="block leading-tight">Typed</span>
-                            </th>
                             <th className="py-2 text-left font-semibold text-slate-600 whitespace-normal">Minutes</th>
-                            <th className="py-2 text-left font-semibold text-slate-600 whitespace-normal">
-                              After-school
-                              <span className="block leading-tight">%</span>
-                            </th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
                           {studentSnapshots.map((snapshot) => (
                             <tr key={snapshot.student_id}>
                               <td className="py-2 text-slate-700">
-                                {snapshot.student_name ?? `Student ${snapshot.student_id}`}
+                                <button
+                                  type="button"
+                                  className="font-medium text-slate-700 hover:underline hover:underline-offset-4"
+                                  onClick={() => handleStudentSnapshotClick(snapshot.student_id)}
+                                >
+                                  {snapshot.student_name ?? `Student ${snapshot.student_id}`}
+                                </button>
                               </td>
+                              <td className="py-2 text-slate-700">{formatNumber(snapshot.total_user_messages)}</td>
                               <td className="py-2 text-slate-700">{formatOneDecimal(snapshot.avg_words_per_message)}</td>
-                              <td className="py-2 text-slate-700">{renderDepthBadges(snapshot.depth_levels)}</td>
+                              <td className="w-[200px] max-w-[200px] py-2 text-slate-700 align-top">
+                                {renderDepthBadges(snapshot.depth_levels)}
+                              </td>
                               <td className="py-2 text-slate-700">{formatNumber(snapshot.total_relevant_questions)}</td>
                               <td className="py-2 text-slate-700">{formatOneDecimal(snapshot.avg_attention_span)}</td>
                               <td className="py-2 text-slate-700">{renderTopicChips(snapshot.top_topics)}</td>
-                              <td className="py-2 text-slate-700">{formatNumber(snapshot.total_user_messages)}</td>
-                              <td className="py-2 text-slate-700">{formatNumber(snapshot.total_user_words)}</td>
                               <td className="py-2 text-slate-700">{formatMinutes(snapshot.total_minutes)}</td>
-                              <td className="py-2 text-slate-700">{formatPercent(snapshot.after_school_user_pct)}</td>
                             </tr>
                           ))}
                         </tbody>
@@ -1061,9 +1086,8 @@ const TeacherDashboard: React.FC = () => {
                               AI
                               <span className="block leading-tight">Msgs</span>
                             </th>
-                            <th className="py-2 text-left font-semibold text-slate-600 whitespace-normal">
-                              Depth
-                              <span className="block leading-tight">Mix</span>
+                            <th className="w-[200px] max-w-[200px] py-2 text-left font-semibold text-slate-600">
+                              Depth Mix
                             </th>
                             <th className="py-2 text-left font-semibold text-slate-600 whitespace-normal">
                               Relevant
@@ -1081,10 +1105,6 @@ const TeacherDashboard: React.FC = () => {
                               Active
                               <span className="block leading-tight">Students</span>
                             </th>
-                            <th className="py-2 text-left font-semibold text-slate-600 whitespace-normal">
-                              After-school
-                              <span className="block leading-tight">Convos</span>
-                            </th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
@@ -1093,12 +1113,13 @@ const TeacherDashboard: React.FC = () => {
                               <td className="py-2 text-slate-700">{formatDayLabel(day.day)}</td>
                               <td className="py-2 text-slate-700">{formatNumber(day.total_user_messages)}</td>
                               <td className="py-2 text-slate-700">{formatNumber(day.total_ai_messages)}</td>
-                              <td className="py-2 text-slate-700">{renderDepthBadges(day.depth_levels)}</td>
+                              <td className="w-[200px] max-w-[200px] py-2 text-slate-700 align-top">
+                                {renderDepthBadges(day.depth_levels)}
+                              </td>
                               <td className="py-2 text-slate-700">{formatNumber(day.total_relevant_questions)}</td>
                               <td className="py-2 text-slate-700">{formatOneDecimal(day.avg_attention_span)}</td>
                               <td className="py-2 text-slate-700">{renderTopicChips(day.top_topics)}</td>
                               <td className="py-2 text-slate-700">{formatNumber(day.active_students)}</td>
-                              <td className="py-2 text-slate-700">{formatNumber(day.after_school_conversations)}</td>
                             </tr>
                           ))}
                         </tbody>
