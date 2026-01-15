@@ -502,7 +502,7 @@ const TeacherDashboard: React.FC = () => {
   const [studentsLoading, setStudentsLoading] = useState(false);
   const [primaryStudentId, setPrimaryStudentId] = useState<number | null>(null);
   const [comparisonStudentId, setComparisonStudentId] = useState<number | null>(null);
-  const [selectedMetric, setSelectedMetric] = useState<StudentMetricKey>('user_words');
+  const [selectedMetric, setSelectedMetric] = useState<StudentMetricKey>('depth_levels');
   const [studentDailySeries, setStudentDailySeries] = useState<StudentDailySeries[]>([]);
   const [studentDailyLoading, setStudentDailyLoading] = useState(false);
   const [studentDailyError, setStudentDailyError] = useState<string | null>(null);
