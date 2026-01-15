@@ -5,6 +5,9 @@ import { getStudentConversations, getUserPersona } from '../services/api';
 
 interface ConversationLocationState {
   student?: Student;
+  school?: string;
+  grade?: number;
+  section?: string | null;
 }
 
 const PAGE_SIZE = 3;
@@ -44,6 +47,17 @@ const getPersonaEmoji = (key: string): string => {
   return '📝'; // default emoji
 };
 
+const formatInteger = (value: number | null | undefined) =>
+  value === null || value === undefined ? '—' : new Intl.NumberFormat().format(value);
+
+const formatOneDecimal = (value: number | null | undefined) =>
+  value === null || value === undefined
+    ? '—'
+    : new Intl.NumberFormat(undefined, {
+        minimumFractionDigits: 1,
+        maximumFractionDigits: 1,
+      }).format(value);
+
 // Get the latest non-null curiosity score from messages
 const getLatestCuriosityScore = (messages: ConversationWithMessages['messages']): number | null => {
   // Messages are ordered by timestamp, find last one with a score
@@ -76,6 +90,11 @@ const TeacherConversationView: React.FC = () => {
   const location = useLocation();
   const state = (location.state as ConversationLocationState) || {};
   const student = state.student;
+  const classInfo = {
+    school: state.school ?? student?.school,
+    grade: state.grade ?? student?.grade,
+    section: state.section ?? student?.section ?? undefined,
+  };
   const [conversations, setConversations] = useState<ConversationWithMessages[]>([]);
   const [nextOffset, setNextOffset] = useState<number | null>(null);
   const [isInitialLoading, setIsInitialLoading] = useState(false);
@@ -158,6 +177,18 @@ const TeacherConversationView: React.FC = () => {
     );
   }
 
+  const classLabelParts = [];
+  if (classInfo.school) {
+    classLabelParts.push(classInfo.school);
+  }
+  if (classInfo.grade) {
+    classLabelParts.push(`Grade ${classInfo.grade}`);
+  }
+  if (classInfo.section) {
+    classLabelParts.push(`Section ${classInfo.section}`);
+  }
+  const classLabel = classLabelParts.join(' · ');
+
   // Filter conversations based on the toggle
   const filteredConversations = showAfterSchoolOnly
     ? conversations.filter((conv) => isAfterSchoolHours(conv.created_at))
@@ -169,14 +200,46 @@ const TeacherConversationView: React.FC = () => {
         <div className="rounded-3xl bg-white p-6 shadow-lg shadow-slate-200">
           <div className="flex items-start justify-between gap-4">
             <div className="flex-1">
-              <button
-                onClick={() => navigate(-1)}
-                className="text-sm font-semibold text-indigo-600 transition hover:text-indigo-700"
-              >
-                ← Back
-              </button>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <button
+                  onClick={() => {
+                    if (classInfo.school && classInfo.grade) {
+                      navigate('/class-details', {
+                        state: {
+                          school: classInfo.school,
+                          grade: classInfo.grade,
+                          section: classInfo.section,
+                        },
+                      });
+                    } else {
+                      navigate(-1);
+                    }
+                  }}
+                  className="text-sm font-semibold text-slate-600 transition hover:text-slate-900"
+                >
+                  ← Back to Class
+                </button>
+                {classInfo.school && classInfo.grade ? (
+                  <button
+                    type="button"
+                    className="inline-flex items-center justify-center rounded-full border border-indigo-600 px-3 py-1.5 text-xs font-semibold text-indigo-600 shadow-sm transition hover:bg-indigo-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-indigo-500"
+                    onClick={() =>
+                      navigate('/teacher-dashboard', {
+                        state: {
+                          school: classInfo.school,
+                          grade: classInfo.grade,
+                          section: classInfo.section,
+                        },
+                      })
+                    }
+                  >
+                    Dashboard
+                  </button>
+                ) : null}
+              </div>
               <h1 className="mt-3 text-3xl font-semibold text-slate-900">{student.first_name}&rsquo;s conversations</h1>
               <p className="text-sm text-slate-500">History ordered by most recent chats first.</p>
+              {classLabel && <p className="text-xs text-slate-500">{classLabel}</p>}
               
               {/* Checkbox for after-school hours filter */}
               <div className="mt-4">
@@ -256,6 +319,44 @@ const TeacherConversationView: React.FC = () => {
                       </p>
                     </div>
                   </div>
+                  {(() => {
+                    const evaluation = conversation.evaluation;
+                    const metrics = [
+                      {
+                        label: 'Depth',
+                        value: evaluation?.depth ?? null,
+                        formatter: formatOneDecimal,
+                      },
+                      {
+                        label: 'Relevant Qs',
+                        value: evaluation?.relevant_question_count ?? null,
+                        formatter: formatInteger,
+                      },
+                      {
+                        label: 'Attention',
+                        value: evaluation?.attention_span ?? null,
+                        formatter: formatOneDecimal,
+                      },
+                    ].filter((item) => item.value !== null && item.value !== undefined);
+
+                    if (metrics.length === 0) {
+                      return null;
+                    }
+
+                    return (
+                      <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-600">
+                        {metrics.map((item) => (
+                          <span
+                            key={item.label}
+                            className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-3 py-1"
+                          >
+                            <span className="font-semibold text-slate-700">{item.label}:</span>
+                            <span>{item.formatter(item.value as number)}</span>
+                          </span>
+                        ))}
+                      </div>
+                    );
+                  })()}
                   <div className="mt-4 max-h-[40vh] space-y-4 overflow-y-auto pr-1">
                     {conversation.messages.length === 0 ? (
                       <p className="text-sm text-slate-500">No messages yet.</p>
@@ -349,4 +450,3 @@ const TeacherConversationView: React.FC = () => {
 };
 
 export default TeacherConversationView;
-

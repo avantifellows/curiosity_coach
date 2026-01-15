@@ -32,7 +32,7 @@ type StudentMetricKey =
 const METRIC_OPTIONS: { value: StudentMetricKey; label: string }[] = [
   { value: 'user_words', label: 'Words typed' },
   { value: 'user_messages', label: 'User messages' },
-  { value: 'depth_levels', label: 'Depth distribution' },
+  { value: 'depth_levels', label: 'Max depth' },
   { value: 'total_relevant_questions', label: 'Relevant questions' },
   { value: 'avg_attention_span', label: 'Avg attention span' },
 ];
@@ -40,21 +40,13 @@ const METRIC_OPTIONS: { value: StudentMetricKey; label: string }[] = [
 const METRIC_LABEL: Record<StudentMetricKey, string> = {
   user_words: 'Words typed',
   user_messages: 'User messages',
-  depth_levels: 'Depth distribution',
+  depth_levels: 'Max depth',
   total_relevant_questions: 'Relevant questions',
   avg_attention_span: 'Avg attention span',
 };
 
 const COMPARISON_COLORS = ['#2563eb', '#f97316', '#10b981', '#facc15'];
 const TOP_DAYS_LIMIT = 10;
-const DEPTH_BADGE_ORDER = [3, 2, 1, 0] as const;
-const DEPTH_STACK_ORDER = [0, 1, 2, 3] as const;
-const BASE_DEPTH_LEVEL_COLORS: Record<number, string> = {
-  0: '#ef4444',
-  1: '#f97316',
-  2: '#facc15',
-  3: '#22c55e',
-};
 const BASE_DEPTH_BADGE_COLORS: Record<number, string> = {
   0: '#fee2e2',
   1: '#ffedd5',
@@ -62,27 +54,6 @@ const BASE_DEPTH_BADGE_COLORS: Record<number, string> = {
   3: '#dcfce7',
 };
 const DEPTH_BADGE_TEXT = '#1f2937';
-const DEPTH_LEVEL_COLOR_SETS: ReadonlyArray<Record<number, string>> = [
-  BASE_DEPTH_LEVEL_COLORS,
-  {
-    0: '#b91c1c',
-    1: '#c2410c',
-    2: '#ca8a04',
-    3: '#15803d',
-  },
-  {
-    0: '#fca5a5',
-    1: '#fdba74',
-    2: '#fde68a',
-    3: '#bbf7d0',
-  },
-  {
-    0: '#7f1d1d',
-    1: '#7c2d12',
-    2: '#78350f',
-    3: '#14532d',
-  },
-];
 
 const formatNumber = (value: number | null | undefined, options?: Intl.NumberFormatOptions) => {
   if (value === null || value === undefined) {
@@ -130,18 +101,33 @@ const formatHourRange = (startIso: string, endIso: string) => {
   return `${dayLabel} · ${startLabel} – ${endLabel}`;
 };
 
-const sumDepthLevels = (levels?: DepthLevelStat[] | null) =>
-  levels?.reduce((sum, item) => sum + (item?.count ?? 0), 0) ?? 0;
-
-const depthLevelsToMap = (levels?: DepthLevelStat[] | null) => {
-  const map = new Map<number, number>();
-  levels?.forEach((item) => {
-    if (item && typeof item.level === 'number' && typeof item.count === 'number') {
-      map.set(item.level, item.count);
-    }
-  });
-  return map;
+const depthLevelSort = (a: DepthLevelStat, b: DepthLevelStat) => {
+  const countDiff = (b.count ?? 0) - (a.count ?? 0);
+  if (countDiff !== 0) {
+    return countDiff;
+  }
+  return (b.level ?? 0) - (a.level ?? 0);
 };
+
+const getDepthBadgeStyle = (level: number) => {
+  const baseColor = BASE_DEPTH_BADGE_COLORS[level];
+  if (baseColor) {
+    return { backgroundColor: baseColor, color: DEPTH_BADGE_TEXT };
+  }
+  const hue = (Math.abs(level) * 37) % 360;
+  return {
+    backgroundColor: `hsl(${hue} 70% 90%)`,
+    color: `hsl(${hue} 30% 30%)`,
+  };
+};
+
+const maxDepthLevel = (levels?: DepthLevelStat[] | null) =>
+  levels?.reduce((maxValue, item) => {
+    if (item && typeof item.level === 'number') {
+      return Math.max(maxValue, item.level);
+    }
+    return maxValue;
+  }, 0) ?? 0;
 
 const HourlyActivityChart: React.FC<{ buckets: DashboardHourlyBucket[] }> = ({ buckets }) => {
   const height = 240;
@@ -283,7 +269,7 @@ const HourlyActivityChart: React.FC<{ buckets: DashboardHourlyBucket[] }> = ({ b
 
 const getMetricValue = (record: StudentDailyRecord, key: StudentMetricKey): number => {
   if (key === 'depth_levels') {
-    return sumDepthLevels(record.depth_levels);
+    return maxDepthLevel(record.depth_levels);
   }
 
   const raw = record[key];
@@ -410,9 +396,11 @@ const NumericStudentComparisonChart: React.FC<StudentComparisonChartProps> = ({ 
                 const barY = padding.top + (ySpan - barHeight);
                 const color = colors[seriesIndex % colors.length];
 
+                const formattedValue =
+                  metric === 'depth_levels' ? Math.round(value) : Math.round(value * 10) / 10;
                 const tooltipLines = [
                   `${series.student_name ?? `Student ${series.student_id}`}`,
-                  `${METRIC_LABEL[metric]}: ${Math.round(value * 10) / 10}`,
+                  `${METRIC_LABEL[metric]}: ${formattedValue}`,
                   dayLabel,
                 ];
 
@@ -447,233 +435,9 @@ const NumericStudentComparisonChart: React.FC<StudentComparisonChartProps> = ({ 
   );
 };
 
-const DepthDistributionChart: React.FC<{ data: StudentDailySeries[] }> = ({ data }) => {
-  if (!data.length) {
-    return null;
-  }
-
-  const padding = { top: 28, right: 24, bottom: 56, left: 52 };
-  const chartHeight = 300;
-
-  const daySet = new Set<string>();
-  data.forEach((series) => {
-    series.records.forEach((record) => {
-      daySet.add(record.day);
-    });
-  });
-
-  const dayLabels = Array.from(daySet).sort();
-  if (dayLabels.length === 0) {
-    return (
-      <div className="rounded-2xl border border-dashed border-slate-200 bg-white p-8 text-center text-sm text-slate-500">
-        No daily metrics yet for the selected student{data.length > 1 ? 's' : ''}.
-      </div>
-    );
-  }
-
-  const seriesLookup = data.map((series) => ({
-    ...series,
-    recordMap: new Map(series.records.map((record) => [record.day, record])),
-  }));
-
-  let maxTotal = 0;
-  dayLabels.forEach((day) => {
-    seriesLookup.forEach((series) => {
-      const record = series.recordMap.get(day);
-      const total = record ? sumDepthLevels(record.depth_levels) : 0;
-      if (total > maxTotal) {
-        maxTotal = total;
-      }
-    });
-  });
-
-  const safeMax = maxTotal > 0 ? maxTotal : 1;
-  const studentCount = data.length;
-  const barWidth = 18;
-  const barGap = 8;
-  const groupSpacing = 28;
-  const groupWidth = studentCount * barWidth + Math.max(0, studentCount - 1) * barGap;
-  const xStep = groupWidth + groupSpacing;
-  const chartWidth = Math.max(600, padding.left + padding.right + dayLabels.length * xStep);
-  const ySpan = chartHeight - padding.top - padding.bottom;
-  const axisColor = '#cbd5f5';
-
-  const tickCount = 4;
-  const tickValues = Array.from({ length: tickCount + 1 }, (_, idx) => (safeMax / tickCount) * idx);
-
-  const legendItems = seriesLookup.map((series, seriesIndex) => {
-    const label = series.student_name ?? `Student ${series.student_id}`;
-    const colorSet = DEPTH_LEVEL_COLOR_SETS[seriesIndex % DEPTH_LEVEL_COLOR_SETS.length];
-    return (
-      <div
-        key={`legend-${series.student_id}`}
-        className="flex flex-col gap-1 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600"
-      >
-        <span className="font-medium text-slate-700">{label}</span>
-        <div className="flex flex-wrap items-center gap-2">
-          {DEPTH_BADGE_ORDER.map((level) => (
-            <span key={`legend-${series.student_id}-${level}`} className="inline-flex items-center gap-1">
-              <span
-                className="inline-block h-3 w-3 rounded-sm"
-                style={{ backgroundColor: colorSet[level] ?? BASE_DEPTH_LEVEL_COLORS[level] }}
-              />
-              <span className="text-[11px] text-slate-500">D{level}</span>
-            </span>
-          ))}
-        </div>
-      </div>
-    );
-  });
-
-  return (
-    <div className="space-y-3">
-      <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
-        <svg viewBox={`0 0 ${chartWidth} ${chartHeight}`} className="block w-full" role="img" aria-label="Depth distribution chart">
-          <rect x={0} y={0} width={chartWidth} height={chartHeight} fill="#f8fafc" />
-          <line
-            x1={padding.left}
-            y1={chartHeight - padding.bottom}
-            x2={chartWidth - padding.right}
-            y2={chartHeight - padding.bottom}
-            stroke={axisColor}
-            strokeWidth={1}
-          />
-          {tickValues.map((tick) => {
-            const y = padding.top + ySpan - (tick / safeMax) * ySpan;
-            return (
-              <g key={`depth-tick-${tick}`}>
-                <line
-                  x1={padding.left}
-                  y1={y}
-                  x2={chartWidth - padding.right}
-                  y2={y}
-                  stroke="#e2e8f0"
-                  strokeWidth={1}
-                  strokeDasharray="4 6"
-                />
-                <text x={padding.left - 10} y={y + 4} fill="#94a3b8" fontSize="11" textAnchor="end">
-                  {Math.round(tick)}
-                </text>
-              </g>
-            );
-          })}
-
-          {dayLabels.map((day, dayIndex) => {
-            const baseX = padding.left + dayIndex * xStep;
-            const groupOffset = (xStep - groupWidth) / 2;
-            const dayLabel = new Date(day).toLocaleDateString([], { month: 'short', day: 'numeric' });
-
-            return (
-              <g key={`depth-day-${day}`}>
-                <text
-                  x={baseX + groupWidth / 2 + groupOffset}
-                  y={chartHeight - padding.bottom + 20}
-                  fill="#475569"
-                  fontSize="11"
-                  textAnchor="middle"
-                >
-                  {dayLabel}
-                </text>
-
-                {seriesLookup.map((series, seriesIndex) => {
-                  const colorSet = DEPTH_LEVEL_COLOR_SETS[seriesIndex % DEPTH_LEVEL_COLOR_SETS.length];
-                  const record = series.recordMap.get(day);
-                  const counts = depthLevelsToMap(record?.depth_levels);
-                  const total = sumDepthLevels(record?.depth_levels);
-                  const barX = baseX + groupOffset + seriesIndex * (barWidth + barGap);
-                  let segmentBaseY = padding.top + ySpan;
-
-                  const tooltipLines = [
-                    series.student_name ?? `Student ${series.student_id}`,
-                    dayLabel,
-                    `Total: ${total}`,
-                    ...DEPTH_BADGE_ORDER.map((level) => `Depth ${level}: ${counts.get(level) ?? 0}`),
-                  ];
-
-                  if (total === 0) {
-                    const zeroHeight = Math.min(8, ySpan);
-                    const zeroY = padding.top + ySpan - zeroHeight;
-                    return (
-                      <g key={`depth-bar-${day}-${series.student_id}`}>
-                        <rect
-                          x={barX}
-                          y={zeroY}
-                          width={barWidth}
-                          height={zeroHeight}
-                          fill={colorSet[0] ?? BASE_DEPTH_LEVEL_COLORS[0]}
-                          fillOpacity={0.2}
-                          stroke={colorSet[0] ?? BASE_DEPTH_LEVEL_COLORS[0]}
-                          strokeWidth={1}
-                        >
-                          <title>{tooltipLines.join('\n')}</title>
-                        </rect>
-                        <text
-                          x={barX + barWidth / 2}
-                          y={zeroY - 4}
-                          fill="#94a3b8"
-                          fontSize="10"
-                          textAnchor="middle"
-                        >
-                          0
-                        </text>
-                      </g>
-                    );
-                  }
-
-                  return (
-                    <g key={`depth-bar-${day}-${series.student_id}`}>
-                      {DEPTH_STACK_ORDER.map((level) => {
-                        const count = counts.get(level) ?? 0;
-                        if (!count) {
-                          return null;
-                        }
-                        const rawHeight = (count / safeMax) * ySpan;
-                        const minHeight = 4;
-                        const desiredHeight = Math.max(rawHeight, minHeight);
-                        const y = Math.max(padding.top, segmentBaseY - desiredHeight);
-                        const adjustedHeight = segmentBaseY - y;
-                        segmentBaseY = y;
-                        return (
-                          <rect
-                            key={`depth-bar-${day}-${series.student_id}-${level}`}
-                            x={barX}
-                            y={y}
-                            width={barWidth}
-                            height={adjustedHeight}
-                            fill={colorSet[level] ?? BASE_DEPTH_LEVEL_COLORS[level]}
-                          >
-                            <title>{tooltipLines.join('\n')}</title>
-                          </rect>
-                        );
-                      })}
-                    </g>
-                  );
-                })}
-              </g>
-            );
-          })}
-
-          <text x={padding.left} y={padding.top - 12} fill="#475569" fontSize="12" fontWeight={600}>
-            Depth distribution per day (conversation count)
-          </text>
-          <text x={padding.left} y={chartHeight - 20} fill="#94a3b8" fontSize="11">
-            Day
-          </text>
-        </svg>
-      </div>
-      <div className="flex flex-wrap items-start gap-4 text-xs text-slate-600">
-        {legendItems}
-      </div>
-    </div>
-  );
-};
-
-const StudentComparisonChart: React.FC<StudentComparisonChartProps> = ({ data, metric }) => {
-  if (metric === 'depth_levels') {
-    return <DepthDistributionChart data={data} />;
-  }
-  return <NumericStudentComparisonChart data={data} metric={metric} />;
-};
+const StudentComparisonChart: React.FC<StudentComparisonChartProps> = ({ data, metric }) => (
+  <NumericStudentComparisonChart data={data} metric={metric} />
+);
 
 const TeacherDashboard: React.FC = () => {
   const navigate = useNavigate();
@@ -817,24 +581,48 @@ const TeacherDashboard: React.FC = () => {
       return <span className="text-slate-400">—</span>;
     }
 
-    const counts = depthLevelsToMap(levels);
-    const badges = DEPTH_BADGE_ORDER.map((level) => {
-      const count = counts.get(level) ?? 0;
-      if (!count) {
-        return null;
-      }
+    const sortedLevels = levels
+      .filter(
+        (item): item is DepthLevelStat =>
+          Boolean(item) &&
+          typeof item.level === 'number' &&
+          typeof item.count === 'number' &&
+          item.count > 0
+      )
+      .slice()
+      .sort(depthLevelSort);
 
-      return (
+    if (sortedLevels.length === 0) {
+      return <span className="text-slate-400">—</span>;
+    }
+
+    const tooltip = sortedLevels.map((item) => `D${item.level}: ${item.count}`).join('\n');
+    const topLevels = sortedLevels.slice(0, 3);
+    const hiddenCount = sortedLevels.length - topLevels.length;
+    const badges = topLevels.map((item) => (
+      <span
+        key={`depth-${item.level}`}
+        className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium"
+        style={getDepthBadgeStyle(item.level)}
+        title={tooltip}
+      >
+        <span>D{item.level}</span>
+        <span>{item.count}</span>
+      </span>
+    ));
+
+    if (hiddenCount > 0) {
+      badges.push(
         <span
-          key={`depth-${level}`}
+          key="depth-more"
           className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium"
-          style={{ backgroundColor: BASE_DEPTH_BADGE_COLORS[level], color: DEPTH_BADGE_TEXT }}
+          style={getDepthBadgeStyle(sortedLevels[0].level)}
+          title={tooltip}
         >
-          <span>D{level}</span>
-          <span>{count}</span>
+          <span>+{hiddenCount} more</span>
         </span>
       );
-    }).filter(Boolean);
+    }
 
     return badges.length ? (
       <div className="flex flex-col items-start gap-1">{badges}</div>
@@ -1116,15 +904,39 @@ const TeacherDashboard: React.FC = () => {
                         <thead className="bg-slate-50">
                           <tr>
                             <th className="py-2 text-left font-semibold text-slate-600">Student</th>
-                            <th className="py-2 text-left font-semibold text-slate-600">Avg Words/Msg</th>
-                            <th className="py-2 text-left font-semibold text-slate-600">Depth Mix</th>
-                            <th className="py-2 text-left font-semibold text-slate-600">Relevant Questions</th>
-                            <th className="py-2 text-left font-semibold text-slate-600">Avg Attention</th>
-                            <th className="py-2 text-left font-semibold text-slate-600">Top Topics</th>
-                            <th className="py-2 text-left font-semibold text-slate-600">User Msgs</th>
-                            <th className="py-2 text-left font-semibold text-slate-600">Words Typed</th>
-                            <th className="py-2 text-left font-semibold text-slate-600">Minutes</th>
-                            <th className="py-2 text-left font-semibold text-slate-600">After-school %</th>
+                            <th className="py-2 text-left font-semibold text-slate-600 whitespace-normal">
+                              Avg
+                              <span className="block leading-tight">Words/Msg</span>
+                            </th>
+                            <th className="py-2 text-left font-semibold text-slate-600 whitespace-normal">
+                              Depth
+                              <span className="block leading-tight">Mix</span>
+                            </th>
+                            <th className="py-2 text-left font-semibold text-slate-600 whitespace-normal">
+                              Relevant
+                              <span className="block leading-tight">Questions</span>
+                            </th>
+                            <th className="py-2 text-left font-semibold text-slate-600 whitespace-normal">
+                              Avg
+                              <span className="block leading-tight">Attention</span>
+                            </th>
+                            <th className="py-2 text-left font-semibold text-slate-600 whitespace-normal">
+                              Top
+                              <span className="block leading-tight">Topics</span>
+                            </th>
+                            <th className="py-2 text-left font-semibold text-slate-600 whitespace-normal">
+                              User
+                              <span className="block leading-tight">Msgs</span>
+                            </th>
+                            <th className="py-2 text-left font-semibold text-slate-600 whitespace-normal">
+                              Words
+                              <span className="block leading-tight">Typed</span>
+                            </th>
+                            <th className="py-2 text-left font-semibold text-slate-600 whitespace-normal">Minutes</th>
+                            <th className="py-2 text-left font-semibold text-slate-600 whitespace-normal">
+                              After-school
+                              <span className="block leading-tight">%</span>
+                            </th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
@@ -1165,27 +977,49 @@ const TeacherDashboard: React.FC = () => {
                         <thead className="bg-slate-50">
                           <tr>
                             <th className="py-2 text-left font-semibold text-slate-600">Day</th>
-                            <th className="py-2 text-left font-semibold text-slate-600">Minutes</th>
-                            <th className="py-2 text-left font-semibold text-slate-600">User Msgs</th>
-                            <th className="py-2 text-left font-semibold text-slate-600">AI Msgs</th>
-                            <th className="py-2 text-left font-semibold text-slate-600">Depth Mix</th>
-                            <th className="py-2 text-left font-semibold text-slate-600">Avg Attention</th>
-                            <th className="py-2 text-left font-semibold text-slate-600">Relevant Questions</th>
-                            <th className="py-2 text-left font-semibold text-slate-600">Top Topics</th>
-                            <th className="py-2 text-left font-semibold text-slate-600">Active Students</th>
-                            <th className="py-2 text-left font-semibold text-slate-600">After-school Convos</th>
+                            <th className="py-2 text-left font-semibold text-slate-600 whitespace-normal">
+                              User
+                              <span className="block leading-tight">Msgs</span>
+                            </th>
+                            <th className="py-2 text-left font-semibold text-slate-600 whitespace-normal">
+                              AI
+                              <span className="block leading-tight">Msgs</span>
+                            </th>
+                            <th className="py-2 text-left font-semibold text-slate-600 whitespace-normal">
+                              Depth
+                              <span className="block leading-tight">Mix</span>
+                            </th>
+                            <th className="py-2 text-left font-semibold text-slate-600 whitespace-normal">
+                              Relevant
+                              <span className="block leading-tight">Questions</span>
+                            </th>
+                            <th className="py-2 text-left font-semibold text-slate-600 whitespace-normal">
+                              Avg
+                              <span className="block leading-tight">Attention</span>
+                            </th>
+                            <th className="py-2 text-left font-semibold text-slate-600 whitespace-normal">
+                              Top
+                              <span className="block leading-tight">Topics</span>
+                            </th>
+                            <th className="py-2 text-left font-semibold text-slate-600 whitespace-normal">
+                              Active
+                              <span className="block leading-tight">Students</span>
+                            </th>
+                            <th className="py-2 text-left font-semibold text-slate-600 whitespace-normal">
+                              After-school
+                              <span className="block leading-tight">Convos</span>
+                            </th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
                           {topDays.map((day) => (
                             <tr key={day.day}>
                               <td className="py-2 text-slate-700">{formatDayLabel(day.day)}</td>
-                              <td className="py-2 text-slate-700">{formatMinutes(day.total_minutes)}</td>
                               <td className="py-2 text-slate-700">{formatNumber(day.total_user_messages)}</td>
                               <td className="py-2 text-slate-700">{formatNumber(day.total_ai_messages)}</td>
                               <td className="py-2 text-slate-700">{renderDepthBadges(day.depth_levels)}</td>
-                              <td className="py-2 text-slate-700">{formatOneDecimal(day.avg_attention_span)}</td>
                               <td className="py-2 text-slate-700">{formatNumber(day.total_relevant_questions)}</td>
+                              <td className="py-2 text-slate-700">{formatOneDecimal(day.avg_attention_span)}</td>
                               <td className="py-2 text-slate-700">{renderTopicChips(day.top_topics)}</td>
                               <td className="py-2 text-slate-700">{formatNumber(day.active_students)}</td>
                               <td className="py-2 text-slate-700">{formatNumber(day.after_school_conversations)}</td>

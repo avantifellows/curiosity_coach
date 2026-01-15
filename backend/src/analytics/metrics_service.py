@@ -25,9 +25,6 @@ from src.models import (
 logger = logging.getLogger(__name__)
 
 
-DEPTH_LEVELS = (0, 1, 2, 3)
-
-
 _AFTER_SCHOOL_SQL_CONDITION = """
 CASE
     WHEN EXTRACT(DOW FROM m.timestamp AT TIME ZONE 'UTC') IN (0, 6) THEN TRUE
@@ -72,7 +69,7 @@ def _ensure_decimal_to_float(value: Optional[Any]) -> Optional[float]:
 def _empty_evaluation_bucket() -> Dict[str, Any]:
     return {
         'conversation_count': 0,
-        'depth_counts': {level: 0 for level in DEPTH_LEVELS},
+        'depth_counts': {},
         'relevant_sum': 0.0,
         'relevant_count': 0,
         'attention_sum': 0.0,
@@ -229,10 +226,9 @@ def _collect_conversation_evaluations(
                     depth_value = int(depth)
                 except (TypeError, ValueError):
                     depth_value = None
-                if depth_value is not None and depth_value in DEPTH_LEVELS:
-                    target_bucket['depth_counts'][depth_value] = (
-                        target_bucket['depth_counts'].get(depth_value, 0) + 1
-                    )
+                if depth_value is not None:
+                    depth_counts = target_bucket.setdefault('depth_counts', {})
+                    depth_counts[depth_value] = depth_counts.get(depth_value, 0) + 1
             relevant = metrics.get('relevant_question_count')
             if relevant is not None:
                 try:

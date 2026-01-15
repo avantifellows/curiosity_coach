@@ -158,6 +158,7 @@ class StudentDailyPoint(BaseModel):
     user_messages_after_school: Optional[int]
     total_messages_after_school: Optional[int]
     total_relevant_questions: Optional[float] = None
+    avg_attention_span: Optional[float] = None
     metrics_extra: Optional[Dict[str, Any]] = None
     depth_levels: Optional[List[DepthLevelStat]] = None
 

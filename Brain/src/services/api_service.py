@@ -1,11 +1,14 @@
 import httpx
 import os
+import time
 from typing import Dict, Any, List, Optional
 from src.utils.logger import logger
 
 class APIService:
     def __init__(self):
         self.backend_url = os.getenv("BACKEND_CALLBACK_BASE_URL", "http://localhost:5000")
+        self._prompt_cache: Dict[str, Dict[str, Any]] = {}
+        self._prompt_cache_ttl = float(os.getenv("PROMPT_CACHE_TTL_SECONDS", "300"))
         logger.info(f"APIService initialized with backend_url: {self.backend_url}")
 
     async def save_memory(self, conversation_id: int, memory_data: Dict[str, Any]) -> bool:
@@ -341,6 +344,15 @@ class APIService:
         Returns:
             Prompt text string or None if not found
         """
+        cache_key = f"{prompt_name}:{'production' if prefer_production else 'active'}"
+        if self._prompt_cache_ttl > 0:
+            cached = self._prompt_cache.get(cache_key)
+            if cached:
+                age = time.time() - cached["fetched_at"]
+                if age < self._prompt_cache_ttl:
+                    logger.info(f"Using cached prompt '{prompt_name}'")
+                    return cached["prompt_text"]
+                self._prompt_cache.pop(cache_key, None)
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
                 # Try production first (or active if prefer_production=False)
@@ -354,6 +366,11 @@ class APIService:
                         prompt_text = data.get("prompt_text")
                         if prompt_text:
                             logger.info(f"Successfully fetched production prompt '{prompt_name}'")
+                            if self._prompt_cache_ttl > 0:
+                                self._prompt_cache[cache_key] = {
+                                    "prompt_text": prompt_text,
+                                    "fetched_at": time.time(),
+                                }
                             return prompt_text
                     
                     # Fall back to active
@@ -369,6 +386,11 @@ class APIService:
                     prompt_text = data.get("prompt_text")
                     if prompt_text:
                         logger.info(f"Successfully fetched active prompt '{prompt_name}'")
+                        if self._prompt_cache_ttl > 0:
+                            self._prompt_cache[cache_key] = {
+                                "prompt_text": prompt_text,
+                                "fetched_at": time.time(),
+                            }
                         return prompt_text
                 
                 logger.warning(f"Prompt '{prompt_name}' not found in backend (tried production and active)")

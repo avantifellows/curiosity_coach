@@ -43,7 +43,9 @@ BACKEND_CALLBACK_ROUTE = os.getenv("BACKEND_CALLBACK_ROUTE", "/api/internal/brai
 BACKEND_CALLBACK_URL = f"{BACKEND_CALLBACK_BASE_URL}{BACKEND_CALLBACK_ROUTE}"
 
 
-EVALUATION_EXECUTOR = ThreadPoolExecutor(max_workers=3)
+EVALUATION_MAX_WORKERS = int(os.getenv("EVALUATION_MAX_WORKERS", "3"))
+EVALUATION_EXECUTOR = ThreadPoolExecutor(max_workers=EVALUATION_MAX_WORKERS)
+EVALUATION_LLM_SERVICE: Optional[LLMService] = None
 
 DEFAULT_CURIOSITY_SCORE_INCREMENT = 4
 
@@ -84,7 +86,7 @@ def _parse_evaluation_metrics(raw_response: str) -> Dict[str, Any]:
     if depth_value is not None:
         try:
             depth_int = int(depth_value)
-            metrics["depth"] = max(0, min(3, depth_int))
+            metrics["depth"] = depth_int
         except (TypeError, ValueError):
             logger.warning("Invalid depth value in evaluation response", extra={"value": depth_value})
 
@@ -1511,7 +1513,10 @@ async def process_conversation_evaluation_task(
             "{{CONVERSATION_HISTORY}}", formatted_history
         )
 
-        llm_service = LLMService()
+        global EVALUATION_LLM_SERVICE
+        if EVALUATION_LLM_SERVICE is None:
+            EVALUATION_LLM_SERVICE = LLMService()
+
         loop = asyncio.get_running_loop()
         def _generate_with_logging(service: LLMService, prompt: str, call_type: str, json_mode: bool):
             logger.info(
@@ -1525,7 +1530,7 @@ async def process_conversation_evaluation_task(
             EVALUATION_EXECUTOR,
             partial(
                 _generate_with_logging,
-                llm_service,
+                EVALUATION_LLM_SERVICE,
                 formatted_prompt,
                 "conversation_evaluation",
                 True,
