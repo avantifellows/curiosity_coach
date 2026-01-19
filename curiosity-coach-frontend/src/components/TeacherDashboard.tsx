@@ -681,7 +681,7 @@ const TeacherDashboard: React.FC = () => {
       const bName = b.student_name?.trim() ?? '';
       return aName.localeCompare(bName);
     });
-  }, [data, studentTagsById, topStudentTag, normalizeTagInput]);
+  }, [data, studentTagsById, topStudentTag]);
   const hourlyBuckets = useMemo(() => data?.hourly_activity ?? [], [data]);
   const studentOptions = useMemo(() => students, [students]);
   const activeTopStudentTag = normalizeTagInput(topStudentTag);
