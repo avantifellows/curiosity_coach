@@ -99,6 +99,8 @@ const formatHourRange = (startIso: string, endIso: string) => {
   return `${dayLabel} · ${startLabel} – ${endLabel}`;
 };
 
+const normalizeTagInput = (value: string) => value.trim().replace(/\s+/g, ' ').toLowerCase();
+
 const depthLevelSort = (a: DepthLevelStat, b: DepthLevelStat) => (a.level ?? 0) - (b.level ?? 0);
 
 const getDepthBadgeStyle = (level: number, maxLevel: number) => {
@@ -512,7 +514,6 @@ const TeacherDashboard: React.FC = () => {
   const [tagSuggestions, setTagSuggestions] = useState<string[]>([]);
 
   const hasClassContext = Boolean(school && grade);
-  const normalizeTagInput = (value: string) => value.trim().replace(/\s+/g, ' ').toLowerCase();
 
   const handleComparisonBarClick = useCallback(
     (series: StudentDailySeries, record: StudentDailyRecord, metric: StudentMetricKey) => {
