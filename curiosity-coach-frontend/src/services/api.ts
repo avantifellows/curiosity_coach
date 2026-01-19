@@ -20,6 +20,7 @@ import {
   DashboardResponse,
   StudentDailyMetricsResponse,
   MetricsRefreshResponse,
+  Student,
 } from '../types';
 
 const API = axios.create({
@@ -127,7 +128,9 @@ export const getClassDashboardMetrics = async (
 export const getStudentsForClass = async (
   school: string,
   grade: number,
-  section?: string | null
+  section?: string | null,
+  tags?: string[],
+  tagMode?: 'any' | 'all'
 ): Promise<StudentWithConversation[]> => {
   try {
     const params: Record<string, string | number> = {
@@ -137,11 +140,52 @@ export const getStudentsForClass = async (
     if (section) {
       params.section = section;
     }
+    if (tags && tags.length > 0) {
+      params.tags = tags.join(',');
+    }
+    if (tagMode) {
+      params.tag_mode = tagMode;
+    }
     const response = await API.get<StudentWithConversation[]>('/students', { params });
     return response.data;
   } catch (error: any) {
     console.error("Error fetching students for class:", error.response?.data || error.message);
     throw new Error(error.response?.data?.detail || 'Failed to fetch students');
+  }
+};
+
+export const updateStudentTags = async (studentId: number, tags: string[]): Promise<Student> => {
+  try {
+    const response = await API.patch<Student>(`/students/${studentId}`, { tags });
+    return response.data;
+  } catch (error: any) {
+    console.error(`Error updating tags for student ${studentId}:`, error.response?.data || error.message);
+    throw new Error(error.response?.data?.detail || 'Failed to update tags');
+  }
+};
+
+export const getClassTags = async (
+  school: string,
+  grade: number,
+  section?: string | null,
+  query?: string | null
+): Promise<string[]> => {
+  try {
+    const params: Record<string, string | number> = {
+      school,
+      grade,
+    };
+    if (section) {
+      params.section = section;
+    }
+    if (query) {
+      params.q = query;
+    }
+    const response = await API.get<string[]>('/students/tags', { params });
+    return response.data;
+  } catch (error: any) {
+    console.error('Error fetching class tags:', error.response?.data || error.message);
+    throw new Error(error.response?.data?.detail || 'Failed to fetch tags');
   }
 };
 

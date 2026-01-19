@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 from typing import Dict, List, Optional, Tuple
 from sqlalchemy import func, and_
 import logging
@@ -11,6 +11,7 @@ from datetime import datetime, timezone, timedelta, date
 from src.database import get_db
 from src.models import (
     Student,
+    Tag,
     Conversation,
     Message,
     ConversationEvaluation,
@@ -29,7 +30,9 @@ from src.students.schemas import (
     PaginatedConversationsResponse,
     ClassAnalysisResponse,
     AnalysisJobStatusResponse,
+    StudentTagsUpdateRequest,
 )
+from src.auth.schemas import StudentResponse
 from src.config.settings import settings
 from src.prompts.service import PromptService
 from src.queue.service import get_queue_service, QueueService
@@ -58,14 +61,52 @@ def _normalize_section_value(section: Optional[str]) -> Optional[str]:
     return normalized or None
 
 
+def _normalize_tag_name(raw_tag: str) -> str:
+    normalized = " ".join(raw_tag.strip().split())
+    if not normalized:
+        raise HTTPException(status_code=400, detail="Tag names cannot be empty")
+    if len(normalized) > 64:
+        raise HTTPException(status_code=400, detail="Tag names must be 64 characters or fewer")
+    return normalized.lower()
+
+
+def _normalize_tag_list(raw_tags: List[str]) -> List[str]:
+    normalized_tags: List[str] = []
+    seen = set()
+    for raw_tag in raw_tags:
+        if raw_tag is None:
+            continue
+        normalized = _normalize_tag_name(raw_tag)
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        normalized_tags.append(normalized)
+    return normalized_tags
+
+
+def _normalize_tag_query(raw_tags: Optional[List[str]]) -> List[str]:
+    if not raw_tags:
+        return []
+    flattened: List[str] = []
+    for item in raw_tags:
+        if not item:
+            continue
+        parts = [part for part in item.split(",") if part.strip()]
+        flattened.extend(parts)
+    return _normalize_tag_list(flattened)
+
+
 def _fetch_students_for_class(
     db: Session,
     school_value: str,
     grade: int,
     section_value: Optional[str],
+    tags: Optional[List[str]] = None,
+    tag_mode: str = "any",
 ) -> List[Student]:
     query = (
         db.query(Student)
+        .options(selectinload(Student.tags))
         .filter(
             Student.school == school_value,
             Student.grade == grade,
@@ -74,6 +115,17 @@ def _fetch_students_for_class(
 
     if section_value is not None:
         query = query.filter(Student.section == section_value)
+
+    if tags:
+        if tag_mode == "all":
+            query = (
+                query.join(Student.tags)
+                .filter(Tag.name.in_(tags))
+                .group_by(Student.id)
+                .having(func.count(func.distinct(Tag.id)) == len(tags))
+            )
+        else:
+            query = query.join(Student.tags).filter(Tag.name.in_(tags)).distinct()
 
     return query.order_by(Student.roll_number.asc()).all()
 
@@ -437,6 +489,8 @@ def list_students(
     school: str = Query(..., description="School name to filter students"),
     grade: int = Query(..., ge=1, le=12, description="Grade to filter students"),
     section: Optional[str] = Query(None, description="Optional section (e.g., A, B)"),
+    tags: Optional[List[str]] = Query(None, description="Optional tag filters (comma-separated or repeated)"),
+    tag_mode: str = Query("any", description="Tag match mode: any or all"),
     db: Session = Depends(get_db),
 ):
     """
@@ -445,7 +499,18 @@ def list_students(
     school_value = _normalize_school_value(school)
     section_value = _normalize_section_value(section)
 
-    students = _fetch_students_for_class(db, school_value, grade, section_value)
+    normalized_tags = _normalize_tag_query(tags)
+    if tag_mode not in ("any", "all"):
+        raise HTTPException(status_code=400, detail="tag_mode must be 'any' or 'all'")
+
+    students = _fetch_students_for_class(
+        db,
+        school_value,
+        grade,
+        section_value,
+        tags=normalized_tags or None,
+        tag_mode=tag_mode,
+    )
 
     user_ids = [student.user_id for student in students]
     conversations_map, conversation_ids = _get_latest_conversations_for_users(db, user_ids)
@@ -473,6 +538,84 @@ def list_students(
         )
 
     return response
+
+
+@router.get("/tags", response_model=List[str])
+def list_class_tags(
+    school: str = Query(..., description="School name to filter tags"),
+    grade: int = Query(..., ge=1, le=12, description="Grade to filter tags"),
+    section: Optional[str] = Query(None, description="Optional section (e.g., A, B)"),
+    q: Optional[str] = Query(None, description="Optional search term"),
+    db: Session = Depends(get_db),
+):
+    school_value = _normalize_school_value(school)
+    section_value = _normalize_section_value(section)
+    normalized_query = None
+    if q:
+        normalized_query = " ".join(q.strip().split()).lower()
+        if not normalized_query:
+            normalized_query = None
+
+    query = (
+        db.query(Tag.name)
+        .join(Tag.students)
+        .filter(
+            Student.school == school_value,
+            Student.grade == grade,
+        )
+    )
+
+    if section_value is not None:
+        query = query.filter(Student.section == section_value)
+
+    if normalized_query:
+        query = query.filter(Tag.name.ilike(f"%{normalized_query}%"))
+
+    tags = query.distinct().order_by(Tag.name.asc()).all()
+    return [row[0] for row in tags]
+
+
+@router.patch("/{student_id}", response_model=StudentResponse)
+def update_student_tags(
+    student_id: int,
+    payload: StudentTagsUpdateRequest,
+    db: Session = Depends(get_db),
+):
+    """
+    Replace all tags for a student.
+    """
+    student = (
+        db.query(Student)
+        .options(selectinload(Student.tags))
+        .filter(Student.id == student_id)
+        .first()
+    )
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found")
+
+    normalized_tags = _normalize_tag_list(payload.tags)
+    if not normalized_tags:
+        student.tags = []
+        db.commit()
+        db.refresh(student)
+        return student
+
+    existing_tags = db.query(Tag).filter(Tag.name.in_(normalized_tags)).all()
+    tag_map = {tag.name: tag for tag in existing_tags}
+    ordered_tags: List[Tag] = []
+
+    for name in normalized_tags:
+        tag = tag_map.get(name)
+        if not tag:
+            tag = Tag(name=name)
+            db.add(tag)
+            tag_map[name] = tag
+        ordered_tags.append(tag)
+
+    student.tags = ordered_tags
+    db.commit()
+    db.refresh(student)
+    return student
 
 
 @router.get("/{student_id}/conversations", response_model=PaginatedConversationsResponse)

@@ -84,3 +84,7 @@ class AnalysisJobStatusResponse(BaseModel):
     error_message: Optional[str] = None
     analysis_status: Optional[str] = None
     metrics: Optional[dict] = None
+
+
+class StudentTagsUpdateRequest(BaseModel):
+    tags: List[str] = Field(default_factory=list)

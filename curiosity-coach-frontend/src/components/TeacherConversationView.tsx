@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { ConversationWithMessages, Student, UserPersona, UserPersonaData } from '../types';
-import { getStudentConversations, getStudentsForClass, getUserPersona } from '../services/api';
+import { getClassTags, getStudentConversations, getStudentsForClass, getUserPersona, updateStudentTags } from '../services/api';
 
 interface ConversationLocationState {
   student?: Student;
@@ -117,6 +117,10 @@ const TeacherConversationView: React.FC = () => {
   const [personaLoading, setPersonaLoading] = useState(false);
   const [showAfterSchoolOnly, setShowAfterSchoolOnly] = useState(false);
   const [studentLoading, setStudentLoading] = useState(false);
+  const [tagSuggestions, setTagSuggestions] = useState<string[]>([]);
+  const [tagDraft, setTagDraft] = useState('');
+  const [tagSaving, setTagSaving] = useState(false);
+  const [tagError, setTagError] = useState<string | null>(null);
 
   useEffect(() => {
     setDayFilter(dayParam);
@@ -195,6 +199,79 @@ const TeacherConversationView: React.FC = () => {
   }, [student, studentId, classInfo.school, classInfo.grade, classInfo.section, fetchConversations]);
 
   useEffect(() => {
+    if (!classInfo.school || !classInfo.grade) {
+      return;
+    }
+
+    let isMounted = true;
+    const fetchTags = async () => {
+      try {
+        const tags = await getClassTags(classInfo.school!, classInfo.grade!, classInfo.section ?? null);
+        if (isMounted) {
+          setTagSuggestions(tags);
+        }
+      } catch (err) {
+        console.error('Failed to fetch tag suggestions:', err);
+      }
+    };
+
+    fetchTags();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [classInfo.school, classInfo.grade, classInfo.section]);
+
+  const normalizeTagInput = (value: string) => value.trim().replace(/\s+/g, ' ').toLowerCase();
+
+  const updateStudentTagList = async (nextTags: string[]) => {
+    if (!student) {
+      return;
+    }
+    setTagSaving(true);
+    setTagError(null);
+    try {
+      const updatedStudent = await updateStudentTags(student.id, nextTags);
+      setStudent((prev) => (prev ? { ...prev, tags: updatedStudent.tags ?? [] } : prev));
+      setTagDraft('');
+      setTagSuggestions((prev) => {
+        const merged = new Set(prev);
+        (updatedStudent.tags ?? []).forEach((tag) => merged.add(tag));
+        return Array.from(merged).sort();
+      });
+    } catch (err) {
+      console.error('Failed to update tags:', err);
+      setTagError('Failed to update tags. Please try again.');
+    } finally {
+      setTagSaving(false);
+    }
+  };
+
+  const handleAddTag = () => {
+    if (!student) {
+      return;
+    }
+    const normalized = normalizeTagInput(tagDraft);
+    if (!normalized) {
+      return;
+    }
+    const existing = student.tags ?? [];
+    if (existing.includes(normalized)) {
+      setTagDraft('');
+      return;
+    }
+    updateStudentTagList([...existing, normalized]);
+  };
+
+  const handleRemoveTag = (tag: string) => {
+    if (!student) {
+      return;
+    }
+    const existing = student.tags ?? [];
+    updateStudentTagList(existing.filter((item) => item !== tag));
+  };
+
+  useEffect(() => {
     if (highlightConversationId && highlightedRef.current && !isInitialLoading) {
       highlightedRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
@@ -241,6 +318,7 @@ const TeacherConversationView: React.FC = () => {
   const filteredConversations = showAfterSchoolOnly
     ? conversations.filter((conv) => isAfterSchoolHours(conv.created_at))
     : conversations;
+  const studentTags = student?.tags ?? [];
 
   return (
     <div className="min-h-screen bg-slate-50 py-10 px-4">
@@ -309,6 +387,52 @@ const TeacherConversationView: React.FC = () => {
                   </button>
                 </div>
               )}
+
+              <div className="mt-4 flex flex-wrap items-center gap-2">
+                <span className="text-xs font-semibold text-slate-600">Tags</span>
+                {studentTags.map((tag) => (
+                  <span
+                    key={`student-tag-${tag}`}
+                    className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-3 py-1 text-[11px] font-medium text-emerald-700"
+                  >
+                    <span>{tag}</span>
+                    <button
+                      type="button"
+                      className="text-[12px] leading-none text-emerald-500 transition hover:text-emerald-700"
+                      onClick={() => handleRemoveTag(tag)}
+                      aria-label={`Remove tag ${tag}`}
+                      disabled={tagSaving}
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+                <div className="flex items-center gap-2">
+                  <input
+                    value={tagDraft}
+                    onChange={(event) => setTagDraft(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ',') {
+                        event.preventDefault();
+                        handleAddTag();
+                      }
+                    }}
+                    list="student-tag-suggestions"
+                    placeholder="Add tag"
+                    className="w-36 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs text-slate-600 shadow-sm focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-100"
+                    disabled={tagSaving}
+                  />
+                  <button
+                    type="button"
+                    className="rounded-lg border border-slate-200 px-3 py-1.5 text-[11px] font-semibold text-slate-500 transition hover:border-indigo-200 hover:text-indigo-600"
+                    onClick={handleAddTag}
+                    disabled={tagSaving}
+                  >
+                    Add
+                  </button>
+                </div>
+              </div>
+              {tagError && <p className="mt-2 text-xs text-red-600">{tagError}</p>}
               
               {/* Checkbox for after-school hours filter */}
               <div className="mt-4">
@@ -347,6 +471,12 @@ const TeacherConversationView: React.FC = () => {
             </button>
           </div>
         </div>
+
+        <datalist id="student-tag-suggestions">
+          {tagSuggestions.map((tag) => (
+            <option key={`student-tag-suggestion-${tag}`} value={tag} />
+          ))}
+        </datalist>
 
         <div className="rounded-3xl bg-white p-6 shadow-lg shadow-slate-200 space-y-6">
           {error && (

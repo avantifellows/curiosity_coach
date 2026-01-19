@@ -13,6 +13,7 @@ import {
   getClassDashboardMetrics,
   getStudentDailyMetrics,
   getStudentsForClass,
+  getClassTags,
   refreshClassMetrics,
 } from '../services/api';
 
@@ -50,18 +51,7 @@ const METRIC_LABEL: Record<StudentMetricKey, string> = {
 const COMPARISON_COLORS = ['#2563eb', '#f97316', '#10b981', '#facc15'];
 const TOP_DAYS_LIMIT = 10;
 const DEPTH_BADGE_TEXT = '#1f2937';
-const TOP_STUDENT_NAMES = [
-  'Aanya',
-  'Abhigna',
-  'Kiara',
-  'Niharika',
-  'Saraswatee',
-  'Sihi',
-  'Siya',
-]; // manual eval by dinesh & surya
-const TOP_STUDENT_ORDER = new Map(
-  TOP_STUDENT_NAMES.map((name, index) => [name.toLowerCase(), index])
-);
+const DEFAULT_TOP_STUDENT_TAG = 'good';
 
 const formatNumber = (value: number | null | undefined, options?: Intl.NumberFormatOptions) => {
   if (value === null || value === undefined) {
@@ -518,8 +508,11 @@ const TeacherDashboard: React.FC = () => {
   const [studentDailyError, setStudentDailyError] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [refreshError, setRefreshError] = useState<string | null>(null);
+  const [topStudentTag, setTopStudentTag] = useState(DEFAULT_TOP_STUDENT_TAG);
+  const [tagSuggestions, setTagSuggestions] = useState<string[]>([]);
 
   const hasClassContext = Boolean(school && grade);
+  const normalizeTagInput = (value: string) => value.trim().replace(/\s+/g, ' ').toLowerCase();
 
   const handleComparisonBarClick = useCallback(
     (series: StudentDailySeries, record: StudentDailyRecord, metric: StudentMetricKey) => {
@@ -632,26 +625,65 @@ const TeacherDashboard: React.FC = () => {
     fetchStudents();
   }, [hasClassContext, school, grade, section]);
 
+  useEffect(() => {
+    if (!hasClassContext || !school || !grade) {
+      setTagSuggestions([]);
+      return;
+    }
+
+    let isMounted = true;
+    const fetchTags = async () => {
+      try {
+        const tags = await getClassTags(school, grade, section ?? null);
+        if (isMounted) {
+          setTagSuggestions(tags);
+        }
+      } catch (err) {
+        console.error('Failed to fetch tag suggestions:', err);
+      }
+    };
+
+    fetchTags();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [hasClassContext, school, grade, section]);
+
   const topDays = useMemo(() => {
     const recent = data?.recent_days ?? [];
     return recent.slice(0, TOP_DAYS_LIMIT);
   }, [data]);
+  const studentTagsById = useMemo(() => {
+    const map = new Map<number, string[]>();
+    students.forEach((student) => {
+      map.set(student.id, student.tags ?? []);
+    });
+    return map;
+  }, [students]);
   const studentSnapshots = useMemo(() => {
     const snapshots = data?.student_snapshots ?? [];
+    const activeTag = normalizeTagInput(topStudentTag);
+    if (!activeTag) {
+      return snapshots.slice().sort((a, b) => {
+        const aName = a.student_name?.trim() ?? '';
+        const bName = b.student_name?.trim() ?? '';
+        return aName.localeCompare(bName);
+      });
+    }
     const filtered = snapshots.filter((snapshot) => {
-      const name = snapshot.student_name?.trim().toLowerCase();
-      return name ? TOP_STUDENT_ORDER.has(name) : false;
+      const tags = studentTagsById.get(snapshot.student_id) ?? [];
+      return tags.includes(activeTag);
     });
     return filtered.sort((a, b) => {
-      const aName = a.student_name?.trim().toLowerCase() ?? '';
-      const bName = b.student_name?.trim().toLowerCase() ?? '';
-      const aIndex = TOP_STUDENT_ORDER.get(aName) ?? Number.MAX_SAFE_INTEGER;
-      const bIndex = TOP_STUDENT_ORDER.get(bName) ?? Number.MAX_SAFE_INTEGER;
-      return aIndex - bIndex;
+      const aName = a.student_name?.trim() ?? '';
+      const bName = b.student_name?.trim() ?? '';
+      return aName.localeCompare(bName);
     });
-  }, [data]);
+  }, [data, studentTagsById, topStudentTag, normalizeTagInput]);
   const hourlyBuckets = useMemo(() => data?.hourly_activity ?? [], [data]);
   const studentOptions = useMemo(() => students, [students]);
+  const activeTopStudentTag = normalizeTagInput(topStudentTag);
 
   const renderTopicChips = (topics?: ConversationTopic[] | null) => {
     if (!topics || topics.length === 0) {
@@ -997,11 +1029,39 @@ const TeacherDashboard: React.FC = () => {
                 </section>
 
                 <section className="rounded-2xl bg-white p-6 shadow-sm">
-                  <div className="flex items-center justify-between gap-2">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
                     <h2 className="text-lg font-semibold text-slate-900">Top Students</h2>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Filter tag</span>
+                      <input
+                        value={topStudentTag}
+                        onChange={(event) => setTopStudentTag(normalizeTagInput(event.target.value))}
+                        list="top-student-tag-suggestions"
+                        placeholder="Type a tag"
+                        className="w-40 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs text-slate-700 shadow-sm focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-100"
+                      />
+                      {topStudentTag && (
+                        <button
+                          type="button"
+                          className="rounded-full border border-slate-200 px-3 py-1 text-[11px] font-semibold text-slate-500 transition hover:border-indigo-200 hover:text-indigo-600"
+                          onClick={() => setTopStudentTag('')}
+                        >
+                          Clear
+                        </button>
+                      )}
+                    </div>
                   </div>
+                  <datalist id="top-student-tag-suggestions">
+                    {tagSuggestions.map((tag) => (
+                      <option key={`top-tag-${tag}`} value={tag} />
+                    ))}
+                  </datalist>
                   {studentSnapshots.length === 0 ? (
-                    <p className="mt-3 text-sm text-slate-500">No snapshots for the selected top students yet.</p>
+                    <p className="mt-3 text-sm text-slate-500">
+                      {activeTopStudentTag
+                        ? `No snapshots for students tagged "${activeTopStudentTag}" yet.`
+                        : 'No snapshots yet for this class.'}
+                    </p>
                   ) : (
                     <div className="mt-4 overflow-x-auto">
                       <table className="min-w-full divide-y divide-slate-200 text-sm">

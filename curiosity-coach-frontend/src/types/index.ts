@@ -122,6 +122,7 @@ export interface Student {
   roll_number: number;
   first_name: string;
   created_at: string;
+  tags?: string[];
 }
 
 export interface StudentLoginRequest {

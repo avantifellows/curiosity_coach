@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { StudentWithConversation } from '../types';
-import { getStudentsForClass } from '../services/api';
+import { getClassTags, getStudentsForClass, updateStudentTags } from '../services/api';
 
 interface ClassDetailsState {
   school?: string;
@@ -48,6 +48,13 @@ const ClassDetails: React.FC = () => {
   const [students, setStudents] = useState<StudentWithConversation[] | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [tagError, setTagError] = useState<string | null>(null);
+  const [tagSuggestions, setTagSuggestions] = useState<string[]>([]);
+  const [tagFilters, setTagFilters] = useState<string[]>([]);
+  const [tagMode, setTagMode] = useState<'any' | 'all'>('any');
+  const [tagFilterInput, setTagFilterInput] = useState('');
+  const [tagDrafts, setTagDrafts] = useState<Record<number, string>>({});
+  const [tagSaving, setTagSaving] = useState<Record<number, boolean>>({});
 
   const gradeNumber = useMemo(() => {
     if (typeof grade === 'number') {
@@ -71,7 +78,7 @@ const ClassDetails: React.FC = () => {
       setIsLoading(true);
       setError(null);
       try {
-        const data = await getStudentsForClass(school, gradeNumber, section);
+        const data = await getStudentsForClass(school, gradeNumber, section, tagFilters, tagMode);
         if (isMounted) {
           setStudents(data);
         }
@@ -92,7 +99,135 @@ const ClassDetails: React.FC = () => {
     return () => {
       isMounted = false;
     };
-  }, [school, gradeNumber, section, navigate]);
+  }, [school, gradeNumber, section, tagFilters, tagMode, navigate]);
+
+  useEffect(() => {
+    if (!school || !gradeNumber || !section) {
+      return;
+    }
+
+    let isMounted = true;
+    const fetchTagSuggestions = async () => {
+      try {
+        const data = await getClassTags(school, gradeNumber, section);
+        if (isMounted) {
+          setTagSuggestions(data);
+        }
+      } catch (err) {
+        console.error('Failed to fetch tag suggestions:', err);
+      }
+    };
+
+    fetchTagSuggestions();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [school, gradeNumber, section]);
+
+  const normalizeTagInput = (value: string) => value.trim().replace(/\s+/g, ' ').toLowerCase();
+
+  const addTagFilter = (rawTag: string) => {
+    const normalized = normalizeTagInput(rawTag);
+    if (!normalized || tagFilters.includes(normalized)) {
+      return;
+    }
+    setTagFilters((prev) => [...prev, normalized]);
+    setTagFilterInput('');
+  };
+
+  const removeTagFilter = (tag: string) => {
+    setTagFilters((prev) => prev.filter((item) => item !== tag));
+  };
+
+  const handleFilterInputKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'Enter' || event.key === ',') {
+      event.preventDefault();
+      addTagFilter(tagFilterInput);
+    }
+  };
+
+  const matchesTagFilters = (tags: string[]) => {
+    if (tagFilters.length === 0) {
+      return true;
+    }
+    if (tagMode === 'all') {
+      return tagFilters.every((tag) => tags.includes(tag));
+    }
+    return tagFilters.some((tag) => tags.includes(tag));
+  };
+
+  const updateStudentTagList = async (studentId: number, nextTags: string[]) => {
+    setTagSaving((prev) => ({ ...prev, [studentId]: true }));
+    setTagError(null);
+    try {
+      const updatedStudent = await updateStudentTags(studentId, nextTags);
+      setStudents((prev) => {
+        if (!prev) {
+          return prev;
+        }
+        const updatedTags = updatedStudent.tags ?? [];
+        if (tagFilters.length > 0 && !matchesTagFilters(updatedTags)) {
+          return prev.filter((entry) => entry.student.id !== studentId);
+        }
+        return prev.map((entry) =>
+          entry.student.id === studentId
+            ? {
+                ...entry,
+                student: {
+                  ...entry.student,
+                  tags: updatedTags,
+                },
+              }
+            : entry
+        );
+      });
+      setTagSuggestions((prev) => {
+        const merged = new Set(prev);
+        (updatedStudent.tags ?? []).forEach((tag) => merged.add(tag));
+        return Array.from(merged).sort();
+      });
+      setTagDrafts((prev) => ({ ...prev, [studentId]: '' }));
+    } catch (err) {
+      console.error('Failed to update tags:', err);
+      setTagError('Failed to update tags. Please try again.');
+    } finally {
+      setTagSaving((prev) => ({ ...prev, [studentId]: false }));
+    }
+  };
+
+  const handleAddTag = (studentId: number) => {
+    const rawTag = tagDrafts[studentId] ?? '';
+    const normalized = normalizeTagInput(rawTag);
+    if (!normalized || !students) {
+      return;
+    }
+    const entry = students.find((item) => item.student.id === studentId);
+    if (!entry) {
+      return;
+    }
+    const existingTags = entry.student.tags ?? [];
+    if (existingTags.includes(normalized)) {
+      setTagDrafts((prev) => ({ ...prev, [studentId]: '' }));
+      return;
+    }
+    updateStudentTagList(studentId, [...existingTags, normalized]);
+  };
+
+  const handleRemoveTag = (studentId: number, tag: string) => {
+    if (!students) {
+      return;
+    }
+    const entry = students.find((item) => item.student.id === studentId);
+    if (!entry) {
+      return;
+    }
+    const existingTags = entry.student.tags ?? [];
+    updateStudentTagList(
+      studentId,
+      existingTags.filter((item) => item !== tag)
+    );
+  };
 
   const hasClassInfo = Boolean(school || gradeNumber || section);
   const summaryChips = [
@@ -259,8 +394,57 @@ const ClassDetails: React.FC = () => {
               </div>
             </div>
 
+            <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white/70 p-4">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-sm font-semibold text-slate-700">Filter tags</span>
+                {tagFilters.length === 0 && (
+                  <span className="text-xs text-slate-400">No filters applied</span>
+                )}
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                {tagFilters.map((tag) => (
+                  <span
+                    key={`filter-${tag}`}
+                    className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-3 py-1 text-[11px] font-medium text-emerald-700"
+                  >
+                    <span>{tag}</span>
+                    <button
+                      type="button"
+                      className="text-[12px] leading-none text-emerald-500 transition hover:text-emerald-700"
+                      onClick={() => removeTagFilter(tag)}
+                      aria-label={`Remove filter tag ${tag}`}
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+                <input
+                  value={tagFilterInput}
+                  onChange={(event) => setTagFilterInput(event.target.value)}
+                  onKeyDown={handleFilterInputKeyDown}
+                  list="class-tag-suggestions"
+                  placeholder="Type a tag and press Enter"
+                  className="min-w-[180px] flex-1 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700 shadow-sm focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-200"
+                />
+                <button
+                  type="button"
+                  className="rounded-full border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600 transition hover:border-indigo-200 hover:text-indigo-600"
+                  onClick={() => setTagMode((prev) => (prev === 'any' ? 'all' : 'any'))}
+                >
+                  Match: {tagMode === 'any' ? 'Any' : 'All'}
+                </button>
+              </div>
+            </div>
+
+            <datalist id="class-tag-suggestions">
+              {tagSuggestions.map((tag) => (
+                <option key={`tag-suggestion-${tag}`} value={tag} />
+              ))}
+            </datalist>
+
             {isLoading && <p className="text-sm text-slate-500">Loading students...</p>}
             {error && <p className="text-sm text-red-600">{error}</p>}
+            {tagError && <p className="text-sm text-red-600">{tagError}</p>}
 
             {!isLoading && !error && students && (
               <>
@@ -276,19 +460,68 @@ const ClassDetails: React.FC = () => {
                       const evaluation = latest_conversation?.evaluation;
                       const curiositySummary = latest_conversation?.curiosity_summary;
                       const conversationTopics = evaluation?.topics ?? [];
+                      const studentTags = student.tags ?? [];
 
                       return (
                         <li
                           key={student.id}
                           className="flex flex-col gap-4 rounded-3xl bg-slate-50/80 p-5 shadow-md shadow-slate-200 sm:flex-row sm:items-center sm:justify-between"
                         >
-                          <div className="flex items-center gap-4">
+                          <div className="flex items-start gap-4">
                             <div className="flex h-14 w-14 items-center justify-center rounded-full bg-indigo-100 text-lg font-semibold text-indigo-600">
                               {initials}
                             </div>
                             <div className="text-left">
                               <p className="text-xl font-semibold text-slate-900">{student.first_name}</p>
                               <p className="text-sm text-slate-500">Roll #{student.roll_number || '—'}</p>
+                              <div className="mt-2 flex flex-wrap items-center gap-2">
+                                {studentTags.map((tag) => (
+                                  <span
+                                    key={`${student.id}-${tag}`}
+                                    className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-3 py-1 text-[11px] font-medium text-emerald-700"
+                                  >
+                                    <span>{tag}</span>
+                                    <button
+                                      type="button"
+                                      className="text-[12px] leading-none text-emerald-500 transition hover:text-emerald-700"
+                                      onClick={() => handleRemoveTag(student.id, tag)}
+                                      aria-label={`Remove tag ${tag}`}
+                                      disabled={tagSaving[student.id]}
+                                    >
+                                      ×
+                                    </button>
+                                  </span>
+                                ))}
+                                <div className="flex items-center gap-2">
+                                  <input
+                                    value={tagDrafts[student.id] ?? ''}
+                                    onChange={(event) =>
+                                      setTagDrafts((prev) => ({
+                                        ...prev,
+                                        [student.id]: event.target.value,
+                                      }))
+                                    }
+                                    onKeyDown={(event) => {
+                                      if (event.key === 'Enter' || event.key === ',') {
+                                        event.preventDefault();
+                                        handleAddTag(student.id);
+                                      }
+                                    }}
+                                    list="class-tag-suggestions"
+                                    placeholder="Add tag"
+                                    className="w-32 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs text-slate-600 shadow-sm focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-100"
+                                    disabled={tagSaving[student.id]}
+                                  />
+                                  <button
+                                    type="button"
+                                    className="rounded-lg border border-slate-200 px-3 py-1.5 text-[11px] font-semibold text-slate-500 transition hover:border-indigo-200 hover:text-indigo-600"
+                                    onClick={() => handleAddTag(student.id)}
+                                    disabled={tagSaving[student.id]}
+                                  >
+                                    Add
+                                  </button>
+                                </div>
+                              </div>
                             </div>
                           </div>
 

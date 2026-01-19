@@ -1,6 +1,6 @@
 from pydantic import BaseModel, field_validator, ConfigDict
 import re
-from typing import Optional
+from typing import Optional, List
 from datetime import datetime
 
 class LoginRequest(BaseModel):
@@ -100,8 +100,26 @@ class StudentResponse(BaseModel):
     roll_number: int
     first_name: str
     created_at: datetime
+    tags: List[str] = []
 
     model_config = ConfigDict(from_attributes=True)
+
+    @field_validator('tags', mode='before')
+    @classmethod
+    def normalize_tags(cls, v):
+        if v is None:
+            return []
+        if isinstance(v, list):
+            normalized = []
+            for item in v:
+                if isinstance(item, str):
+                    normalized.append(item)
+                elif hasattr(item, "name"):
+                    normalized.append(str(item.name))
+                else:
+                    normalized.append(str(item))
+            return normalized
+        return v
 
 class StudentLoginResponse(BaseModel):
     success: bool
