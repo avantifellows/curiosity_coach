@@ -52,6 +52,18 @@ const COMPARISON_COLORS = ['#2563eb', '#f97316', '#10b981', '#facc15'];
 const TOP_DAYS_LIMIT = 10;
 const DEPTH_BADGE_TEXT = '#1f2937';
 const DEFAULT_TOP_STUDENT_TAG = 'good';
+const DAY_DESCRIPTIONS: Record<string, string> = {
+  '2025-12-11': 'Revision',
+  '2025-12-12': 'Priming',
+  '2025-12-15': 'Assessment',
+  '2025-12-16': 'Freestyle',
+  '2025-12-17': 'Priming',
+  '2025-12-18': 'Assessment',
+  '2025-12-19': 'Priming',
+  '2025-12-22': 'Assessment',
+  '2025-12-23': 'Freestyle',
+  '2025-12-24': 'Priming',
+};
 
 const formatNumber = (value: number | null | undefined, options?: Intl.NumberFormatOptions) => {
   if (value === null || value === undefined) {
@@ -100,6 +112,24 @@ const formatHourRange = (startIso: string, endIso: string) => {
 };
 
 const normalizeTagInput = (value: string) => value.trim().replace(/\s+/g, ' ').toLowerCase();
+const getDayKey = (value: string) => value.split('T')[0];
+const getDayDescription = (day: string) => DAY_DESCRIPTIONS[getDayKey(day)] ?? null;
+const wrapDayDescription = (description: string, maxChars = 18) => {
+  const trimmed = description.trim();
+  if (trimmed.length <= maxChars) {
+    return [trimmed];
+  }
+  const breakIndex = trimmed.lastIndexOf(' ', maxChars);
+  if (breakIndex <= 0) {
+    return [`${trimmed.slice(0, Math.max(1, maxChars - 1)).trimEnd()}…`];
+  }
+  const first = trimmed.slice(0, breakIndex);
+  let second = trimmed.slice(breakIndex + 1);
+  if (second.length > maxChars) {
+    second = `${second.slice(0, Math.max(1, maxChars - 1)).trimEnd()}…`;
+  }
+  return [first, second];
+};
 
 const depthLevelSort = (a: DepthLevelStat, b: DepthLevelStat) => (a.level ?? 0) - (b.level ?? 0);
 
@@ -298,7 +328,7 @@ const NumericStudentComparisonChart: React.FC<StudentComparisonChartProps> = ({ 
     return null;
   }
 
-  const padding = { top: 28, right: 24, bottom: 56, left: 52 };
+  const padding = { top: 28, right: 24, bottom: 90, left: 52 };
   const chartHeight = 280;
   const studentCount = data.length;
 
@@ -337,7 +367,8 @@ const NumericStudentComparisonChart: React.FC<StudentComparisonChartProps> = ({ 
   const safeMax = maxValue > 0 ? maxValue : 1;
   const barWidth = 16;
   const barGap = 8;
-  const groupSpacing = 24;
+  const hasDescriptions = dayLabels.some((day) => Boolean(getDayDescription(day)));
+  const groupSpacing = studentCount === 1 && hasDescriptions ? 60 : 24;
   const groupWidth = studentCount * barWidth + Math.max(0, studentCount - 1) * barGap;
   const xStep = groupWidth + groupSpacing;
   const chartWidth = Math.max(600, padding.left + padding.right + dayLabels.length * xStep);
@@ -390,18 +421,34 @@ const NumericStudentComparisonChart: React.FC<StudentComparisonChartProps> = ({ 
           const baseX = padding.left + dayIndex * xStep;
           const groupOffset = (xStep - groupWidth) / 2;
           const dayLabel = new Date(day).toLocaleDateString([], { month: 'short', day: 'numeric' });
+          const description = getDayDescription(day);
+          const descriptionLines = description ? wrapDayDescription(description) : [];
+          const labelX = baseX + groupWidth / 2 + groupOffset;
+          const labelY = chartHeight - padding.bottom + 20;
 
           return (
             <g key={`day-${day}`}>
               <text
-                x={baseX + groupWidth / 2 + groupOffset}
-                y={chartHeight - padding.bottom + 20}
+                x={labelX}
+                y={labelY}
                 fill="#475569"
                 fontSize="11"
                 textAnchor="middle"
               >
                 {dayLabel}
               </text>
+              {descriptionLines.map((line, lineIndex) => (
+                <text
+                  key={`${day}-desc-${lineIndex}`}
+                  x={labelX}
+                  y={labelY + 14 + lineIndex * 12}
+                  fill="#94a3b8"
+                  fontSize="9"
+                  textAnchor="middle"
+                >
+                  {line}
+                </text>
+              ))}
 
               {valueLookup.map((series, seriesIndex) => {
                 const record = series.recordMap.get(day);
@@ -422,6 +469,7 @@ const NumericStudentComparisonChart: React.FC<StudentComparisonChartProps> = ({ 
                   `${series.student_name ?? `Student ${series.student_id}`}`,
                   `${METRIC_LABEL[metric]}: ${formattedValue}`,
                   dayLabel,
+                  ...(description ? [description] : []),
                   ...(clickHint ? [clickHint] : []),
                 ];
 
@@ -1139,6 +1187,7 @@ const TeacherDashboard: React.FC = () => {
                         <thead className="bg-slate-50">
                           <tr>
                             <th className="py-2 text-left font-semibold text-slate-600">Day</th>
+                            <th className="py-2 text-left font-semibold text-slate-600">Description</th>
                             <th className="py-2 text-left font-semibold text-slate-600 whitespace-normal">
                               User
                               <span className="block leading-tight">Msgs</span>
@@ -1169,20 +1218,26 @@ const TeacherDashboard: React.FC = () => {
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
-                          {topDays.map((day) => (
-                            <tr key={day.day}>
-                              <td className="py-2 text-slate-700">{formatDayLabel(day.day)}</td>
-                              <td className="py-2 text-slate-700">{formatNumber(day.total_user_messages)}</td>
-                              <td className="py-2 text-slate-700">{formatNumber(day.total_ai_messages)}</td>
-                              <td className="w-[200px] max-w-[200px] py-2 text-slate-700 align-top">
-                                {renderDepthBadges(day.depth_levels)}
-                              </td>
-                              <td className="py-2 text-slate-700">{formatNumber(day.total_relevant_questions)}</td>
-                              <td className="py-2 text-slate-700">{formatOneDecimal(day.avg_attention_span)}</td>
-                              <td className="py-2 text-slate-700">{renderTopicChips(day.top_topics)}</td>
-                              <td className="py-2 text-slate-700">{formatNumber(day.active_students)}</td>
-                            </tr>
-                          ))}
+                          {topDays.map((day) => {
+                            const description = getDayDescription(day.day);
+                            return (
+                              <tr key={day.day}>
+                                <td className="py-2 text-slate-700">{formatDayLabel(day.day)}</td>
+                                <td className="py-2 text-slate-600">
+                                  {description ?? '—'}
+                                </td>
+                                <td className="py-2 text-slate-700">{formatNumber(day.total_user_messages)}</td>
+                                <td className="py-2 text-slate-700">{formatNumber(day.total_ai_messages)}</td>
+                                <td className="w-[200px] max-w-[200px] py-2 text-slate-700 align-top">
+                                  {renderDepthBadges(day.depth_levels)}
+                                </td>
+                                <td className="py-2 text-slate-700">{formatNumber(day.total_relevant_questions)}</td>
+                                <td className="py-2 text-slate-700">{formatOneDecimal(day.avg_attention_span)}</td>
+                                <td className="py-2 text-slate-700">{renderTopicChips(day.top_topics)}</td>
+                                <td className="py-2 text-slate-700">{formatNumber(day.active_students)}</td>
+                              </tr>
+                            );
+                          })}
                         </tbody>
                       </table>
                     </div>
