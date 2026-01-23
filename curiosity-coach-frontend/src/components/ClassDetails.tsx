@@ -538,7 +538,7 @@ const ClassDetails: React.FC = () => {
                                     <span className="font-semibold text-slate-700">Evaluation</span>
                                     <span>Depth: {formatOneDecimal(evaluation.depth)}</span>
                                     <span>Relevant Qs: {formatInteger(evaluation.relevant_question_count)}</span>
-                                    <span>Attention: {formatOneDecimal(evaluation.attention_span)}</span>
+                                    <span>Attention (min): {formatOneDecimal(evaluation.attention_span)}</span>
                                   </div>
                                 )}
                                 {curiositySummary && (

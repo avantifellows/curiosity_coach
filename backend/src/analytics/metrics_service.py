@@ -183,6 +183,17 @@ def _collect_conversation_evaluations(
     window_start = datetime.combine(start_date, datetime.min.time(), tzinfo=timezone.utc)
     window_end = datetime.combine(end_date + timedelta(days=1), datetime.min.time(), tzinfo=timezone.utc)
 
+    message_stats = (
+        db.query(
+            Message.conversation_id.label('conversation_id'),
+            func.count().filter(Message.is_user.is_(True)).label('user_message_count'),
+            func.min(Message.timestamp).label('first_msg_at'),
+            func.max(Message.timestamp).label('last_msg_at'),
+        )
+        .group_by(Message.conversation_id)
+        .subquery()
+    )
+
     rows = (
         db.query(
             ConversationEvaluation.metrics,
@@ -191,9 +202,13 @@ def _collect_conversation_evaluations(
             Conversation.created_at,
             Student.id.label('student_id'),
             Conversation.id.label('conversation_id'),
+            message_stats.c.user_message_count,
+            message_stats.c.first_msg_at,
+            message_stats.c.last_msg_at,
         )
         .join(Conversation, Conversation.id == ConversationEvaluation.conversation_id)
         .join(Student, Student.user_id == Conversation.user_id)
+        .join(message_stats, message_stats.c.conversation_id == Conversation.id)
         .filter(Student.id.in_(student_ids))
         .filter(ConversationEvaluation.status == 'ready')
         .filter(ConversationEvaluation.metrics.isnot(None))
@@ -208,7 +223,7 @@ def _collect_conversation_evaluations(
     student_daily_buckets: Dict[int, Dict[date, Dict[str, Any]]] = {}
     student_summary_buckets: Dict[int, Dict[str, Any]] = {}
 
-    for metrics, status, updated_at, created_at, student_id, conversation_id in rows:
+    for metrics, status, updated_at, created_at, student_id, conversation_id, user_message_count, first_msg_at, last_msg_at in rows:
         if not isinstance(metrics, dict):
             continue
 
@@ -218,6 +233,11 @@ def _collect_conversation_evaluations(
         reference_day = reference_dt.date()
         if reference_day < start_date or reference_day > end_date:
             continue
+
+        minutes_spent = None
+        if first_msg_at and last_msg_at:
+            delta = last_msg_at - first_msg_at
+            minutes_spent = delta.total_seconds() / 60.0
 
         bucket = class_daily_buckets.setdefault(reference_day, _empty_evaluation_bucket())
         student_daily = student_daily_buckets.setdefault(student_id, {})
@@ -260,8 +280,15 @@ def _collect_conversation_evaluations(
                     attention_value = float(attention)
                 except (TypeError, ValueError):
                     attention_value = None
-                if attention_value is not None:
-                    target_bucket['attention_sum'] += attention_value
+                if (
+                    attention_value is not None
+                    and user_message_count
+                    and minutes_spent is not None
+                    and minutes_spent >= 0
+                ):
+                    avg_minutes_per_user_message = minutes_spent / user_message_count
+                    attention_minutes = attention_value * avg_minutes_per_user_message
+                    target_bucket['attention_sum'] += attention_minutes
                     target_bucket['attention_count'] += 1
             _update_topic_totals(target_bucket['topics'], metrics.get('topics'))
 

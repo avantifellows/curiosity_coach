@@ -116,6 +116,36 @@ def _parse_evaluation_metrics(raw_response: str) -> Dict[str, Any]:
                 extra={"value": attention_value},
             )
 
+    divergent_value = data.get("divergent")
+    if divergent_value is not None:
+        if isinstance(divergent_value, bool):
+            metrics["divergent"] = divergent_value
+        elif isinstance(divergent_value, str):
+            normalized = divergent_value.strip().lower()
+            if normalized in {"true", "yes", "y"}:
+                metrics["divergent"] = True
+            elif normalized in {"false", "no", "n"}:
+                metrics["divergent"] = False
+        else:
+            logger.warning(
+                "Invalid divergent value in evaluation response",
+                extra={"value": divergent_value},
+            )
+
+    student_request_value = data.get("student_request") or data.get("studentuest")
+    if student_request_value is not None:
+        if isinstance(student_request_value, str):
+            normalized = student_request_value.strip().lower()
+            if normalized in {"game", "quiz", "curious", "other"}:
+                metrics["student_request"] = normalized
+            else:
+                metrics["student_request"] = "other"
+        else:
+            logger.warning(
+                "Invalid student_request value in evaluation response",
+                extra={"value": student_request_value},
+            )
+
     topics_source = data.get("topics") or data.get("top_topics") or data.get("keywords")
     normalized_topics: List[Dict[str, Any]] = []
     if isinstance(topics_source, list):

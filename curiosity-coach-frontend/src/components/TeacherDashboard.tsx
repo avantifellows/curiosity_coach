@@ -36,7 +36,7 @@ const METRIC_OPTIONS: { value: StudentMetricKey; label: string }[] = [
   { value: 'user_messages', label: 'User messages' },
   { value: 'depth_levels', label: 'Max depth' },
   { value: 'total_relevant_questions', label: 'Relevant questions' },
-  { value: 'avg_attention_span', label: 'Avg attention span' },
+  { value: 'avg_attention_span', label: 'Avg attention (min)' },
 ];
 
 const METRIC_LABEL: Record<StudentMetricKey, string> = {
@@ -45,7 +45,7 @@ const METRIC_LABEL: Record<StudentMetricKey, string> = {
   user_messages: 'User messages',
   depth_levels: 'Max depth',
   total_relevant_questions: 'Relevant questions',
-  avg_attention_span: 'Avg attention span',
+  avg_attention_span: 'Avg attention (min)',
 };
 
 const COMPARISON_COLORS = ['#2563eb', '#f97316', '#10b981', '#facc15'];
@@ -742,25 +742,12 @@ const TeacherDashboard: React.FC = () => {
     return (
       <div className="flex flex-col items-start gap-1">
         {topics.slice(0, 3).map((topic) => {
-          const totalWeight =
-            typeof topic.total_weight === 'number' && !Number.isNaN(topic.total_weight)
-              ? topic.total_weight
-              : typeof topic.weight === 'number' && !Number.isNaN(topic.weight)
-                ? topic.weight
-                : null;
-          const totalCount = topic.conversation_count ?? topic.count;
-
           return (
             <span
-              key={`${topic.term}-${totalWeight ?? totalCount ?? ''}`}
+              key={topic.term}
               className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600"
             >
               <span>{topic.term}</span>
-              {totalWeight !== null ? (
-                <span className="text-[10px] text-slate-400">{formatOneDecimal(totalWeight)}</span>
-              ) : totalCount ? (
-                <span className="text-[10px] text-slate-400">×{totalCount}</span>
-              ) : null}
             </span>
           );
         })}
@@ -1134,7 +1121,7 @@ const TeacherDashboard: React.FC = () => {
                             </th>
                             <th className="py-2 text-left font-semibold text-slate-600 whitespace-normal">
                               Avg
-                              <span className="block leading-tight">Attention</span>
+                              <span className="block leading-tight">Attention (min)</span>
                             </th>
                             <th className="py-2 text-left font-semibold text-slate-600 whitespace-normal">
                               Top
@@ -1205,7 +1192,7 @@ const TeacherDashboard: React.FC = () => {
                             </th>
                             <th className="py-2 text-left font-semibold text-slate-600 whitespace-normal">
                               Avg
-                              <span className="block leading-tight">Attention</span>
+                              <span className="block leading-tight">Attention (min)</span>
                             </th>
                             <th className="py-2 text-left font-semibold text-slate-600 whitespace-normal">
                               Top

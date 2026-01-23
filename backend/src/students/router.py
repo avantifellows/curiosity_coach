@@ -302,6 +302,26 @@ def _build_curiosity_summary(messages: List[Message]) -> Optional[ConversationCu
     )
 
 
+def _compute_attention_minutes(messages: List[Message], attention_turns: Optional[float]) -> Optional[float]:
+    if attention_turns is None:
+        return None
+    try:
+        attention_value = float(attention_turns)
+    except (TypeError, ValueError):
+        return None
+    user_message_count = sum(1 for message in messages if message.is_user)
+    if user_message_count <= 0:
+        return None
+    timestamps = [message.timestamp for message in messages if message.timestamp]
+    if not timestamps:
+        return None
+    minutes_spent = (max(timestamps) - min(timestamps)).total_seconds() / 60.0
+    if minutes_spent < 0:
+        return None
+    avg_minutes_per_user_message = minutes_spent / user_message_count
+    return attention_value * avg_minutes_per_user_message
+
+
 def _build_conversation_payload(
     conversation: Conversation,
     messages: List[Message],
@@ -319,11 +339,11 @@ def _build_conversation_payload(
         for message in messages
     ]
 
-    evaluation_payload = (
-        _build_conversation_evaluation_response(evaluation)
-        if has_user_message
-        else None
-    )
+    evaluation_payload = _build_conversation_evaluation_response(evaluation) if has_user_message else None
+    if evaluation_payload and evaluation_payload.attention_span is not None:
+        attention_minutes = _compute_attention_minutes(messages, evaluation_payload.attention_span)
+        if attention_minutes is not None:
+            evaluation_payload.attention_span = attention_minutes
     curiosity_summary = (
         _build_curiosity_summary(messages)
         if has_user_message

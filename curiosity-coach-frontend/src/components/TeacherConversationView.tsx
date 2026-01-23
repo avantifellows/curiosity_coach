@@ -547,7 +547,7 @@ const TeacherConversationView: React.FC = () => {
                         formatter: formatInteger,
                       },
                       {
-                        label: 'Attention',
+                        label: 'Attention (min)',
                         value: evaluation?.attention_span ?? null,
                         formatter: formatOneDecimal,
                       },
