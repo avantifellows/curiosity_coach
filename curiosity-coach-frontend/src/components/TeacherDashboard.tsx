@@ -60,9 +60,9 @@ const DAY_DESCRIPTIONS: Record<string, string> = {
   '2025-12-17': 'Priming',
   '2025-12-18': 'Assessment',
   '2025-12-19': 'Priming',
-  '2025-12-22': 'Assessment',
-  '2025-12-23': 'Freestyle',
-  '2025-12-24': 'Priming',
+  '2025-12-22': 'Freestyle',
+  '2025-12-23': 'Priming',
+  '2025-12-24': 'Assessment',
 };
 
 const formatNumber = (value: number | null | undefined, options?: Intl.NumberFormatOptions) => {
