@@ -58,6 +58,17 @@ const formatOneDecimal = (value: number | null | undefined) =>
         maximumFractionDigits: 1,
       }).format(value);
 
+const formatStudentRequest = (value?: string | null) => {
+  if (!value) {
+    return null;
+  }
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+  return trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
+};
+
 // Get the latest non-null curiosity score from messages
 const getLatestCuriosityScore = (messages: ConversationWithMessages['messages']): number | null => {
   // Messages are ordered by timestamp, find last one with a score
@@ -497,6 +508,14 @@ const TeacherConversationView: React.FC = () => {
             <ul className="space-y-6">
               {filteredConversations.map((conversation) => {
                 const isHighlighted = highlightConversationId === conversation.id;
+                const evaluation = conversation.evaluation;
+                const divergentLabel =
+                  evaluation?.divergent === true
+                    ? 'Yes'
+                    : evaluation?.divergent === false
+                      ? 'No'
+                      : null;
+                const studentRequestLabel = formatStudentRequest(evaluation?.student_request ?? null);
                 return (
                 <li
                   key={conversation.id}
@@ -534,7 +553,6 @@ const TeacherConversationView: React.FC = () => {
                     </div>
                   </div>
                   {(() => {
-                    const evaluation = conversation.evaluation;
                     const metrics = [
                       {
                         label: 'Depth',
@@ -571,6 +589,22 @@ const TeacherConversationView: React.FC = () => {
                       </div>
                     );
                   })()}
+                  {(divergentLabel || studentRequestLabel) && (
+                    <div className="mt-2 flex flex-wrap gap-2 text-xs text-slate-600">
+                      {divergentLabel && (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-3 py-1">
+                          <span className="font-semibold text-slate-700">Divergent:</span>
+                          <span>{divergentLabel}</span>
+                        </span>
+                      )}
+                      {studentRequestLabel && (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-3 py-1">
+                          <span className="font-semibold text-slate-700">Request:</span>
+                          <span>{studentRequestLabel}</span>
+                        </span>
+                      )}
+                    </div>
+                  )}
                   <div className="mt-4 max-h-[40vh] space-y-4 overflow-y-auto pr-1">
                     {conversation.messages.length === 0 ? (
                       <p className="text-sm text-slate-500">No messages yet.</p>

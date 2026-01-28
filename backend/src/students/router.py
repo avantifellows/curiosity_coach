@@ -218,6 +218,18 @@ def _safe_int(value) -> Optional[int]:
         return None
 
 
+def _safe_bool(value) -> Optional[bool]:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"true", "yes", "y"}:
+            return True
+        if normalized in {"false", "no", "n"}:
+            return False
+    return None
+
+
 def _normalize_topics(raw_topics) -> List[ConversationTopicResponse]:
     topics: List[ConversationTopicResponse] = []
     if not raw_topics or not isinstance(raw_topics, list):
@@ -263,6 +275,12 @@ def _build_conversation_evaluation_response(
     depth_sample_size = _safe_int(metrics.get('depth_sample_size') or metrics.get('depth_count'))
     relevant_sample_size = _safe_int(metrics.get('relevant_sample_size') or metrics.get('relevant_count'))
     conversation_count = _safe_int(metrics.get('conversation_count'))
+    divergent = _safe_bool(metrics.get('divergent'))
+    student_request = metrics.get('student_request')
+    if isinstance(student_request, str):
+        student_request = student_request.strip().lower() or None
+    else:
+        student_request = None
 
     topics = _normalize_topics(metrics.get('topics'))
 
@@ -271,6 +289,8 @@ def _build_conversation_evaluation_response(
         relevant_question_count=relevant_questions,
         topics=topics,
         attention_span=attention_span,
+        divergent=divergent,
+        student_request=student_request,
         avg_attention_span=_safe_float(metrics.get('avg_attention_span')),
         attention_sample_size=_safe_int(metrics.get('attention_sample_size')),
         total_attention_span=_safe_float(metrics.get('total_attention_span')),

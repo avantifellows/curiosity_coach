@@ -30,6 +30,8 @@ class ConversationEvaluationMetricsResponse(BaseModel):
     relevant_question_count: Optional[int] = None
     topics: List[ConversationTopicResponse] = Field(default_factory=list)
     attention_span: Optional[float] = None
+    divergent: Optional[bool] = None
+    student_request: Optional[str] = None
     avg_attention_span: Optional[float] = None
     attention_sample_size: Optional[int] = None
     total_attention_span: Optional[float] = None

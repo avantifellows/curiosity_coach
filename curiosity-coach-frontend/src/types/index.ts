@@ -279,6 +279,8 @@ export interface ConversationEvaluationMetrics {
   relevant_question_count?: number | null;
   topics: ConversationTopic[];
   attention_span?: number | null;
+  divergent?: boolean | null;
+  student_request?: string | null;
   avg_attention_span?: number | null;
   attention_sample_size?: number | null;
   total_attention_span?: number | null;

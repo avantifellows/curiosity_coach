@@ -39,6 +39,17 @@ const formatOneDecimal = (value: number | null | undefined) =>
         maximumFractionDigits: 1,
       }).format(value);
 
+const formatStudentRequest = (value?: string | null) => {
+  if (!value) {
+    return null;
+  }
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+  return trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
+};
+
 const ClassDetails: React.FC = () => {
   const location = useLocation();
   const navigate = useNavigate();
@@ -461,6 +472,13 @@ const ClassDetails: React.FC = () => {
                       const curiositySummary = latest_conversation?.curiosity_summary;
                       const conversationTopics = evaluation?.topics ?? [];
                       const studentTags = student.tags ?? [];
+                      const divergentLabel =
+                        evaluation?.divergent === true
+                          ? 'Yes'
+                          : evaluation?.divergent === false
+                            ? 'No'
+                            : null;
+                      const studentRequestLabel = formatStudentRequest(evaluation?.student_request ?? null);
 
                       return (
                         <li
@@ -539,6 +557,13 @@ const ClassDetails: React.FC = () => {
                                     <span>Depth: {formatOneDecimal(evaluation.depth)}</span>
                                     <span>Relevant Qs: {formatInteger(evaluation.relevant_question_count)}</span>
                                     <span>Attention (min): {formatOneDecimal(evaluation.attention_span)}</span>
+                                  </div>
+                                )}
+                                {(divergentLabel || studentRequestLabel) && (
+                                  <div className="flex flex-wrap gap-3 sm:justify-end">
+                                    <span className="font-semibold text-slate-700">Signals</span>
+                                    {divergentLabel && <span>Divergent: {divergentLabel}</span>}
+                                    {studentRequestLabel && <span>Request: {studentRequestLabel}</span>}
                                   </div>
                                 )}
                                 {curiositySummary && (
