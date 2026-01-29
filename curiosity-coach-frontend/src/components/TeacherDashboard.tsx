@@ -53,7 +53,7 @@ const TOP_DAYS_LIMIT = 10;
 const DEPTH_BADGE_TEXT = '#1f2937';
 const DEFAULT_TOP_STUDENT_TAG = 'good';
 const DAY_DESCRIPTIONS: Record<string, string> = {
-  '2025-12-11': 'Revision',
+  '2025-12-11': 'Assessment',
   '2025-12-12': 'Priming',
   '2025-12-15': 'Assessment',
   '2025-12-16': 'Freestyle',
