@@ -1,5 +1,5 @@
 from sqlalchemy import Column, Integer, String, Boolean, DateTime, Date, ForeignKey, Text, JSON, Numeric, Float, ForeignKeyConstraint, UniqueConstraint, CheckConstraint, and_, Table
-from sqlalchemy.orm import relationship, Session
+from sqlalchemy.orm import relationship, Session, selectinload
 from sqlalchemy.sql import func
 from src.database import Base
 from typing import Optional, List
@@ -27,6 +27,14 @@ student_tags = Table(
     "student_tags",
     Base.metadata,
     Column("student_id", Integer, ForeignKey("students.id", ondelete="CASCADE"), primary_key=True),
+    Column("tag_id", Integer, ForeignKey("tags.id", ondelete="CASCADE"), primary_key=True),
+    Column("created_at", DateTime(timezone=True), server_default=func.now(), nullable=False),
+)
+
+conversation_tags = Table(
+    "conversation_tags",
+    Base.metadata,
+    Column("conversation_id", Integer, ForeignKey("conversations.id", ondelete="CASCADE"), primary_key=True),
     Column("tag_id", Integer, ForeignKey("tags.id", ondelete="CASCADE"), primary_key=True),
     Column("created_at", DateTime(timezone=True), server_default=func.now(), nullable=False),
 )
@@ -70,6 +78,7 @@ class Tag(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     students = relationship("Student", secondary=student_tags, back_populates="tags")
+    conversations = relationship("Conversation", secondary=conversation_tags, back_populates="tags")
 
 class UserFeedback(Base):
     __tablename__ = "user_feedback"
@@ -116,6 +125,7 @@ class Conversation(Base):
     memory = relationship("ConversationMemory", back_populates="conversation", uselist=False, cascade="all, delete-orphan")
     visit = relationship("ConversationVisit", back_populates="conversation", uselist=False, cascade="all, delete-orphan")
     evaluation = relationship("ConversationEvaluation", back_populates="conversation", uselist=False, cascade="all, delete-orphan")
+    tags = relationship("Tag", secondary=conversation_tags, back_populates="conversations")
 
 class ConversationVisit(Base):
     __tablename__ = "conversation_visits"
@@ -599,9 +609,36 @@ def update_conversation_title(db: Session, conversation_id: int, new_title: str,
     db.refresh(conversation)
     return conversation
 
-def list_user_conversations(db: Session, user_id: int, limit: int = 50, offset: int = 0) -> List[Conversation]:
+def list_user_conversations(
+    db: Session,
+    user_id: int,
+    limit: int = 50,
+    offset: int = 0,
+    tags: Optional[List[str]] = None,
+    tag_mode: str = "any",
+) -> List[Conversation]:
     """Lists conversations for a given user, most recent first."""
-    return db.query(Conversation).filter(Conversation.user_id == user_id).order_by(Conversation.updated_at.desc()).offset(offset).limit(limit).all()
+    query = (
+        db.query(Conversation)
+        .options(selectinload(Conversation.tags))
+        .filter(Conversation.user_id == user_id)
+    )
+    if tags:
+        if tag_mode == "all":
+            query = (
+                query.join(Conversation.tags)
+                .filter(Tag.name.in_(tags))
+                .group_by(Conversation.id)
+                .having(func.count(func.distinct(Tag.id)) == len(tags))
+            )
+        else:
+            query = query.join(Conversation.tags).filter(Tag.name.in_(tags)).distinct()
+    return (
+        query.order_by(Conversation.updated_at.desc())
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
 
 def delete_conversation(db: Session, conversation_id: int, user_id: int) -> bool:
     """Deletes a conversation by its ID, ensuring user ownership."""
@@ -885,7 +922,12 @@ def get_conversation_with_visit(db: Session, conversation_id: int) -> Optional[d
     Get conversation with visit number included.
     Returns a dictionary with conversation data and visit_number.
     """
-    conversation = get_conversation(db, conversation_id)
+    conversation = (
+        db.query(Conversation)
+        .options(selectinload(Conversation.tags))
+        .filter(Conversation.id == conversation_id)
+        .first()
+    )
     if not conversation:
         return None
     
@@ -901,17 +943,25 @@ def get_conversation_with_visit(db: Session, conversation_id: int) -> Optional[d
         "visit_number": visit_record.visit_number if visit_record else None,
         "created_at": conversation.created_at,
         "updated_at": conversation.updated_at,
-        "core_chat_theme": conversation.core_chat_theme
+        "core_chat_theme": conversation.core_chat_theme,
+        "tags": [tag.name for tag in conversation.tags],
     }
     
     return conv_dict
 
-def get_user_conversations_with_visits(db: Session, user_id: int, limit: int = 50, offset: int = 0) -> List[dict]:
+def get_user_conversations_with_visits(
+    db: Session,
+    user_id: int,
+    limit: int = 50,
+    offset: int = 0,
+    tags: Optional[List[str]] = None,
+    tag_mode: str = "any",
+) -> List[dict]:
     """
     Get conversations with visit numbers for a user.
     Returns list of dictionaries with conversation data and visit_number.
     """
-    conversations = list_user_conversations(db, user_id, limit, offset)
+    conversations = list_user_conversations(db, user_id, limit, offset, tags=tags, tag_mode=tag_mode)
     
     result = []
     for conv in conversations:
@@ -924,7 +974,8 @@ def get_user_conversations_with_visits(db: Session, user_id: int, limit: int = 5
             "title": conv.title,
             "visit_number": visit_record.visit_number if visit_record else None,
             "updated_at": conv.updated_at,
-            "core_chat_theme": conv.core_chat_theme
+            "core_chat_theme": conv.core_chat_theme,
+            "tags": [tag.name for tag in conv.tags],
         }
         result.append(conv_dict)
     

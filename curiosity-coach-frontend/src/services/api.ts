@@ -7,6 +7,7 @@ import {
   ConversationSummary,
   Conversation,
   ConversationCreateResponse,
+  ConversationTagsResponse,
   User,
   StudentLoginResponse,
   StudentLoginRequest,
@@ -189,6 +190,78 @@ export const getClassTags = async (
   }
 };
 
+export const getConversationTags = async (query?: string | null): Promise<string[]> => {
+  try {
+    const params: Record<string, string> = {};
+    if (query) {
+      params.q = query;
+    }
+    const response = await API.get<string[]>('/conversations/tags', { params });
+    return response.data;
+  } catch (error: any) {
+    console.error('Error fetching conversation tags:', error.response?.data || error.message);
+    throw new Error(error.response?.data?.detail || 'Failed to fetch conversation tags');
+  }
+};
+
+export const getClassConversationTags = async (
+  school: string,
+  grade: number,
+  section?: string | null,
+  query?: string | null
+): Promise<string[]> => {
+  try {
+    const params: Record<string, string | number> = {
+      school,
+      grade,
+    };
+    if (section) {
+      params.section = section;
+    }
+    if (query) {
+      params.q = query;
+    }
+    const response = await API.get<string[]>('/students/conversation-tags', { params });
+    return response.data;
+  } catch (error: any) {
+    console.error('Error fetching class conversation tags:', error.response?.data || error.message);
+    throw new Error(error.response?.data?.detail || 'Failed to fetch conversation tags');
+  }
+};
+
+export const updateConversationTags = async (
+  conversationId: number,
+  tags: string[]
+): Promise<ConversationTagsResponse> => {
+  try {
+    const response = await API.patch<ConversationTagsResponse>(`/conversations/${conversationId}/tags`, { tags });
+    return response.data;
+  } catch (error: any) {
+    console.error(`Error updating tags for conversation ${conversationId}:`, error.response?.data || error.message);
+    throw new Error(error.response?.data?.detail || 'Failed to update conversation tags');
+  }
+};
+
+export const updateStudentConversationTags = async (
+  studentId: number,
+  conversationId: number,
+  tags: string[]
+): Promise<ConversationTagsResponse> => {
+  try {
+    const response = await API.patch<ConversationTagsResponse>(
+      `/students/${studentId}/conversations/${conversationId}/tags`,
+      { tags }
+    );
+    return response.data;
+  } catch (error: any) {
+    console.error(
+      `Error updating tags for conversation ${conversationId} (student ${studentId}):`,
+      error.response?.data || error.message
+    );
+    throw new Error(error.response?.data?.detail || 'Failed to update conversation tags');
+  }
+};
+
 export const getStudentDailyMetrics = async (
   school: string,
   grade: number,
@@ -245,11 +318,26 @@ export const getStudentConversations = async (
   studentId: number,
   limit = 3,
   offset = 0,
-  day?: string | null
+  day?: string | null,
+  tags?: string[],
+  tagMode?: 'any' | 'all'
 ): Promise<PaginatedStudentConversations> => {
   try {
+    const params: Record<string, string | number> = {
+      limit,
+      offset,
+    };
+    if (day) {
+      params.day = day;
+    }
+    if (tags && tags.length > 0) {
+      params.tags = tags.join(',');
+    }
+    if (tagMode) {
+      params.tag_mode = tagMode;
+    }
     const response = await API.get<PaginatedStudentConversations>(`/students/${studentId}/conversations`, {
-      params: { limit, offset, day: day ?? undefined },
+      params,
     });
     return response.data;
   } catch (error: any) {
@@ -403,9 +491,19 @@ export const getAiResponseForUserMessage = async (userMessageId: number): Promis
   }
 };
 
-export const listConversations = async (): Promise<ConversationSummary[]> => {
+export const listConversations = async (
+  tags?: string[],
+  tagMode?: 'any' | 'all'
+): Promise<ConversationSummary[]> => {
   try {
-    const response = await API.get<ConversationSummary[]>('/conversations');
+    const params: Record<string, string> = {};
+    if (tags && tags.length > 0) {
+      params.tags = tags.join(',');
+    }
+    if (tagMode) {
+      params.tag_mode = tagMode;
+    }
+    const response = await API.get<ConversationSummary[]>('/conversations', { params });
     return response.data;
   } catch (error: any) {
     console.error("Error fetching conversations:", error.response?.data || error.message);

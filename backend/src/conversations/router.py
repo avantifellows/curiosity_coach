@@ -1,11 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 from typing import List, Optional
 import logging
 import time
 
 from src.database import get_db
-from src.models import User, Conversation # Assuming User model is needed for auth dependency
+from src.models import User, Conversation, Tag # Assuming User model is needed for auth dependency
 # TODO: Verify the correct import path and function name for auth dependency
 from src.auth.dependencies import get_current_user # Use the new dependency that returns the User object
 from src.conversations import schemas # Use the schemas we just created
@@ -21,12 +21,49 @@ router = APIRouter(
     responses={404: {"description": "Not found"}},
 )
 
+
+def _normalize_tag_name(raw_tag: str) -> str:
+    normalized = " ".join(raw_tag.strip().split())
+    if not normalized:
+        raise HTTPException(status_code=400, detail="Tag names cannot be empty")
+    if len(normalized) > 64:
+        raise HTTPException(status_code=400, detail="Tag names must be 64 characters or fewer")
+    return normalized.lower()
+
+
+def _normalize_tag_list(raw_tags: List[str]) -> List[str]:
+    normalized_tags: List[str] = []
+    seen = set()
+    for raw_tag in raw_tags:
+        if raw_tag is None:
+            continue
+        normalized = _normalize_tag_name(raw_tag)
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        normalized_tags.append(normalized)
+    return normalized_tags
+
+
+def _normalize_tag_query(raw_tags: Optional[List[str]]) -> List[str]:
+    if not raw_tags:
+        return []
+    flattened: List[str] = []
+    for item in raw_tags:
+        if not item:
+            continue
+        parts = [part for part in item.split(",") if part.strip()]
+        flattened.extend(parts)
+    return _normalize_tag_list(flattened)
+
 @router.get("", response_model=List[schemas.ConversationSummary])
 async def list_conversations_for_user(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user), # Use the new dependency
     limit: int = Query(default=50, ge=1, le=200), # Add pagination
-    offset: int = Query(default=0, ge=0)
+    offset: int = Query(default=0, ge=0),
+    tags: Optional[List[str]] = Query(None, description="Optional tag filters (comma-separated or repeated)"),
+    tag_mode: str = Query("any", description="Tag match mode: any or all"),
 ):
     """
     Retrieve conversations for the authenticated user, ordered by most recently updated.
@@ -40,9 +77,18 @@ async def list_conversations_for_user(
     )
     
     try:
+        normalized_tags = _normalize_tag_query(tags)
+        if tag_mode not in ("any", "all"):
+            raise HTTPException(status_code=400, detail="tag_mode must be 'any' or 'all'")
+
         logger.debug(f"Fetching conversations with visit numbers from database - user_id: {current_user.id}")
         conversations_with_visits = models.get_user_conversations_with_visits(
-            db=db, user_id=current_user.id, limit=limit, offset=offset
+            db=db,
+            user_id=current_user.id,
+            limit=limit,
+            offset=offset,
+            tags=normalized_tags or None,
+            tag_mode=tag_mode,
         )
         
         conversation_count = len(conversations_with_visits)
@@ -72,6 +118,30 @@ async def list_conversations_for_user(
             f"processing_time: {processing_time:.3f}s"
         )
         raise HTTPException(status_code=500, detail=f"Error retrieving conversations: {str(e)}")
+
+
+@router.get("/tags", response_model=List[str])
+async def list_conversation_tags(
+    q: Optional[str] = Query(None, description="Optional search term"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    normalized_query = None
+    if q:
+        normalized_query = " ".join(q.strip().split()).lower()
+        if not normalized_query:
+            normalized_query = None
+
+    query = (
+        db.query(Tag.name)
+        .join(Tag.conversations)
+        .filter(Conversation.user_id == current_user.id)
+    )
+    if normalized_query:
+        query = query.filter(Tag.name.ilike(f"%{normalized_query}%"))
+
+    tags = query.distinct().order_by(Tag.name.asc()).all()
+    return [row[0] for row in tags]
 
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def create_new_conversation(
@@ -252,6 +322,7 @@ async def create_new_conversation(
             title=conversation.title,
             visit_number=visit_number,
             prompt_version_id=conversation.prompt_version_id,
+            tags=[],
             created_at=conversation.created_at,
             updated_at=conversation.updated_at
         )
@@ -475,6 +546,49 @@ async def update_conversation_title_endpoint(
             f"processing_time: {processing_time:.3f}s"
         )
         raise HTTPException(status_code=500, detail=f"Error updating conversation title: {str(e)}")
+
+
+@router.patch("/{conversation_id}/tags", response_model=schemas.ConversationTagsResponse)
+async def update_conversation_tags_endpoint(
+    conversation_id: int,
+    payload: schemas.ConversationTagsUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    conversation = (
+        db.query(Conversation)
+        .options(selectinload(Conversation.tags))
+        .filter(Conversation.id == conversation_id)
+        .first()
+    )
+    if not conversation:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found")
+    if conversation.user_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to update this conversation")
+
+    normalized_tags = _normalize_tag_list(payload.tags)
+    if not normalized_tags:
+        conversation.tags = []
+        db.commit()
+        db.refresh(conversation)
+        return conversation
+
+    existing_tags = db.query(Tag).filter(Tag.name.in_(normalized_tags)).all()
+    tag_map = {tag.name: tag for tag in existing_tags}
+    ordered_tags: List[Tag] = []
+
+    for name in normalized_tags:
+        tag = tag_map.get(name)
+        if not tag:
+            tag = Tag(name=name)
+            db.add(tag)
+            tag_map[name] = tag
+        ordered_tags.append(tag)
+
+    conversation.tags = ordered_tags
+    db.commit()
+    db.refresh(conversation)
+    return conversation
 
 @router.get("/{conversation_id}/memory", response_model=dict)
 async def get_conversation_memory_endpoint(

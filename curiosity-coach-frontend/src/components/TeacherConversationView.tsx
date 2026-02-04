@@ -1,7 +1,15 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { ConversationWithMessages, Student, UserPersona, UserPersonaData } from '../types';
-import { getClassTags, getStudentConversations, getStudentsForClass, getUserPersona, updateStudentTags } from '../services/api';
+import {
+  getClassTags,
+  getClassConversationTags,
+  getStudentConversations,
+  getStudentsForClass,
+  getUserPersona,
+  updateStudentConversationTags,
+  updateStudentTags
+} from '../services/api';
 
 interface ConversationLocationState {
   student?: Student;
@@ -132,6 +140,13 @@ const TeacherConversationView: React.FC = () => {
   const [tagDraft, setTagDraft] = useState('');
   const [tagSaving, setTagSaving] = useState(false);
   const [tagError, setTagError] = useState<string | null>(null);
+  const [conversationTagSuggestions, setConversationTagSuggestions] = useState<string[]>([]);
+  const [conversationTagFilters, setConversationTagFilters] = useState<string[]>([]);
+  const [conversationTagMode, setConversationTagMode] = useState<'any' | 'all'>('any');
+  const [conversationTagFilterInput, setConversationTagFilterInput] = useState('');
+  const [conversationTagDrafts, setConversationTagDrafts] = useState<Record<number, string>>({});
+  const [conversationTagSaving, setConversationTagSaving] = useState<Record<number, boolean>>({});
+  const [conversationTagError, setConversationTagError] = useState<string | null>(null);
 
   useEffect(() => {
     setDayFilter(dayParam);
@@ -150,7 +165,14 @@ const TeacherConversationView: React.FC = () => {
       setError(null);
       try {
         const limit = dayFilter ? 50 : PAGE_SIZE;
-        const data = await getStudentConversations(student.id, limit, offset, dayFilter);
+        const data = await getStudentConversations(
+          student.id,
+          limit,
+          offset,
+          dayFilter,
+          conversationTagFilters,
+          conversationTagMode
+        );
         setConversations((prev) => (offset === 0 ? data.conversations : [...prev, ...data.conversations]));
         setNextOffset(data.next_offset);
       } catch (err) {
@@ -161,38 +183,41 @@ const TeacherConversationView: React.FC = () => {
         setIsLoadMore(false);
       }
     },
-    [student, dayFilter]
+    [student, dayFilter, conversationTagFilters, conversationTagMode]
   );
 
   useEffect(() => {
-    if (!student) {
-      if (!studentId || !classInfo.school || !classInfo.grade) {
-        setError('No student selected.');
-        return;
-      }
-      const fetchStudent = async () => {
-        setStudentLoading(true);
-        try {
-          const roster = await getStudentsForClass(classInfo.school!, classInfo.grade!, classInfo.section ?? null);
-          const match = roster.find((entry) => entry.student.id === studentId);
-          if (match) {
-            setStudent(match.student);
-          } else {
-            setError('Student not found for this class.');
-          }
-        } catch (err) {
-          console.error('Failed to fetch student details:', err);
-          setError('Failed to load student details.');
-        } finally {
-          setStudentLoading(false);
-        }
-      };
-      fetchStudent();
+    if (student) {
       return;
     }
-    fetchConversations(0);
-    
-    // Fetch persona for this student's user
+    if (!studentId || !classInfo.school || !classInfo.grade) {
+      setError('No student selected.');
+      return;
+    }
+    const fetchStudent = async () => {
+      setStudentLoading(true);
+      try {
+        const roster = await getStudentsForClass(classInfo.school!, classInfo.grade!, classInfo.section ?? null);
+        const match = roster.find((entry) => entry.student.id === studentId);
+        if (match) {
+          setStudent(match.student);
+        } else {
+          setError('Student not found for this class.');
+        }
+      } catch (err) {
+        console.error('Failed to fetch student details:', err);
+        setError('Failed to load student details.');
+      } finally {
+        setStudentLoading(false);
+      }
+    };
+    fetchStudent();
+  }, [student, studentId, classInfo.school, classInfo.grade, classInfo.section]);
+
+  useEffect(() => {
+    if (!student) {
+      return;
+    }
     const fetchPersona = async () => {
       setPersonaLoading(true);
       try {
@@ -200,14 +225,19 @@ const TeacherConversationView: React.FC = () => {
         setPersona(personaData);
       } catch (err) {
         console.error('Failed to fetch persona:', err);
-        // Don't show error to user - persona is optional
       } finally {
         setPersonaLoading(false);
       }
     };
-    
     fetchPersona();
-  }, [student, studentId, classInfo.school, classInfo.grade, classInfo.section, fetchConversations]);
+  }, [student]);
+
+  useEffect(() => {
+    if (!student) {
+      return;
+    }
+    fetchConversations(0);
+  }, [student, dayFilter, conversationTagFilters, conversationTagMode, fetchConversations]);
 
   useEffect(() => {
     if (!classInfo.school || !classInfo.grade) {
@@ -227,6 +257,34 @@ const TeacherConversationView: React.FC = () => {
     };
 
     fetchTags();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [classInfo.school, classInfo.grade, classInfo.section]);
+
+  useEffect(() => {
+    if (!classInfo.school || !classInfo.grade) {
+      return;
+    }
+
+    let isMounted = true;
+    const fetchConversationTags = async () => {
+      try {
+        const tags = await getClassConversationTags(
+          classInfo.school!,
+          classInfo.grade!,
+          classInfo.section ?? null
+        );
+        if (isMounted) {
+          setConversationTagSuggestions(tags);
+        }
+      } catch (err) {
+        console.error('Failed to fetch conversation tag suggestions:', err);
+      }
+    };
+
+    fetchConversationTags();
 
     return () => {
       isMounted = false;
@@ -280,6 +338,72 @@ const TeacherConversationView: React.FC = () => {
     }
     const existing = student.tags ?? [];
     updateStudentTagList(existing.filter((item) => item !== tag));
+  };
+
+  const addConversationTagFilter = (rawTag: string) => {
+    const normalized = normalizeTagInput(rawTag);
+    if (!normalized || conversationTagFilters.includes(normalized)) {
+      return;
+    }
+    setConversationTagFilters((prev) => [...prev, normalized]);
+    setConversationTagFilterInput('');
+  };
+
+  const removeConversationTagFilter = (tag: string) => {
+    setConversationTagFilters((prev) => prev.filter((item) => item !== tag));
+  };
+
+  const updateConversationTagList = async (conversationId: number, nextTags: string[]) => {
+    if (!student) {
+      return;
+    }
+    setConversationTagSaving((prev) => ({ ...prev, [conversationId]: true }));
+    setConversationTagError(null);
+    try {
+      const updatedConversation = await updateStudentConversationTags(student.id, conversationId, nextTags);
+      setConversations((prev) =>
+        prev.map((conversation) =>
+          conversation.id === conversationId
+            ? { ...conversation, tags: updatedConversation.tags ?? [] }
+            : conversation
+        )
+      );
+      setConversationTagDrafts((prev) => ({ ...prev, [conversationId]: '' }));
+      setConversationTagSuggestions((prev) => {
+        const merged = new Set(prev);
+        (updatedConversation.tags ?? []).forEach((tag) => merged.add(tag));
+        return Array.from(merged).sort();
+      });
+    } catch (err) {
+      console.error('Failed to update conversation tags:', err);
+      setConversationTagError('Failed to update conversation tags. Please try again.');
+    } finally {
+      setConversationTagSaving((prev) => ({ ...prev, [conversationId]: false }));
+    }
+  };
+
+  const handleAddConversationTag = (conversationId: number) => {
+    const rawTag = conversationTagDrafts[conversationId] ?? '';
+    const normalized = normalizeTagInput(rawTag);
+    if (!normalized) {
+      return;
+    }
+    const conversation = conversations.find((item) => item.id === conversationId);
+    const existing = conversation?.tags ?? [];
+    if (existing.includes(normalized)) {
+      setConversationTagDrafts((prev) => ({ ...prev, [conversationId]: '' }));
+      return;
+    }
+    updateConversationTagList(conversationId, [...existing, normalized]);
+  };
+
+  const handleRemoveConversationTag = (conversationId: number, tag: string) => {
+    const conversation = conversations.find((item) => item.id === conversationId);
+    const existing = conversation?.tags ?? [];
+    updateConversationTagList(
+      conversationId,
+      existing.filter((item) => item !== tag)
+    );
   };
 
   useEffect(() => {
@@ -445,6 +569,55 @@ const TeacherConversationView: React.FC = () => {
               </div>
               {tagError && <p className="mt-2 text-xs text-red-600">{tagError}</p>}
               
+              <div className="mt-4 rounded-2xl border border-slate-100 bg-slate-50 px-3 py-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-xs font-semibold text-slate-600">Conversation tags</span>
+                  <button
+                    type="button"
+                    className="text-[11px] font-semibold text-indigo-600 hover:text-indigo-800"
+                    onClick={() =>
+                      setConversationTagMode((prev) => (prev === 'any' ? 'all' : 'any'))
+                    }
+                  >
+                    Match: {conversationTagMode === 'any' ? 'Any' : 'All'}
+                  </button>
+                </div>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {conversationTagFilters.map((tag) => (
+                    <span
+                      key={`conversation-filter-${tag}`}
+                      className="inline-flex items-center gap-1 rounded-full bg-indigo-50 px-3 py-1 text-[11px] font-semibold text-indigo-700"
+                    >
+                      <span>{tag}</span>
+                      <button
+                        type="button"
+                        className="text-[12px] leading-none text-indigo-500 hover:text-indigo-700"
+                        onClick={() => removeConversationTagFilter(tag)}
+                        aria-label={`Remove filter tag ${tag}`}
+                      >
+                        ×
+                      </button>
+                    </span>
+                  ))}
+                  <input
+                    value={conversationTagFilterInput}
+                    onChange={(event) => setConversationTagFilterInput(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ',') {
+                        event.preventDefault();
+                        addConversationTagFilter(conversationTagFilterInput);
+                      }
+                    }}
+                    list="conversation-tag-suggestions"
+                    placeholder="Add filter"
+                    className="w-32 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs text-slate-600 shadow-sm focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-100"
+                  />
+                </div>
+                {conversationTagError && (
+                  <p className="mt-2 text-xs text-red-600">{conversationTagError}</p>
+                )}
+              </div>
+
               {/* Checkbox for after-school hours filter */}
               <div className="mt-4">
                 <label className="flex items-center gap-3 cursor-pointer group">
@@ -488,6 +661,11 @@ const TeacherConversationView: React.FC = () => {
             <option key={`student-tag-suggestion-${tag}`} value={tag} />
           ))}
         </datalist>
+        <datalist id="conversation-tag-suggestions">
+          {conversationTagSuggestions.map((tag) => (
+            <option key={`conversation-tag-suggestion-${tag}`} value={tag} />
+          ))}
+        </datalist>
 
         <div className="rounded-3xl bg-white p-6 shadow-lg shadow-slate-200 space-y-6">
           {error && (
@@ -500,15 +678,18 @@ const TeacherConversationView: React.FC = () => {
             <p className="text-sm text-slate-500">Loading conversations...</p>
           ) : filteredConversations.length === 0 ? (
             <p className="text-sm text-slate-500">
-              {showAfterSchoolOnly 
-                ? 'No after-school hours conversations found.' 
-                : 'No conversations yet.'}
+              {conversationTagFilters.length > 0
+                ? 'No conversations match these tags.'
+                : (showAfterSchoolOnly 
+                  ? 'No after-school hours conversations found.' 
+                  : 'No conversations yet.')}
             </p>
           ) : (
             <ul className="space-y-6">
               {filteredConversations.map((conversation) => {
                 const isHighlighted = highlightConversationId === conversation.id;
                 const evaluation = conversation.evaluation;
+                const conversationTags = conversation.tags ?? [];
                 const divergentLabel =
                   evaluation?.divergent === true
                     ? 'Yes'
@@ -605,6 +786,55 @@ const TeacherConversationView: React.FC = () => {
                       )}
                     </div>
                   )}
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <span className="text-xs font-semibold text-slate-600">Tags</span>
+                    {conversationTags.map((tag) => (
+                      <span
+                        key={`${conversation.id}-${tag}`}
+                        className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-3 py-1 text-[11px] font-medium text-emerald-700"
+                      >
+                        <span>{tag}</span>
+                        <button
+                          type="button"
+                          className="text-[12px] leading-none text-emerald-500 transition hover:text-emerald-700"
+                          onClick={() => handleRemoveConversationTag(conversation.id, tag)}
+                          aria-label={`Remove tag ${tag}`}
+                          disabled={conversationTagSaving[conversation.id]}
+                        >
+                          ×
+                        </button>
+                      </span>
+                    ))}
+                    <div className="flex items-center gap-2">
+                      <input
+                        value={conversationTagDrafts[conversation.id] ?? ''}
+                        onChange={(event) =>
+                          setConversationTagDrafts((prev) => ({
+                            ...prev,
+                            [conversation.id]: event.target.value,
+                          }))
+                        }
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter' || event.key === ',') {
+                            event.preventDefault();
+                            handleAddConversationTag(conversation.id);
+                          }
+                        }}
+                        list="conversation-tag-suggestions"
+                        placeholder="Add tag"
+                        className="w-32 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs text-slate-600 shadow-sm focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-100"
+                        disabled={conversationTagSaving[conversation.id]}
+                      />
+                      <button
+                        type="button"
+                        className="rounded-lg border border-slate-200 px-3 py-1.5 text-[11px] font-semibold text-slate-500 transition hover:border-indigo-200 hover:text-indigo-600"
+                        onClick={() => handleAddConversationTag(conversation.id)}
+                        disabled={conversationTagSaving[conversation.id]}
+                      >
+                        Add
+                      </button>
+                    </div>
+                  </div>
                   <div className="mt-4 max-h-[40vh] space-y-4 overflow-y-auto pr-1">
                     {conversation.messages.length === 0 ? (
                       <p className="text-sm text-slate-500">No messages yet.</p>

@@ -6,7 +6,8 @@ import {
   getConversationMessages,
   sendMessage,
   getAiResponseForUserMessage,
-  updateConversationTitleApi
+  updateConversationTitleApi,
+  updateConversationTags
 } from '../services/api';
 import { ConversationSummary, Message, ChatHistory, ConversationCreateResponse } from '../types';
 import { useAuth } from './AuthContext'; // Assuming AuthContext provides user info
@@ -29,7 +30,7 @@ interface ChatContextState {
   isSendingMessage: boolean;
   isBrainProcessing: boolean;
   error: string | null;
-  fetchConversations: () => Promise<void>;
+  fetchConversations: (tags?: string[], tagMode?: 'any' | 'all') => Promise<void>;
   selectConversation: (conversationId: number | null) => void;
   handleSendMessage: (content: string, purpose: string) => Promise<void>;
   handleSendMessageWithAutoConversation: (content: string, purpose: string) => Promise<void>;
@@ -52,6 +53,7 @@ interface ChatContextState {
   isUpdatingConversationTitle: boolean;
   updateConversationTitleError: string | null;
   handleUpdateConversationTitle: (conversationId: number, newTitle: string) => Promise<void>;
+  handleUpdateConversationTags: (conversationId: number, tags: string[]) => Promise<void>;
 
   // Onboarding-related state
   preparationStatus: string | null;
@@ -107,12 +109,12 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   }, []);
 
   // --- Fetch Conversations --- 
-  const fetchConversations = useCallback(async () => {
+  const fetchConversations = useCallback(async (tags?: string[], tagMode?: 'any' | 'all') => {
     if (!user) return; // Don't fetch if not logged in
     setIsLoadingConversations(true);
     setError(null);
     try {
-      const fetchedConversations = await listConversations();
+      const fetchedConversations = await listConversations(tags, tagMode);
       console.log(`[OnboardingDebug] Fetched ${fetchedConversations.length} existing conversations`);
       setConversations(fetchedConversations);
       
@@ -274,6 +276,20 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       setIsUpdatingConversationTitle(false);
     }
   }, [user]);
+
+  const handleUpdateConversationTags = useCallback(async (conversationId: number, tags: string[]) => {
+    const updatedConversation = await updateConversationTags(conversationId, tags);
+    setConversations((prevConvs) =>
+      prevConvs.map((conv) =>
+        conv.id === conversationId
+          ? {
+              ...conv,
+              tags: updatedConversation.tags,
+            }
+          : conv
+      )
+    );
+  }, []);
 
   // --- Create Conversation --- 
   const handleCreateConversation = useCallback(async (title?: string): Promise<number | null> => {
@@ -689,6 +705,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     isUpdatingConversationTitle,
     updateConversationTitleError,
     handleUpdateConversationTitle,
+    handleUpdateConversationTags,
     // Onboarding state
     preparationStatus,
     isPreparingConversation,

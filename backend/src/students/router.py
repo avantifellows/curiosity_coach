@@ -32,6 +32,7 @@ from src.students.schemas import (
     AnalysisJobStatusResponse,
     StudentTagsUpdateRequest,
 )
+from src.conversations.schemas import ConversationTagsUpdate, ConversationTagsResponse
 from src.auth.schemas import StudentResponse
 from src.config.settings import settings
 from src.prompts.service import PromptService
@@ -149,6 +150,7 @@ def _get_latest_conversations_for_users(
 
     latest_conversations = (
         db.query(Conversation)
+        .options(selectinload(Conversation.tags))
         .join(
             latest_convo_subquery,
             and_(
@@ -375,6 +377,7 @@ def _build_conversation_payload(
         title=conversation.title,
         created_at=conversation.created_at,
         updated_at=conversation.updated_at,
+        tags=[tag.name for tag in conversation.tags],
         messages=message_payloads,
         evaluation=evaluation_payload,
         curiosity_summary=curiosity_summary,
@@ -615,6 +618,42 @@ def list_class_tags(
     return [row[0] for row in tags]
 
 
+@router.get("/conversation-tags", response_model=List[str])
+def list_class_conversation_tags(
+    school: str = Query(..., description="School name to filter tags"),
+    grade: int = Query(..., ge=1, le=12, description="Grade to filter tags"),
+    section: Optional[str] = Query(None, description="Optional section (e.g., A, B)"),
+    q: Optional[str] = Query(None, description="Optional search term"),
+    db: Session = Depends(get_db),
+):
+    school_value = _normalize_school_value(school)
+    section_value = _normalize_section_value(section)
+    normalized_query = None
+    if q:
+        normalized_query = " ".join(q.strip().split()).lower()
+        if not normalized_query:
+            normalized_query = None
+
+    query = (
+        db.query(Tag.name)
+        .join(Tag.conversations)
+        .join(Student, Student.user_id == Conversation.user_id)
+        .filter(
+            Student.school == school_value,
+            Student.grade == grade,
+        )
+    )
+
+    if section_value is not None:
+        query = query.filter(Student.section == section_value)
+
+    if normalized_query:
+        query = query.filter(Tag.name.ilike(f"%{normalized_query}%"))
+
+    tags = query.distinct().order_by(Tag.name.asc()).all()
+    return [row[0] for row in tags]
+
+
 @router.patch("/{student_id}", response_model=StudentResponse)
 def update_student_tags(
     student_id: int,
@@ -658,20 +697,72 @@ def update_student_tags(
     return student
 
 
-@router.get("/{student_id}/conversations", response_model=PaginatedConversationsResponse)
-def list_student_conversations(
+@router.patch("/{student_id}/conversations/{conversation_id}/tags", response_model=ConversationTagsResponse)
+def update_student_conversation_tags(
     student_id: int,
-    limit: int = Query(3, ge=1, le=50),
-    offset: int = Query(0, ge=0),
-    day: Optional[date] = Query(None, description="Optional day filter (YYYY-MM-DD)"),
+    conversation_id: int,
+    payload: ConversationTagsUpdate,
     db: Session = Depends(get_db),
 ):
     student = db.query(Student).filter(Student.id == student_id).first()
     if not student:
         raise HTTPException(status_code=404, detail="Student not found")
 
+    conversation = (
+        db.query(Conversation)
+        .options(selectinload(Conversation.tags))
+        .filter(Conversation.id == conversation_id)
+        .first()
+    )
+    if not conversation or conversation.user_id != student.user_id:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    normalized_tags = _normalize_tag_list(payload.tags)
+    if not normalized_tags:
+        conversation.tags = []
+        db.commit()
+        db.refresh(conversation)
+        return conversation
+
+    existing_tags = db.query(Tag).filter(Tag.name.in_(normalized_tags)).all()
+    tag_map = {tag.name: tag for tag in existing_tags}
+    ordered_tags: List[Tag] = []
+
+    for name in normalized_tags:
+        tag = tag_map.get(name)
+        if not tag:
+            tag = Tag(name=name)
+            db.add(tag)
+            tag_map[name] = tag
+        ordered_tags.append(tag)
+
+    conversation.tags = ordered_tags
+    db.commit()
+    db.refresh(conversation)
+    return conversation
+
+
+@router.get("/{student_id}/conversations", response_model=PaginatedConversationsResponse)
+def list_student_conversations(
+    student_id: int,
+    limit: int = Query(3, ge=1, le=50),
+    offset: int = Query(0, ge=0),
+    day: Optional[date] = Query(None, description="Optional day filter (YYYY-MM-DD)"),
+    tags: Optional[List[str]] = Query(None, description="Optional tag filters (comma-separated or repeated)"),
+    tag_mode: str = Query("any", description="Tag match mode: any or all"),
+    db: Session = Depends(get_db),
+):
+    student = db.query(Student).filter(Student.id == student_id).first()
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found")
+
+    normalized_tags = _normalize_tag_query(tags)
+    if tag_mode not in ("any", "all"):
+        raise HTTPException(status_code=400, detail="tag_mode must be 'any' or 'all'")
+
     base_query = (
         db.query(Conversation)
+        .options(selectinload(Conversation.tags))
         .filter(Conversation.user_id == student.user_id)
         .order_by(Conversation.updated_at.desc())
     )
@@ -680,6 +771,17 @@ def list_student_conversations(
         window_end = window_start + timedelta(days=1)
         timestamp = func.coalesce(Conversation.updated_at, Conversation.created_at)
         base_query = base_query.filter(timestamp >= window_start, timestamp < window_end)
+
+    if normalized_tags:
+        if tag_mode == "all":
+            base_query = (
+                base_query.join(Conversation.tags)
+                .filter(Tag.name.in_(normalized_tags))
+                .group_by(Conversation.id)
+                .having(func.count(func.distinct(Tag.id)) == len(normalized_tags))
+            )
+        else:
+            base_query = base_query.join(Conversation.tags).filter(Tag.name.in_(normalized_tags)).distinct()
 
     conversations = base_query.offset(offset).limit(limit + 1).all()
     has_more = len(conversations) > limit
@@ -732,6 +834,7 @@ def list_all_student_conversations(
     # Get all conversations for this student, ordered by most recent first
     conversations = (
         db.query(Conversation)
+        .options(selectinload(Conversation.tags))
         .filter(Conversation.user_id == student.user_id)
         .order_by(Conversation.updated_at.desc())
         .all()

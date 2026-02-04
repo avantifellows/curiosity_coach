@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import List, Optional
 from datetime import datetime
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from src.auth.schemas import StudentResponse
 
@@ -54,11 +54,29 @@ class ConversationWithMessagesResponse(BaseModel):
     title: Optional[str] = None
     created_at: datetime
     updated_at: datetime
+    tags: List[str] = Field(default_factory=list)
     messages: List[ConversationMessageResponse]
     evaluation: Optional[ConversationEvaluationMetricsResponse] = None
     curiosity_summary: Optional[ConversationCuriositySummaryResponse] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+    @field_validator("tags", mode="before")
+    @classmethod
+    def normalize_tags(cls, v):
+        if v is None:
+            return []
+        if isinstance(v, list):
+            normalized = []
+            for item in v:
+                if isinstance(item, str):
+                    normalized.append(item)
+                elif hasattr(item, "name"):
+                    normalized.append(str(item.name))
+                else:
+                    normalized.append(str(item))
+            return normalized
+        return v
 
 
 class StudentWithConversationResponse(BaseModel):

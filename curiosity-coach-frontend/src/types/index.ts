@@ -50,6 +50,7 @@ export interface ConversationSummary {
   title: string | null; // Title can be optional or default
   updated_at: string; // ISO date string
   visit_number?: number; // Visit number at creation time (1, 2, 3, 4+)
+  tags?: string[];
 }
 
 /**
@@ -71,6 +72,11 @@ export interface ConversationCreateResponse {
   ai_opening_message?: string;
   preparation_status: 'ready' | 'generating_memory' | 'generating_persona';
   requires_opening_message: boolean;
+}
+
+export interface ConversationTagsResponse {
+  id: number;
+  tags: string[];
 }
 
 // --- End Conversation Types ---
@@ -303,6 +309,7 @@ export interface ConversationWithMessages {
   title: string | null;
   created_at: string;
   updated_at: string;
+  tags?: string[];
   messages: ConversationMessage[];
   evaluation?: ConversationEvaluationMetrics | null;
   curiosity_summary?: ConversationCuriositySummary | null;
