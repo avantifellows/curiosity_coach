@@ -151,6 +151,7 @@ const TeacherConversationView: React.FC = () => {
   const [lookupLoading, setLookupLoading] = useState(false);
   const [autoLoadForHighlight, setAutoLoadForHighlight] = useState(Boolean(highlightConversationId));
   const [appliedHighlightId, setAppliedHighlightId] = useState<number | null>(null);
+  const [resolvedConversationId, setResolvedConversationId] = useState<number | null>(null);
 
   useEffect(() => {
     setDayFilter(dayParam);
@@ -168,7 +169,7 @@ const TeacherConversationView: React.FC = () => {
       }
       setError(null);
       try {
-        const limit = dayFilter ? 50 : PAGE_SIZE;
+        const limit = highlightConversationId || dayFilter ? 50 : PAGE_SIZE;
         const data = await getStudentConversations(
           student.id,
           limit,
@@ -187,14 +188,40 @@ const TeacherConversationView: React.FC = () => {
         setIsLoadMore(false);
       }
     },
-    [student, dayFilter, conversationTagFilters, conversationTagMode]
+    [student, dayFilter, conversationTagFilters, conversationTagMode, highlightConversationId]
   );
+
+  const fetchStudentById = useCallback(async () => {
+    if (!studentId || !classInfo.school || !classInfo.grade) {
+      setError('No student selected.');
+      return;
+    }
+    setStudentLoading(true);
+    try {
+      const roster = await getStudentsForClass(classInfo.school!, classInfo.grade!, classInfo.section ?? null);
+      const match = roster.find((entry) => entry.student.id === studentId);
+      if (match) {
+        setStudent(match.student);
+      } else {
+        setError('Student not found for this class.');
+      }
+    } catch (err) {
+      console.error('Failed to fetch student details:', err);
+      setError('Failed to load student details.');
+    } finally {
+      setStudentLoading(false);
+    }
+  }, [classInfo.grade, classInfo.school, classInfo.section, studentId]);
 
   useEffect(() => {
     if (student) {
       return;
     }
-    if (!studentId && highlightConversationId) {
+    if (highlightConversationId) {
+      if (resolvedConversationId === highlightConversationId) {
+        return;
+      }
+      setResolvedConversationId(highlightConversationId);
       const fetchByConversation = async () => {
         setLookupLoading(true);
         setError(null);
@@ -214,6 +241,9 @@ const TeacherConversationView: React.FC = () => {
         } catch (err) {
           console.error('Failed to lookup conversation:', err);
           setError('Failed to resolve conversation to a student.');
+          if (studentId && classInfo.school && classInfo.grade) {
+            await fetchStudentById();
+          }
         } finally {
           setLookupLoading(false);
         }
@@ -222,29 +252,20 @@ const TeacherConversationView: React.FC = () => {
       return;
     }
 
-    if (!studentId || !classInfo.school || !classInfo.grade) {
-      setError('No student selected.');
-      return;
-    }
-    const fetchStudent = async () => {
-      setStudentLoading(true);
-      try {
-        const roster = await getStudentsForClass(classInfo.school!, classInfo.grade!, classInfo.section ?? null);
-        const match = roster.find((entry) => entry.student.id === studentId);
-        if (match) {
-          setStudent(match.student);
-        } else {
-          setError('Student not found for this class.');
-        }
-      } catch (err) {
-        console.error('Failed to fetch student details:', err);
-        setError('Failed to load student details.');
-      } finally {
-        setStudentLoading(false);
-      }
-    };
-    fetchStudent();
-  }, [student, studentId, classInfo.school, classInfo.grade, classInfo.section, highlightConversationId, location.search, navigate, state]);
+    fetchStudentById();
+  }, [
+    student,
+    studentId,
+    classInfo.school,
+    classInfo.grade,
+    classInfo.section,
+    highlightConversationId,
+    resolvedConversationId,
+    location.search,
+    navigate,
+    state,
+    fetchStudentById,
+  ]);
 
   useEffect(() => {
     if (!student) {
