@@ -120,7 +120,7 @@ const isAfterSchoolHours = (createdAt: string): boolean => {
 const TeacherConversationView: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const state = (location.state as ConversationLocationState) || {};
+  const state = useMemo(() => (location.state as ConversationLocationState) || {}, [location.state]);
   const searchParams = useMemo(() => new URLSearchParams(location.search), [location.search]);
   const dayParam = searchParams.get('day') || null;
   const studentId = parseIdParam(searchParams.get('student_id'));
@@ -269,6 +269,7 @@ const TeacherConversationView: React.FC = () => {
     classInfo.section,
     highlightConversationId,
     lookupLoading,
+    location.pathname,
     location.search,
     navigate,
     state,
