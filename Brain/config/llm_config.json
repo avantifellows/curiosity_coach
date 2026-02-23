@@ -140,7 +140,7 @@
             "provider": "openai",
             "model": "gpt-5.2",
             "reasoning": {
-                "effort": "none"
+                "effort": "medium"
             },
             "text": {
                 "verbosity": "low"

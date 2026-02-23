@@ -1,9 +1,10 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { ConversationWithMessages, Student, UserPersona, UserPersonaData } from '../types';
 import {
   getClassTags,
   getClassConversationTags,
+  getConversationLookup,
   getStudentConversations,
   getStudentsForClass,
   getUserPersona,
@@ -117,7 +118,6 @@ const TeacherConversationView: React.FC = () => {
 
   const [student, setStudent] = useState<Student | null>(state.student ?? null);
   const [dayFilter, setDayFilter] = useState<string | null>(dayParam);
-  const highlightedRef = useRef<HTMLLIElement | null>(null);
 
   const classInfo = useMemo(() => {
     const school = state.school ?? searchParams.get('school') ?? student?.school ?? undefined;
@@ -147,6 +147,10 @@ const TeacherConversationView: React.FC = () => {
   const [conversationTagDrafts, setConversationTagDrafts] = useState<Record<number, string>>({});
   const [conversationTagSaving, setConversationTagSaving] = useState<Record<number, boolean>>({});
   const [conversationTagError, setConversationTagError] = useState<string | null>(null);
+  const [selectedConversationId, setSelectedConversationId] = useState<number | null>(highlightConversationId);
+  const [lookupLoading, setLookupLoading] = useState(false);
+  const [autoLoadForHighlight, setAutoLoadForHighlight] = useState(Boolean(highlightConversationId));
+  const [appliedHighlightId, setAppliedHighlightId] = useState<number | null>(null);
 
   useEffect(() => {
     setDayFilter(dayParam);
@@ -190,6 +194,34 @@ const TeacherConversationView: React.FC = () => {
     if (student) {
       return;
     }
+    if (!studentId && highlightConversationId) {
+      const fetchByConversation = async () => {
+        setLookupLoading(true);
+        setError(null);
+        try {
+          const lookup = await getConversationLookup(highlightConversationId);
+          setStudent(lookup.student);
+          const nextParams = new URLSearchParams(location.search);
+          nextParams.set('student_id', String(lookup.student.id));
+          nextParams.set('school', lookup.student.school);
+          nextParams.set('grade', String(lookup.student.grade));
+          if (lookup.student.section) {
+            nextParams.set('section', lookup.student.section);
+          } else {
+            nextParams.delete('section');
+          }
+          navigate({ pathname: location.pathname, search: nextParams.toString() }, { replace: true, state });
+        } catch (err) {
+          console.error('Failed to lookup conversation:', err);
+          setError('Failed to resolve conversation to a student.');
+        } finally {
+          setLookupLoading(false);
+        }
+      };
+      fetchByConversation();
+      return;
+    }
+
     if (!studentId || !classInfo.school || !classInfo.grade) {
       setError('No student selected.');
       return;
@@ -212,7 +244,7 @@ const TeacherConversationView: React.FC = () => {
       }
     };
     fetchStudent();
-  }, [student, studentId, classInfo.school, classInfo.grade, classInfo.section]);
+  }, [student, studentId, classInfo.school, classInfo.grade, classInfo.section, highlightConversationId, location.search, navigate, state]);
 
   useEffect(() => {
     if (!student) {
@@ -406,12 +438,6 @@ const TeacherConversationView: React.FC = () => {
     );
   };
 
-  useEffect(() => {
-    if (highlightConversationId && highlightedRef.current && !isInitialLoading) {
-      highlightedRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }
-  }, [highlightConversationId, isInitialLoading, conversations]);
-
   const handleLoadMore = () => {
     if (nextOffset == null || isLoadMore) {
       return;
@@ -419,12 +445,81 @@ const TeacherConversationView: React.FC = () => {
     fetchConversations(nextOffset);
   };
 
+  // Filter conversations based on the toggle
+  const filteredConversations = showAfterSchoolOnly
+    ? conversations.filter((conv) => isAfterSchoolHours(conv.created_at))
+    : conversations;
+  const studentTags = student?.tags ?? [];
+  const selectedConversation = filteredConversations.find((conv) => conv.id === selectedConversationId) ?? null;
+
+  useEffect(() => {
+    if (!highlightConversationId) {
+      return;
+    }
+    if (appliedHighlightId === highlightConversationId) {
+      return;
+    }
+    setSelectedConversationId(highlightConversationId);
+    setAutoLoadForHighlight(true);
+    setAppliedHighlightId(highlightConversationId);
+  }, [highlightConversationId, appliedHighlightId]);
+
+  useEffect(() => {
+    if (filteredConversations.length === 0) {
+      if (!highlightConversationId) {
+        setSelectedConversationId(null);
+      }
+      return;
+    }
+    if (!selectedConversationId && !highlightConversationId) {
+      setSelectedConversationId(filteredConversations[0].id);
+      return;
+    }
+    const exists = filteredConversations.some((conv) => conv.id === selectedConversationId);
+    if (!exists && !highlightConversationId) {
+      setSelectedConversationId(filteredConversations[0].id);
+    }
+  }, [filteredConversations, selectedConversationId, highlightConversationId]);
+
+  useEffect(() => {
+    if (!highlightConversationId || !autoLoadForHighlight) {
+      return;
+    }
+    const found = filteredConversations.some((conv) => conv.id === highlightConversationId);
+    if (found) {
+      setAutoLoadForHighlight(false);
+      return;
+    }
+    if (nextOffset == null || isLoadMore || isInitialLoading) {
+      if (nextOffset == null) {
+        setAutoLoadForHighlight(false);
+      }
+      return;
+    }
+    fetchConversations(nextOffset);
+  }, [
+    highlightConversationId,
+    autoLoadForHighlight,
+    filteredConversations,
+    nextOffset,
+    isLoadMore,
+    isInitialLoading,
+    fetchConversations,
+  ]);
+
+  const handleSelectConversation = (conversationId: number) => {
+    setSelectedConversationId(conversationId);
+    const nextParams = new URLSearchParams(location.search);
+    nextParams.set('conversation_id', String(conversationId));
+    navigate({ pathname: location.pathname, search: nextParams.toString() }, { replace: true, state });
+  };
+
   if (!student) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
         <div className="max-w-md w-full bg-white rounded-2xl shadow p-6 space-y-4 text-center">
           <p className="text-slate-700">
-            {studentLoading ? 'Loading student details...' : 'No student selected.'}
+            {studentLoading || lookupLoading ? 'Loading student details...' : 'No student selected.'}
           </p>
           <button
             onClick={() => navigate(-1)}
@@ -448,12 +543,6 @@ const TeacherConversationView: React.FC = () => {
     classLabelParts.push(`Section ${classInfo.section}`);
   }
   const classLabel = classLabelParts.join(' · ');
-
-  // Filter conversations based on the toggle
-  const filteredConversations = showAfterSchoolOnly
-    ? conversations.filter((conv) => isAfterSchoolHours(conv.created_at))
-    : conversations;
-  const studentTags = student?.tags ?? [];
 
   return (
     <div className="min-h-screen bg-slate-50 py-10 px-4">
@@ -667,7 +756,7 @@ const TeacherConversationView: React.FC = () => {
           ))}
         </datalist>
 
-        <div className="rounded-3xl bg-white p-6 shadow-lg shadow-slate-200 space-y-6">
+        <div className="rounded-3xl bg-white p-6 shadow-lg shadow-slate-200">
           {error && (
             <div className="rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-700">
               {error}
@@ -685,197 +774,252 @@ const TeacherConversationView: React.FC = () => {
                   : 'No conversations yet.')}
             </p>
           ) : (
-            <ul className="space-y-6">
-              {filteredConversations.map((conversation) => {
-                const isHighlighted = highlightConversationId === conversation.id;
-                const evaluation = conversation.evaluation;
-                const conversationTags = conversation.tags ?? [];
-                const divergentLabel =
-                  evaluation?.divergent === true
-                    ? 'Yes'
-                    : evaluation?.divergent === false
-                      ? 'No'
-                      : null;
-                const studentRequestLabel = formatStudentRequest(evaluation?.student_request ?? null);
-                return (
-                <li
-                  key={conversation.id}
-                  ref={isHighlighted ? highlightedRef : null}
-                  className={`rounded-2xl border p-5 shadow-sm ${
-                    isHighlighted
-                      ? 'border-indigo-200 bg-indigo-50/40 shadow-indigo-100'
-                      : 'border-slate-100'
-                  }`}
-                >
-                  <div className="flex flex-col gap-2 border-b border-slate-100 pb-4 sm:flex-row sm:items-center sm:justify-between">
-                    <div>
-                      <p className="text-lg font-semibold text-slate-900">
-                        {conversation.title || 'Untitled conversation'}
-                      </p>
-                      <p className="text-xs uppercase tracking-wide text-slate-500">Conversation #{conversation.id}</p>
-                      {isHighlighted && (
-                        <span className="mt-2 inline-flex items-center rounded-full bg-indigo-100 px-2.5 py-0.5 text-[11px] font-semibold text-indigo-700">
-                          Max depth
-                        </span>
-                      )}
-                    </div>
-                    <div className="flex flex-col items-start sm:items-end gap-1">
-                      {(() => {
-                        const score = getLatestCuriosityScore(conversation.messages);
-                        return score !== null ? (
-                          <span className="inline-flex items-center gap-1.5 rounded-full bg-gradient-to-r from-amber-400 to-orange-500 px-3 py-1 text-sm font-semibold text-white shadow-sm">
-                            ✨ Score: {score}
-                          </span>
-                        ) : null;
-                      })()}
-                      <p className="text-sm text-slate-500">
-                        Last updated {new Date(conversation.updated_at).toLocaleString()}
-                      </p>
-                    </div>
-                  </div>
-                  {(() => {
-                    const metrics = [
-                      {
-                        label: 'Depth',
-                        value: evaluation?.depth ?? null,
-                        formatter: formatOneDecimal,
-                      },
-                      {
-                        label: 'Relevant Qs',
-                        value: evaluation?.relevant_question_count ?? null,
-                        formatter: formatInteger,
-                      },
-                      {
-                        label: 'Attention (min)',
-                        value: evaluation?.attention_span ?? null,
-                        formatter: formatOneDecimal,
-                      },
-                    ].filter((item) => item.value !== null && item.value !== undefined);
-
-                    if (metrics.length === 0) {
-                      return null;
-                    }
-
+            <div className="grid gap-6 lg:grid-cols-[320px_minmax(0,1fr)]">
+              <div className="rounded-2xl border border-slate-100 bg-slate-50/60 p-3">
+                <div className="mb-3 flex items-center justify-between px-2">
+                  <h2 className="text-sm font-semibold text-slate-700">All conversations</h2>
+                  <span className="text-xs text-slate-500">{filteredConversations.length} total</span>
+                </div>
+                <div className="max-h-[70vh] space-y-2 overflow-y-auto pr-1">
+                  {filteredConversations.map((conversation) => {
+                    const isSelected = selectedConversationId === conversation.id;
+                    const score = getLatestCuriosityScore(conversation.messages);
                     return (
-                      <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-600">
-                        {metrics.map((item) => (
-                          <span
-                            key={item.label}
-                            className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-3 py-1"
-                          >
-                            <span className="font-semibold text-slate-700">{item.label}:</span>
-                            <span>{item.formatter(item.value as number)}</span>
-                          </span>
-                        ))}
-                      </div>
-                    );
-                  })()}
-                  {(divergentLabel || studentRequestLabel) && (
-                    <div className="mt-2 flex flex-wrap gap-2 text-xs text-slate-600">
-                      {divergentLabel && (
-                        <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-3 py-1">
-                          <span className="font-semibold text-slate-700">Divergent:</span>
-                          <span>{divergentLabel}</span>
-                        </span>
-                      )}
-                      {studentRequestLabel && (
-                        <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-3 py-1">
-                          <span className="font-semibold text-slate-700">Request:</span>
-                          <span>{studentRequestLabel}</span>
-                        </span>
-                      )}
-                    </div>
-                  )}
-                  <div className="mt-3 flex flex-wrap items-center gap-2">
-                    <span className="text-xs font-semibold text-slate-600">Tags</span>
-                    {conversationTags.map((tag) => (
-                      <span
-                        key={`${conversation.id}-${tag}`}
-                        className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-3 py-1 text-[11px] font-medium text-emerald-700"
-                      >
-                        <span>{tag}</span>
-                        <button
-                          type="button"
-                          className="text-[12px] leading-none text-emerald-500 transition hover:text-emerald-700"
-                          onClick={() => handleRemoveConversationTag(conversation.id, tag)}
-                          aria-label={`Remove tag ${tag}`}
-                          disabled={conversationTagSaving[conversation.id]}
-                        >
-                          ×
-                        </button>
-                      </span>
-                    ))}
-                    <div className="flex items-center gap-2">
-                      <input
-                        value={conversationTagDrafts[conversation.id] ?? ''}
-                        onChange={(event) =>
-                          setConversationTagDrafts((prev) => ({
-                            ...prev,
-                            [conversation.id]: event.target.value,
-                          }))
-                        }
-                        onKeyDown={(event) => {
-                          if (event.key === 'Enter' || event.key === ',') {
-                            event.preventDefault();
-                            handleAddConversationTag(conversation.id);
-                          }
-                        }}
-                        list="conversation-tag-suggestions"
-                        placeholder="Add tag"
-                        className="w-32 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs text-slate-600 shadow-sm focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-100"
-                        disabled={conversationTagSaving[conversation.id]}
-                      />
                       <button
+                        key={conversation.id}
                         type="button"
-                        className="rounded-lg border border-slate-200 px-3 py-1.5 text-[11px] font-semibold text-slate-500 transition hover:border-indigo-200 hover:text-indigo-600"
-                        onClick={() => handleAddConversationTag(conversation.id)}
-                        disabled={conversationTagSaving[conversation.id]}
+                        onClick={() => handleSelectConversation(conversation.id)}
+                        className={`w-full rounded-xl border px-3 py-3 text-left shadow-sm transition ${
+                          isSelected
+                            ? 'border-indigo-200 bg-white shadow-indigo-100'
+                            : 'border-transparent bg-white/70 hover:border-indigo-100 hover:bg-white'
+                        }`}
                       >
-                        Add
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-sm font-semibold text-slate-900">
+                            {conversation.title || 'Untitled conversation'}
+                          </p>
+                          {score !== null && (
+                            <span className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
+                              Score {score}
+                            </span>
+                          )}
+                        </div>
+                        <p className="mt-1 text-[11px] text-slate-500">
+                          #{conversation.id} · {new Date(conversation.updated_at).toLocaleDateString()}
+                        </p>
+                        {(conversation.tags ?? []).length > 0 && (
+                          <div className="mt-2 flex flex-wrap gap-1">
+                            {(conversation.tags ?? []).slice(0, 3).map((tag) => (
+                              <span
+                                key={`${conversation.id}-${tag}-chip`}
+                                className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700"
+                              >
+                                {tag}
+                              </span>
+                            ))}
+                            {(conversation.tags ?? []).length > 3 && (
+                              <span className="text-[10px] text-slate-400">
+                                +{(conversation.tags ?? []).length - 3}
+                              </span>
+                            )}
+                          </div>
+                        )}
                       </button>
-                    </div>
-                  </div>
-                  <div className="mt-4 max-h-[40vh] space-y-4 overflow-y-auto pr-1">
-                    {conversation.messages.length === 0 ? (
-                      <p className="text-sm text-slate-500">No messages yet.</p>
-                    ) : (
-                      conversation.messages.map((message) => (
-                        <div
-                          key={message.id}
-                          className={`flex flex-col ${
-                            message.is_user ? 'items-start text-indigo-700' : 'items-end text-green-700'
-                          }`}
-                        >
-                          <span className="text-xs uppercase font-semibold tracking-wide">
-                            {message.is_user ? 'Kid' : 'Coach'}
-                          </span>
-                          <div
-                            className={`mt-1 rounded-2xl px-4 py-2 shadow-sm ${
-                              message.is_user ? 'bg-white border border-indigo-100' : 'bg-green-50 border border-green-100'
-                            }`}
-                          >
-                            <p className="text-sm text-slate-800">{message.content}</p>
-                            <p className="mt-1 text-xs text-slate-400">
-                              {new Date(message.timestamp).toLocaleString()}
+                    );
+                  })}
+                </div>
+
+                {nextOffset !== null && conversations.length > 0 && (
+                  <button
+                    onClick={handleLoadMore}
+                    disabled={isLoadMore}
+                    className="mt-3 inline-flex w-full items-center justify-center rounded-full bg-slate-900 px-4 py-2 text-xs font-semibold text-white shadow transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400"
+                  >
+                    {isLoadMore ? 'Loading...' : 'Load more'}
+                  </button>
+                )}
+              </div>
+
+              <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
+                {!selectedConversation ? (
+                  <p className="text-sm text-slate-500">Select a conversation to view its messages.</p>
+                ) : (
+                  (() => {
+                    const evaluation = selectedConversation.evaluation;
+                    const conversationTags = selectedConversation.tags ?? [];
+                    const divergentLabel =
+                      evaluation?.divergent === true
+                        ? 'Yes'
+                        : evaluation?.divergent === false
+                          ? 'No'
+                          : null;
+                    const studentRequestLabel = formatStudentRequest(evaluation?.student_request ?? null);
+                    return (
+                      <div className="flex h-[82vh] flex-col">
+                        <div className="flex flex-col gap-2 border-b border-slate-100 pb-4 sm:flex-row sm:items-center sm:justify-between">
+                          <div>
+                            <p className="text-lg font-semibold text-slate-900">
+                              {selectedConversation.title || 'Untitled conversation'}
+                            </p>
+                            <p className="text-xs uppercase tracking-wide text-slate-500">
+                              Conversation #{selectedConversation.id}
+                            </p>
+                          </div>
+                          <div className="flex flex-col items-start sm:items-end gap-1">
+                            {(() => {
+                              const score = getLatestCuriosityScore(selectedConversation.messages);
+                              return score !== null ? (
+                                <span className="inline-flex items-center gap-1.5 rounded-full bg-gradient-to-r from-amber-400 to-orange-500 px-3 py-1 text-sm font-semibold text-white shadow-sm">
+                                  ✨ Score: {score}
+                                </span>
+                              ) : null;
+                            })()}
+                            <p className="text-sm text-slate-500">
+                              Last updated {new Date(selectedConversation.updated_at).toLocaleString()}
                             </p>
                           </div>
                         </div>
-                      ))
-                    )}
-                  </div>
-                </li>
-              )})}
-            </ul>
-          )}
 
-          {nextOffset !== null && conversations.length > 0 && (
-            <button
-              onClick={handleLoadMore}
-              disabled={isLoadMore}
-              className="inline-flex w-full items-center justify-center rounded-full bg-slate-900 px-6 py-3 text-sm font-semibold text-white shadow transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400"
-            >
-              {isLoadMore ? 'Loading...' : 'Load more conversations'}
-            </button>
+                        {(() => {
+                          const metrics = [
+                            {
+                              label: 'Depth',
+                              value: evaluation?.depth ?? null,
+                              formatter: formatOneDecimal,
+                            },
+                            {
+                              label: 'Relevant Qs',
+                              value: evaluation?.relevant_question_count ?? null,
+                              formatter: formatInteger,
+                            },
+                            {
+                              label: 'Attention (min)',
+                              value: evaluation?.attention_span ?? null,
+                              formatter: formatOneDecimal,
+                            },
+                          ].filter((item) => item.value !== null && item.value !== undefined);
+
+                          if (metrics.length === 0) {
+                            return null;
+                          }
+
+                          return (
+                            <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-600">
+                              {metrics.map((item) => (
+                                <span
+                                  key={item.label}
+                                  className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-3 py-1"
+                                >
+                                  <span className="font-semibold text-slate-700">{item.label}:</span>
+                                  <span>{item.formatter(item.value as number)}</span>
+                                </span>
+                              ))}
+                            </div>
+                          );
+                        })()}
+
+                        {(divergentLabel || studentRequestLabel) && (
+                          <div className="mt-2 flex flex-wrap gap-2 text-xs text-slate-600">
+                            {divergentLabel && (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-3 py-1">
+                                <span className="font-semibold text-slate-700">Divergent:</span>
+                                <span>{divergentLabel}</span>
+                              </span>
+                            )}
+                            {studentRequestLabel && (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-3 py-1">
+                                <span className="font-semibold text-slate-700">Request:</span>
+                                <span>{studentRequestLabel}</span>
+                              </span>
+                            )}
+                          </div>
+                        )}
+
+                        <div className="mt-3 flex flex-wrap items-center gap-2">
+                          <span className="text-xs font-semibold text-slate-600">Tags</span>
+                          {conversationTags.map((tag) => (
+                            <span
+                              key={`${selectedConversation.id}-${tag}`}
+                              className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-3 py-1 text-[11px] font-medium text-emerald-700"
+                            >
+                              <span>{tag}</span>
+                              <button
+                                type="button"
+                                className="text-[12px] leading-none text-emerald-500 transition hover:text-emerald-700"
+                                onClick={() => handleRemoveConversationTag(selectedConversation.id, tag)}
+                                aria-label={`Remove tag ${tag}`}
+                                disabled={conversationTagSaving[selectedConversation.id]}
+                              >
+                                ×
+                              </button>
+                            </span>
+                          ))}
+                          <div className="flex items-center gap-2">
+                            <input
+                              value={conversationTagDrafts[selectedConversation.id] ?? ''}
+                              onChange={(event) =>
+                                setConversationTagDrafts((prev) => ({
+                                  ...prev,
+                                  [selectedConversation.id]: event.target.value,
+                                }))
+                              }
+                              onKeyDown={(event) => {
+                                if (event.key === 'Enter' || event.key === ',') {
+                                  event.preventDefault();
+                                  handleAddConversationTag(selectedConversation.id);
+                                }
+                              }}
+                              list="conversation-tag-suggestions"
+                              placeholder="Add tag"
+                              className="w-32 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs text-slate-600 shadow-sm focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-100"
+                              disabled={conversationTagSaving[selectedConversation.id]}
+                            />
+                            <button
+                              type="button"
+                              className="rounded-lg border border-slate-200 px-3 py-1.5 text-[11px] font-semibold text-slate-500 transition hover:border-indigo-200 hover:text-indigo-600"
+                              onClick={() => handleAddConversationTag(selectedConversation.id)}
+                              disabled={conversationTagSaving[selectedConversation.id]}
+                            >
+                              Add
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="mt-4 flex-1 space-y-4 overflow-y-auto pr-1">
+                          {selectedConversation.messages.length === 0 ? (
+                            <p className="text-sm text-slate-500">No messages yet.</p>
+                          ) : (
+                            selectedConversation.messages.map((message) => (
+                              <div
+                                key={message.id}
+                                className={`flex flex-col ${
+                                  message.is_user ? 'items-start text-indigo-700' : 'items-end text-green-700'
+                                }`}
+                              >
+                                <span className="text-xs uppercase font-semibold tracking-wide">
+                                  {message.is_user ? 'Kid' : 'Coach'}
+                                </span>
+                                <div
+                                  className={`mt-1 rounded-2xl px-4 py-2 shadow-sm ${
+                                    message.is_user ? 'bg-white border border-indigo-100' : 'bg-green-50 border border-green-100'
+                                  }`}
+                                >
+                                  <p className="text-sm text-slate-800">{message.content}</p>
+                                  <p className="mt-1 text-xs text-slate-400">
+                                    {new Date(message.timestamp).toLocaleString()}
+                                  </p>
+                                </div>
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })()
+                )}
+              </div>
+            </div>
           )}
         </div>
 

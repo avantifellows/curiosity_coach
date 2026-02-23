@@ -22,6 +22,7 @@ import {
   StudentDailyMetricsResponse,
   MetricsRefreshResponse,
   Student,
+  ConversationLookupResponse,
 } from '../types';
 
 const API = axios.create({
@@ -474,6 +475,16 @@ export const getConversationMessages = async (conversationId: number): Promise<C
   } catch (error: any) {
     console.error("Error fetching messages:", error.response?.data || error.message);
     throw new Error(error.response?.data?.detail || 'Failed to get messages');
+  }
+};
+
+export const getConversationLookup = async (conversationId: number): Promise<ConversationLookupResponse> => {
+  try {
+    const response = await API.get<ConversationLookupResponse>(`/students/conversations/${conversationId}/lookup`);
+    return response.data;
+  } catch (error: any) {
+    console.error("Error fetching conversation lookup:", error.response?.data || error.message);
+    throw new Error(error.response?.data?.detail || 'Failed to lookup conversation');
   }
 };
 

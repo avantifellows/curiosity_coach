@@ -108,3 +108,8 @@ class AnalysisJobStatusResponse(BaseModel):
 
 class StudentTagsUpdateRequest(BaseModel):
     tags: List[str] = Field(default_factory=list)
+
+
+class ConversationLookupResponse(BaseModel):
+    conversation_id: int
+    student: StudentResponse

@@ -31,6 +31,7 @@ from src.students.schemas import (
     ClassAnalysisResponse,
     AnalysisJobStatusResponse,
     StudentTagsUpdateRequest,
+    ConversationLookupResponse,
 )
 from src.conversations.schemas import ConversationTagsUpdate, ConversationTagsResponse
 from src.auth.schemas import StudentResponse
@@ -866,6 +867,27 @@ def list_all_student_conversations(
     ]
 
     return response_conversations
+
+
+@router.get("/conversations/{conversation_id}/lookup", response_model=ConversationLookupResponse)
+def lookup_conversation_student(
+    conversation_id: int,
+    db: Session = Depends(get_db),
+):
+    """
+    Resolve a conversation_id to its student (for teacher/admin views).
+    """
+    student = (
+        db.query(Student)
+        .join(Conversation, Conversation.user_id == Student.user_id)
+        .options(selectinload(Student.tags))
+        .filter(Conversation.id == conversation_id)
+        .first()
+    )
+    if not student:
+        raise HTTPException(status_code=404, detail="Conversation not found for any student")
+
+    return ConversationLookupResponse(conversation_id=conversation_id, student=student)
 
 
 @router.post("/class-analysis", response_model=ClassAnalysisResponse)

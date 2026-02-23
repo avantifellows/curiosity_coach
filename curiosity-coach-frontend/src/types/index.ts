@@ -146,6 +146,11 @@ export interface StudentLoginResponse {
   student?: Student;
 }
 
+export interface ConversationLookupResponse {
+  conversation_id: number;
+  student: Student;
+}
+
 export interface StudentOptions {
   schools: string[];
   grades: number[];
