@@ -78,6 +78,18 @@ const formatStudentRequest = (value?: string | null) => {
   return trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
 };
 
+const parseIdParam = (value: string | null): number | null => {
+  if (!value) {
+    return null;
+  }
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return null;
+  }
+  return parsed;
+};
+
+
 // Get the latest non-null curiosity score from messages
 const getLatestCuriosityScore = (messages: ConversationWithMessages['messages']): number | null => {
   // Messages are ordered by timestamp, find last one with a score
@@ -110,11 +122,9 @@ const TeacherConversationView: React.FC = () => {
   const location = useLocation();
   const state = (location.state as ConversationLocationState) || {};
   const searchParams = useMemo(() => new URLSearchParams(location.search), [location.search]);
-  const studentIdParam = Number(searchParams.get('student_id'));
   const dayParam = searchParams.get('day') || null;
-  const conversationIdParam = Number(searchParams.get('conversation_id'));
-  const studentId = Number.isNaN(studentIdParam) ? null : studentIdParam;
-  const highlightConversationId = Number.isNaN(conversationIdParam) ? null : conversationIdParam;
+  const studentId = parseIdParam(searchParams.get('student_id'));
+  const highlightConversationId = parseIdParam(searchParams.get('conversation_id'));
 
   const [student, setStudent] = useState<Student | null>(state.student ?? null);
   const [dayFilter, setDayFilter] = useState<string | null>(dayParam);
@@ -151,7 +161,6 @@ const TeacherConversationView: React.FC = () => {
   const [lookupLoading, setLookupLoading] = useState(false);
   const [autoLoadForHighlight, setAutoLoadForHighlight] = useState(Boolean(highlightConversationId));
   const [appliedHighlightId, setAppliedHighlightId] = useState<number | null>(null);
-  const [resolvedConversationId, setResolvedConversationId] = useState<number | null>(null);
 
   useEffect(() => {
     setDayFilter(dayParam);
@@ -218,10 +227,9 @@ const TeacherConversationView: React.FC = () => {
       return;
     }
     if (highlightConversationId) {
-      if (resolvedConversationId === highlightConversationId) {
+      if (lookupLoading) {
         return;
       }
-      setResolvedConversationId(highlightConversationId);
       const fetchByConversation = async () => {
         setLookupLoading(true);
         setError(null);
@@ -260,7 +268,7 @@ const TeacherConversationView: React.FC = () => {
     classInfo.grade,
     classInfo.section,
     highlightConversationId,
-    resolvedConversationId,
+    lookupLoading,
     location.search,
     navigate,
     state,
@@ -536,12 +544,12 @@ const TeacherConversationView: React.FC = () => {
   };
 
   if (!student) {
+    const emptyStateMessage =
+      error ?? (studentLoading || lookupLoading ? 'Loading student details...' : 'No student selected.');
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
         <div className="max-w-md w-full bg-white rounded-2xl shadow p-6 space-y-4 text-center">
-          <p className="text-slate-700">
-            {studentLoading || lookupLoading ? 'Loading student details...' : 'No student selected.'}
-          </p>
+          <p className="text-slate-700">{emptyStateMessage}</p>
           <button
             onClick={() => navigate(-1)}
             className="inline-flex items-center justify-center rounded-full bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-indigo-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-indigo-500"
