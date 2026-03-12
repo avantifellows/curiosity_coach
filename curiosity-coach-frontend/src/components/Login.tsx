@@ -4,6 +4,9 @@ import { useAuth } from '../context/AuthContext';
 import { loginUser, loginStudent, getStudentOptions } from '../services/api';
 import { StudentOptions } from '../types';
 
+const MAX_STUDENT_IDENTIFIER = 99999999999999;
+const JNV_BANGALORE_URBAN = 'JNV Bangalore Urban';
+
 const Login: React.FC = () => {
   const [identifier, setIdentifier] = useState('');
   const [error, setError] = useState('');
@@ -53,6 +56,8 @@ const Login: React.FC = () => {
   ];
 
   const isEkyaJPNagar = school === 'Ekya School JP Nagar';
+  const isJnvBangaloreUrban = school === JNV_BANGALORE_URBAN;
+  const rollNumberFieldLabel = isJnvBangaloreUrban ? 'Student ID' : 'Roll Number';
 
   // Auto-set grade and section for Ekya JP Nagar
   useEffect(() => {
@@ -169,7 +174,13 @@ const Login: React.FC = () => {
 
         // For non-Ekya schools, validate roll number
         if (!isEkyaJPNagar && rollNumber === '') {
-          setError('Please enter your roll number');
+          setError(`Please enter your ${rollNumberFieldLabel.toLowerCase()}`);
+          setIsLoading(false);
+          return;
+        }
+
+        if (!isEkyaJPNagar && (Number(rollNumber) < 1 || Number(rollNumber) > MAX_STUDENT_IDENTIFIER)) {
+          setError(`${rollNumberFieldLabel} must be between 1 and ${MAX_STUDENT_IDENTIFIER}`);
           setIsLoading(false);
           return;
         }
@@ -340,21 +351,26 @@ const Login: React.FC = () => {
 
                   <div>
                     <label htmlFor="rollNumber" className="block text-sm font-medium text-gray-700 mb-1">
-                      Roll Number *
+                      {rollNumberFieldLabel} *
                     </label>
                     <input
                       id="rollNumber"
                       name="rollNumber"
                       type="number"
                       min="1"
-                      max="100"
+                      max={MAX_STUDENT_IDENTIFIER}
+                      step="1"
                       required
                       className="appearance-none relative block w-full px-3 py-3 sm:py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-md focus:outline-hidden focus:ring-indigo-500 focus:border-indigo-500 text-base sm:text-sm"
-                      placeholder="Enter your roll number"
+                      placeholder={isJnvBangaloreUrban ? 'Enter your student ID' : 'Enter your roll number'}
                       value={rollNumber}
                       onChange={(e) => setRollNumber(e.target.value ? Number(e.target.value) : '')}
                     />
-                    <p className="mt-1 text-xs text-gray-500">Your roll number in your class</p>
+                    <p className="mt-1 text-xs text-gray-500">
+                      {isJnvBangaloreUrban
+                        ? 'Enter your numeric student ID (up to 14 digits)'
+                        : 'Your roll number in your class'}
+                    </p>
                   </div>
 
                   <div>

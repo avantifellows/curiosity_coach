@@ -3,6 +3,8 @@ import re
 from typing import Optional, List
 from datetime import datetime
 
+from src.config.student_config import MAX_ROLL_NUMBER, MIN_ROLL_NUMBER
+
 class LoginRequest(BaseModel):
     identifier: str
     
@@ -80,8 +82,8 @@ class StudentLoginRequest(BaseModel):
     @field_validator('roll_number')
     @classmethod
     def validate_roll_number(cls, v):
-        if v < 1 or v > 1000000000000:
-            raise ValueError('Roll number must be between 1 and 1000000000000')
+        if v < MIN_ROLL_NUMBER or v > MAX_ROLL_NUMBER:
+            raise ValueError(f'Roll number must be between {MIN_ROLL_NUMBER} and {MAX_ROLL_NUMBER}')
         return v
 
     @field_validator('first_name')

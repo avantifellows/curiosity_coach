@@ -7,6 +7,7 @@ Edit this file to add/remove schools or sections as needed.
 # List of schools (easily editable)
 SCHOOLS = [
     "Ekya School JP Nagar",
+    "JNV Bangalore Urban",
     "JNV Palghar",
     "School A",
     "School B",
@@ -20,4 +21,4 @@ SECTIONS = ["A", "B", "C", "D", "E", "F"]
 
 # Validation constraints
 MIN_ROLL_NUMBER = 1
-MAX_ROLL_NUMBER = 1000000000000
+MAX_ROLL_NUMBER = 99999999999999
