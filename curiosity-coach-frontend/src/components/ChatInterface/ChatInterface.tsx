@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import { useLocation } from 'react-router-dom';
+import { CircularProgress } from '@mui/material';
+import { AutoAwesomeRounded } from '@mui/icons-material';
 import { useAuth } from '../../context/AuthContext';
 import { useChat } from '../../context/ChatContext';
 import { getPipelineSteps, getConversationMemory } from '../../services/api';
@@ -209,29 +211,26 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ mode }) => {
     }
     
     return (
-      <div className="flex h-screen-mobile main-gradient-bg items-center justify-center">
-        <div className="text-center p-8 max-w-md">
-          {/* Animated icon */}
-          <div className="mb-6 relative inline-block">
-            <div className="w-20 h-20 bg-gradient-to-br from-purple-400 to-blue-500 rounded-full animate-pulse flex items-center justify-center">
-              <span className="text-4xl">🌟</span>
-            </div>
-            <div className="absolute inset-0 w-20 h-20 bg-gradient-to-br from-purple-400 to-blue-500 rounded-full animate-ping opacity-20"></div>
+      <div className="flex h-screen-mobile main-gradient-bg items-center justify-center px-6">
+        <div className="w-full max-w-md rounded-3xl border border-violet-200 bg-white/95 p-8 text-center shadow-sm">
+          <div className="mb-4 inline-flex h-14 w-14 items-center justify-center rounded-2xl bg-violet-100 text-violet-700 animate-twinkle">
+            <AutoAwesomeRounded />
           </div>
-          
-          {/* Loading message */}
-          <h2 className="text-2xl font-bold text-gray-800 mb-3">
+          <div className="mb-6 flex justify-center">
+            <CircularProgress size={24} sx={{ color: '#7c3aed' }} />
+          </div>
+
+          <h2 className="mb-3 text-2xl font-semibold text-slate-900">
             Welcome to Curiosity Coach!
           </h2>
-          <p className="text-lg text-gray-600 mb-2">
+          <p className="mb-2 text-base text-slate-600 sm:text-lg">
             {loadingMessage}
           </p>
-          
-          {/* Loading dots animation */}
-          <div className="flex justify-center items-center space-x-2 mt-6">
-            <div className="w-3 h-3 bg-purple-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
-            <div className="w-3 h-3 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
-            <div className="w-3 h-3 bg-pink-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
+          <div className="mt-4 text-sm text-violet-700">
+            We’re getting your coach ready for a thoughtful first conversation.
+          </div>
+          <div className="mt-2 text-sm text-slate-500">
+            This can take a minute or two the first time.
           </div>
         </div>
       </div>
@@ -282,11 +281,6 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ mode }) => {
 
         <main className="flex-1 p-2 sm:p-4 flex justify-center overflow-hidden relative">
           <div className="w-full max-w-4xl relative flex flex-col h-full">
-            {/* Decorative elements */}
-            <div className="absolute top-0 right-0 w-32 h-32 bg-yellow-200 rounded-full mix-blend-multiply filter blur-xl opacity-20 animate-blob"></div>
-            <div className="absolute top-0 -left-4 w-36 h-36 bg-purple-200 rounded-full mix-blend-multiply filter blur-xl opacity-20 animate-blob animation-delay-2000"></div>
-            <div className="absolute -bottom-8 left-20 w-36 h-36 bg-pink-200 rounded-full mix-blend-multiply filter blur-xl opacity-20 animate-blob animation-delay-4000"></div>
-            
             {/* Messages */}
             <MessageList
               messages={messages}

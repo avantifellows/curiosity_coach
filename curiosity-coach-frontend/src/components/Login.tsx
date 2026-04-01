@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { AutoAwesomeRounded } from '@mui/icons-material';
 import { useAuth } from '../context/AuthContext';
 import { loginUser, loginStudent, getStudentOptions } from '../services/api';
 import { StudentOptions } from '../types';
@@ -101,6 +102,9 @@ const Login: React.FC = () => {
   const debugMode = searchParams.get('debug') === 'true';
   const tryMode = location.pathname === '/try' || searchParams.get('mode') === 'try';
   const useIdentifierLogin = debugMode || tryMode;
+  const fieldClass = 'appearance-none relative block w-full rounded-xl border border-violet-200 bg-white px-3 py-3 text-base text-gray-900 shadow-sm focus:outline-none focus:ring-2 focus:ring-violet-200 focus:border-violet-400 sm:py-2 sm:text-sm disabled:cursor-not-allowed disabled:bg-violet-50';
+  const labelClass = 'mb-1 block text-sm font-medium text-slate-700';
+  const helpClass = 'mt-1 text-xs text-slate-500';
 
   const [studentOptions, setStudentOptions] = useState<StudentOptions | null>(null);
   const [studentOptionsLoading, setStudentOptionsLoading] = useState(false);
@@ -222,13 +226,16 @@ const Login: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 py-8 sm:py-12 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-md w-full space-y-6 sm:space-y-8">
+    <div className="main-gradient-bg min-h-screen flex items-center justify-center px-4 py-8 sm:px-6 sm:py-12 lg:px-8">
+      <div className="w-full max-w-md space-y-6 rounded-3xl border border-violet-200 bg-white/95 p-6 shadow-sm sm:space-y-8 sm:p-8">
         <div>
-          <h2 className="mt-6 text-center text-2xl sm:text-3xl font-extrabold text-gray-900">
+          <div className="mx-auto mb-4 inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-violet-100 text-violet-700">
+            <AutoAwesomeRounded />
+          </div>
+          <h2 className="text-center text-2xl font-extrabold text-gray-900 sm:text-3xl">
             Curiosity Coach
           </h2>
-          <p className="mt-2 text-center text-sm text-gray-600">
+          <p className="mt-2 text-center text-sm text-violet-700">
             Sign in to start your learning journey
           </p>
         </div>
@@ -244,12 +251,12 @@ const Login: React.FC = () => {
                 type="text"
                 autoComplete="off"
                 required
-                className="appearance-none relative block w-full px-3 py-3 sm:py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-md focus:outline-hidden focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 text-base sm:text-sm"
+                className={fieldClass}
                 placeholder="User ID"
                 value={identifier}
                 onChange={(e) => setIdentifier(e.target.value)}
               />
-              <p className="mt-1 text-xs text-gray-500">
+              <p className={helpClass}>
                 {debugMode ? 'Developer mode: Enter user ID for testing' : 'Enter user ID for testing'}
               </p>
             </div>
@@ -257,24 +264,24 @@ const Login: React.FC = () => {
             // Student mode: Multiple fields
             <>
               {studentOptionsLoading && (
-                <div className="text-sm text-gray-500 text-center">
+                <div className="text-center text-sm text-slate-500">
                   Loading school details...
                 </div>
               )}
               {studentOptionsError && (
-                <div className="text-sm text-red-600 text-center">
+                <div className="text-center text-sm text-red-600">
                   {studentOptionsError}
                 </div>
               )}
               <div>
-                <label htmlFor="school" className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="school" className={labelClass}>
                   School *
                 </label>
                 <select
                   id="school"
                   name="school"
                   required
-                  className="appearance-none relative block w-full px-3 py-3 sm:py-2 border border-gray-300 text-gray-900 rounded-md focus:outline-hidden focus:ring-indigo-500 focus:border-indigo-500 text-base sm:text-sm"
+                  className={fieldClass}
                   value={school}
                   onChange={(e) => handleSchoolChange(e.target.value)}
                   disabled={!studentOptions}
@@ -284,21 +291,21 @@ const Login: React.FC = () => {
                     <option key={s} value={s}>{s}</option>
                   ))}
                 </select>
-                <p className="mt-1 text-xs text-gray-500">Choose your school from the list</p>
+                <p className={helpClass}>Choose your school from the list</p>
               </div>
 
               {/* For Ekya JP Nagar - show name dropdown, hide other fields */}
               {isEkyaJPNagar ? (
                 <>
                   <div>
-                    <label htmlFor="studentName" className="block text-sm font-medium text-gray-700 mb-1">
+                    <label htmlFor="studentName" className={labelClass}>
                       Select Your Name *
                     </label>
                     <select
                       id="studentName"
                       name="studentName"
                       required
-                      className="appearance-none relative block w-full px-3 py-3 sm:py-2 border border-gray-300 text-gray-900 rounded-md focus:outline-hidden focus:ring-indigo-500 focus:border-indigo-500 text-base sm:text-sm"
+                      className={fieldClass}
                       value={selectedStudentId}
                       onChange={(e) => handleStudentSelection(e.target.value)}
                     >
@@ -310,20 +317,20 @@ const Login: React.FC = () => {
                         );
                       })}
                     </select>
-                    <p className="mt-1 text-xs text-gray-500">Grade 8, Section B</p>
+                    <p className={helpClass}>Grade 8, Section B</p>
                   </div>
                 </>
               ) : (
                 <>
                   <div>
-                    <label htmlFor="grade" className="block text-sm font-medium text-gray-700 mb-1">
+                    <label htmlFor="grade" className={labelClass}>
                       Grade *
                     </label>
                     <select
                       id="grade"
                       name="grade"
                       required
-                      className="appearance-none relative block w-full px-3 py-3 sm:py-2 border border-gray-300 text-gray-900 rounded-md focus:outline-hidden focus:ring-indigo-500 focus:border-indigo-500 text-base sm:text-sm"
+                      className={fieldClass}
                       value={grade}
                       onChange={(e) => setGrade(Number(e.target.value))}
                       disabled={!studentOptions}
@@ -333,17 +340,17 @@ const Login: React.FC = () => {
                         <option key={g} value={g}>Grade {g}</option>
                       ))}
                     </select>
-                    <p className="mt-1 text-xs text-gray-500">Select your current grade (3 to 10)</p>
+                    <p className={helpClass}>Select your current grade (3 to 10)</p>
                   </div>
 
                   <div>
-                    <label htmlFor="section" className="block text-sm font-medium text-gray-700 mb-1">
+                    <label htmlFor="section" className={labelClass}>
                       Section (Optional)
                     </label>
                     <select
                       id="section"
                       name="section"
-                      className="appearance-none relative block w-full px-3 py-3 sm:py-2 border border-gray-300 text-gray-900 rounded-md focus:outline-hidden focus:ring-indigo-500 focus:border-indigo-500 text-base sm:text-sm"
+                      className={fieldClass}
                       value={section}
                       onChange={(e) => setSection(e.target.value)}
                       disabled={!studentOptions}
@@ -353,11 +360,11 @@ const Login: React.FC = () => {
                         <option key={s} value={s}>Section {s}</option>
                       ))}
                     </select>
-                    <p className="mt-1 text-xs text-gray-500">Select your section if your school has sections (A, B, C, etc.)</p>
+                    <p className={helpClass}>Select your section if your school has sections (A, B, C, etc.)</p>
                   </div>
 
                   <div>
-                    <label htmlFor="rollNumber" className="block text-sm font-medium text-gray-700 mb-1">
+                    <label htmlFor="rollNumber" className={labelClass}>
                       {rollNumberFieldLabel} *
                     </label>
                     <input
@@ -368,12 +375,12 @@ const Login: React.FC = () => {
                       max={MAX_STUDENT_IDENTIFIER}
                       step="1"
                       required
-                      className="appearance-none relative block w-full px-3 py-3 sm:py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-md focus:outline-hidden focus:ring-indigo-500 focus:border-indigo-500 text-base sm:text-sm"
+                      className={fieldClass}
                       placeholder={isJnvBangaloreUrban ? 'Enter your student ID' : 'Enter your roll number'}
                       value={rollNumber}
                       onChange={(e) => setRollNumber(e.target.value ? Number(e.target.value) : '')}
                     />
-                    <p className="mt-1 text-xs text-gray-500">
+                    <p className={helpClass}>
                       {isJnvBangaloreUrban
                         ? 'Enter your numeric student ID (up to 14 digits)'
                         : 'Your roll number in your class'}
@@ -381,7 +388,7 @@ const Login: React.FC = () => {
                   </div>
 
                   <div>
-                    <label htmlFor="firstName" className="block text-sm font-medium text-gray-700 mb-1">
+                    <label htmlFor="firstName" className={labelClass}>
                       First Name *
                     </label>
                     <input
@@ -390,12 +397,12 @@ const Login: React.FC = () => {
                       type="text"
                       autoComplete="given-name"
                       required
-                      className="appearance-none relative block w-full px-3 py-3 sm:py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-md focus:outline-hidden focus:ring-indigo-500 focus:border-indigo-500 text-base sm:text-sm"
+                      className={fieldClass}
                       placeholder="Enter your first name"
                       value={firstName}
                       onChange={(e) => setFirstName(e.target.value)}
                     />
-                    <p className="mt-1 text-xs text-gray-500">Enter your first name (e.g., Amit, Priya)</p>
+                    <p className={helpClass}>Enter your first name (e.g., Amit, Priya)</p>
                   </div>
                 </>
               )}
@@ -403,14 +410,14 @@ const Login: React.FC = () => {
           )}
 
           {error && (
-            <div className="text-red-500 text-sm text-center px-2">{error}</div>
+            <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-center text-sm text-red-600">{error}</div>
           )}
 
           <div>
             <button
               type="submit"
               disabled={isLoading}
-              className="group relative w-full flex justify-center py-3 sm:py-2 px-4 border border-transparent text-base sm:text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="group relative flex w-full justify-center rounded-xl border border-transparent bg-violet-500 px-4 py-3 text-base font-medium text-white hover:bg-violet-600 focus:outline-none focus:ring-2 focus:ring-violet-200 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 sm:py-2 sm:text-sm"
             >
               {isLoading ? 'Signing in...' : 'Sign in'}
             </button>

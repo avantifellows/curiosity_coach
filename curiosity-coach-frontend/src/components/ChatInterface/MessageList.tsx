@@ -45,7 +45,7 @@ const MessageList: React.FC<MessageListProps> = ({
   }, [messages]);
 
   return (
-    <div className="relative z-10 flex flex-col flex-1 overflow-y-auto custom-scrollbar pb-32">
+    <div className="relative z-10 flex flex-col flex-1 overflow-y-auto custom-scrollbar pb-40">
       {/* Empty space pusher for when there are few messages */}
       {messages.length > 0 && messages.length < 4 && (
         <div className="flex-1"></div>
@@ -63,22 +63,36 @@ const MessageList: React.FC<MessageListProps> = ({
           <div className="flex justify-center items-center flex-1 py-20">
             <div className="card-gradient">
               <div className="flex flex-col items-center">
+                <div className="mb-4 inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-violet-100 text-xl text-violet-700 animate-twinkle">
+                  ✦
+                </div>
                 <CircularProgress size={40} className="mb-4" />
-                <h2 className="text-xl md:text-2xl font-bold text-indigo-600 text-center">
+                <h2 className="text-xl md:text-2xl font-semibold text-slate-900 text-center">
                   {preparationStatus === 'generating_memory' && 'Reviewing your previous conversations...'}
                   {preparationStatus === 'generating_persona' && 'Understanding your learning style...'}
                   {preparationStatus === 'ready' && 'Your coach is preparing to meet you...'}
                 </h2>
-                <p className="text-sm text-gray-500 mt-2">This may take up to 2 minutes</p>
+                <p className="mt-2 text-sm text-slate-500">This may take up to 2 minutes</p>
               </div>
             </div>
           </div>
         ) : messages.length === 0 ? (
           <div className="flex justify-center items-center flex-1 py-20">
             <div className="card-gradient">
-              <h2 className="text-2xl md:text-3xl font-bold text-indigo-600 text-center">
-                What are you curious about today? <span className="inline-block animate-bounce">🤔</span>
+              <div className="mb-4 flex justify-center">
+                <span className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-violet-100 text-xl text-violet-700">
+                  ✦
+                </span>
+              </div>
+              <h2 className="text-2xl md:text-3xl font-semibold text-slate-900 text-center">
+                Ask about class, homework, or anything you want to understand better.
               </h2>
+              <p className="mt-3 text-center text-sm text-slate-500">
+                Short questions are fine. You can also paste a longer problem.
+              </p>
+              <p className="mt-2 text-center text-sm text-violet-700">
+                Start with one thing that feels confusing, interesting, or unfinished.
+              </p>
             </div>
           </div>
         ) : (
@@ -90,7 +104,7 @@ const MessageList: React.FC<MessageListProps> = ({
                   <div className="flex justify-start pl-2 mt-1">
                     <button
                       onClick={() => onViewPipelineSteps(msg.id as number | string)}
-                      className="text-xs text-indigo-600 hover:text-indigo-800 hover:underline focus:outline-none flex items-center"
+                      className="flex items-center text-xs text-violet-600 hover:text-violet-700 hover:underline focus:outline-none"
                       disabled={isLoadingSteps}
                     >
                       <Visibility fontSize="inherit" className="mr-1" />
@@ -114,9 +128,9 @@ const MessageList: React.FC<MessageListProps> = ({
             <div className="thinking-bubble">
               <div className="mr-2">
                 <div className="animate-pulse flex space-x-1">
-                  <div className="h-2 w-2 bg-blue-400 rounded-full"></div>
-                  <div className="h-2 w-2 bg-blue-400 rounded-full"></div>
-                  <div className="h-2 w-2 bg-blue-400 rounded-full"></div>
+                  <div className="h-2 w-2 bg-violet-500 rounded-full"></div>
+                  <div className="h-2 w-2 bg-fuchsia-400 rounded-full"></div>
+                  <div className="h-2 w-2 bg-indigo-400 rounded-full"></div>
                 </div>
               </div>
               Thinking...
