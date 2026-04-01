@@ -8,6 +8,7 @@ class MessageRequest(BaseModel):
     content: str = Field(..., description="Content of the message")
     # conversation_id is now part of the path parameter, removed from here
     purpose: Optional[str] = Field("chat", description="Optional purpose field (e.g., chat, test_generation)")
+    experience_mode: Optional[str] = Field(None, description="Optional frontend experience mode (e.g., try)")
     
     @field_validator('content')
     def content_must_not_be_empty(cls, v):

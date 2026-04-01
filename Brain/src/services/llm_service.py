@@ -88,15 +88,7 @@ class LLMService:
                     "future_conversation_hooks": []
                 })
 
-            if call_type == "intent_gathering":
-                return json.dumps({
-                    "needs_clarification": False,
-                    "query": "mocked query",
-                    "subject": {"main_topic": "mocked topic", "related_topics": []},
-                    "intents": {"primary_intent": "educational", "secondary_intent": "curiosity"},
-                    "context": {"known_information": "none", "motivation": "learning", "learning_goal": "mocked goal"}
-                })
-            elif call_type == "simplified_conversation":
+            if call_type == "simplified_conversation":
                 return json.dumps({
                     "response": "This is a mocked simplified response.",
                     "needs_clarification": False,
@@ -109,13 +101,11 @@ class LLMService:
             if call_type:
                 logger.debug(f"Using specific call type: {call_type}")
                 call_config = self.get_call_config(call_type)
-                print("call_config", call_config)
                 provider = call_config["provider"]
             else:
                 logger.debug("Using default call type: response_generation")
                 call_config = self.config["calls"]["response_generation"]
                 provider = call_config["provider"]  # ✅ Use provider from call_config, not default
-                print("call_config", call_config)
             
             logger.info(f"Making LLM call to {provider} with model {call_config['model']}")
             client = self.get_client(provider)

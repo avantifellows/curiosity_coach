@@ -4,6 +4,22 @@ from typing import List, Tuple, Dict, Any, Optional
 from src.schemas import ConversationMemoryData, UserPersonaData
 
 
+def _get_allowed_memory_keys() -> List[str]:
+    try:
+        return list(ConversationMemoryData.model_fields.keys())
+    except Exception:
+        return ["curiosity_boosters", "invitation_to_come_back", "knowledge_journey", "kid_learning_profile"]
+
+# Conversation memory placeholder regex
+# Examples (all valid):
+#   {{CONVERSATION_MEMORY}}
+#   {{CONVERSATION_MEMORY__curiosity_boosters}}
+#   {{CONVERSATION_MEMORY__knowledge_journey__initial_knowledge}}
+MEMORY_PLACEHOLDER_REGEX = re.compile(
+    r"\{\{CONVERSATION_MEMORY(?:__([A-Za-z0-9_]+(?:__[A-Za-z0-9_]+)*))?\}\}"
+)
+
+
 # Persona placeholder regex
 # Examples (all valid):
 #   {{USER_PERSONA}}
@@ -132,6 +148,75 @@ def _format_value_for_prompt(value: Any) -> str:
         return joined.replace('"', '\\"')
     # Fallback to string
     return str(value).replace('"', '\\"') if value != "" else "[Not available]"
+
+
+def extract_memory_placeholders(template: str) -> List[Tuple[str, List[str]]]:
+    """
+    Returns list of (full_token, requested_keys[]) pairs for conversation memory placeholders.
+    requested_keys is empty for full injection.
+    """
+    results: List[Tuple[str, List[str]]] = []
+    for match in MEMORY_PLACEHOLDER_REGEX.finditer(template):
+        full_token = match.group(0)
+        keys_blob = match.group(1)
+        if keys_blob:
+            requested_keys = [part for part in keys_blob.split("__") if part]
+        else:
+            requested_keys = []
+        results.append((full_token, requested_keys))
+    return results
+
+
+def render_memory_snippet(
+    memory: Dict[str, Any],
+    requested_keys: Optional[List[str]]
+) -> str:
+    """
+    Render a readable snippet for current conversation memory.
+    Supports full injection and nested key selection.
+    """
+    allowed = set(_get_allowed_memory_keys())
+
+    if not requested_keys:
+        keys_to_render = _get_allowed_memory_keys()
+        parts = []
+        for key in keys_to_render:
+            value_str = _format_value_for_prompt(memory.get(key))
+            parts.append(f"`{key}` is \"{value_str}\"")
+    else:
+        if requested_keys[0] not in allowed:
+            return "Conversation memory not available."
+
+        value = _get_nested_value(memory, requested_keys)
+        value_str = _format_value_for_prompt(value)
+        path_label = "__".join(requested_keys)
+        parts = [f"`{path_label}` is \"{value_str}\""]
+
+    if not parts:
+        return "Conversation memory not available."
+
+    return "These are some details of the conversation till now. " + ", ".join(parts)
+
+
+def inject_memory_placeholders(template: str, memory: Optional[Dict[str, Any]]) -> str:
+    """
+    Replace current-conversation memory placeholders with readable snippets.
+    """
+    placeholders = extract_memory_placeholders(template)
+    if not placeholders:
+        return template
+
+    if memory is None:
+        fallback = "Conversation memory not available."
+        for token, _ in placeholders:
+            template = template.replace(token, fallback)
+        return template
+
+    for token, requested_keys in placeholders:
+        snippet = render_memory_snippet(memory, requested_keys if requested_keys else None)
+        template = template.replace(token, snippet)
+
+    return template
 
 
 
@@ -379,5 +464,4 @@ def inject_previous_memories_placeholder(
         template = template.replace(token, snippet)
 
     return template
-
 

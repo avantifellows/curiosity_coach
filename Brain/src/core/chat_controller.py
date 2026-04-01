@@ -1,42 +1,17 @@
-import os
-import httpx
 from typing import Optional, List
 from src.services.llm_service import LLMService
+from src.services.api_service import api_service
 from src.utils.logger import logger
 
 # Configuration
 CHAT_CONTROLLER_PROMPT_NAME = "chat_controller"
-
-async def _get_prompt_from_backend(prompt_name: str) -> Optional[str]:
-    """
-    Fetch prompt template from backend database.
-    """
-    try:
-        backend_url = os.getenv("BACKEND_CALLBACK_BASE_URL", "http://localhost:5000")
-        url = f"{backend_url}/api/prompts/{prompt_name}/versions/active"
-        
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.get(url)
-            response.raise_for_status()
-            data = response.json()
-            return data.get("prompt_text", "")
-    except Exception as e:
-        logger.error(f"Error fetching prompt {prompt_name} from backend: {e}")
-        return None
 
 async def get_conversation_core_theme(conversation_id: int) -> Optional[str]:
     """
     Fetch the core theme for a conversation from the backend.
     """
     try:
-        backend_url = os.getenv("BACKEND_CALLBACK_BASE_URL", "http://localhost:5000")
-        url = f"{backend_url}/api/internal/conversations/{conversation_id}/core-theme"
-        
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.get(url)
-            response.raise_for_status()
-            data = response.json()
-            return data.get("core_theme")
+        return await api_service.get_conversation_core_theme(conversation_id)
     except Exception as e:
         logger.error(f"Error fetching core theme for conversation {conversation_id}: {e}")
         return None
@@ -46,7 +21,8 @@ async def control_chat_response(
     original_response: str, 
     user_query: str,
     current_conversation: Optional[str] = None,
-    exploration_directions: Optional[List[str]] = None
+    exploration_directions: Optional[List[str]] = None,
+    core_theme: Optional[str] = None,
 ) -> dict:  # Change return type to dict
     """
     Controls the chat response based on the conversation's core theme.
@@ -61,10 +37,12 @@ async def control_chat_response(
         dict: The controlled/enhanced response with metadata
     """
     try:
-        # 1. Get the core theme for this conversation
-        core_theme = await get_conversation_core_theme(conversation_id)
+        # 1. Use the shared core theme when available, fall back to fetching it.
+        resolved_core_theme = core_theme
+        if resolved_core_theme is None:
+            resolved_core_theme = await get_conversation_core_theme(conversation_id)
         
-        if not core_theme:
+        if not resolved_core_theme:
             logger.info(f"No core theme found for conversation {conversation_id}, using original response")
             return {
                 "original_response": original_response,
@@ -75,23 +53,26 @@ async def control_chat_response(
                 "error": "No core theme found"
             }
         
-        logger.info(f"Core theme found for conversation {conversation_id}: '{core_theme}'. Applying chat controller.")
+        logger.info(f"Core theme found for conversation {conversation_id}: '{resolved_core_theme}'. Applying chat controller.")
         
         # 2. Get the chat controller prompt template
-        prompt_template = await _get_prompt_from_backend(CHAT_CONTROLLER_PROMPT_NAME)
+        prompt_template = await api_service.get_prompt_template(
+            CHAT_CONTROLLER_PROMPT_NAME,
+            prefer_production=False,
+        )
         if not prompt_template:
             logger.error(f"Could not fetch chat controller prompt template")
             return {
                 "original_response": original_response,
                 "controlled_response": original_response,
                 "chat_controller_applied": False,
-                "core_theme": core_theme,
+                "core_theme": resolved_core_theme,
                 "chat_controller_prompt": None,
                 "error": "Could not fetch prompt template"
             }
         
         # 3. Format the prompt with the required data
-        final_prompt = prompt_template.replace("{{CORE_THEME}}", core_theme)
+        final_prompt = prompt_template.replace("{{CORE_THEME}}", resolved_core_theme)
         final_prompt = final_prompt.replace("{{USER_QUERY}}", user_query)
         final_prompt = final_prompt.replace("{{QUERY_RESPONSE}}", original_response)
         
@@ -124,7 +105,7 @@ async def control_chat_response(
                 "original_response": original_response,
                 "controlled_response": original_response,
                 "chat_controller_applied": False,
-                "core_theme": core_theme,
+                "core_theme": resolved_core_theme,
                 "chat_controller_prompt": final_prompt,
                 "error": "Empty response from LLM"
             }
@@ -134,7 +115,7 @@ async def control_chat_response(
             "original_response": original_response,
             "controlled_response": controlled_response,
             "chat_controller_applied": True,
-            "core_theme": core_theme,
+            "core_theme": resolved_core_theme,
             "chat_controller_prompt": final_prompt,
             "error": None
         }

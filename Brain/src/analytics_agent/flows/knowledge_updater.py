@@ -1,8 +1,11 @@
 # Brain/src/analytics_agent/flows/knowledge_updater.py
 import asyncio
 from typing import Any, Dict, List
+import logging
 from src.services.api_service import api_service
 from src.services.llm_service import LLMService
+
+logger = logging.getLogger(__name__)
 
 def _format_history(history: List[Dict[str, Any]]) -> str:
     return "\n".join([f"{'User' if m.get('is_user') else 'AI'}: {m.get('content','')}" for m in history])
@@ -23,11 +26,8 @@ async def run(conversation_id: int) -> None:
     llm = LLMService()
     response = await asyncio.to_thread(llm.generate_response, final_prompt, "knowledge_updater")
     raw = response.get("raw_response", "") if isinstance(response, dict) else ""
-    print(raw)
-    print(type(raw))
-    print(len(raw))
-    print("--------------------------------")
     if not raw:
+        logger.warning("Knowledge updater returned an empty response", extra={"conversation_id": conversation_id})
         return
 
     await api_service.post_generic_flow_items("knowledge-updater", conversation_id, [{"summary": raw}])

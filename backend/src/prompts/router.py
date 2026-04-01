@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 from typing import List, Optional, Dict, Any
+import logging
 
 from src.database import get_db
 from src.auth.dependencies import get_current_user
@@ -14,6 +15,8 @@ router = APIRouter(
     responses={404: {"description": "Not found"}},
 )
 
+logger = logging.getLogger(__name__)
+
 @router.get("/promptHealth")
 def prompt_health():
     return {"status": "healthy"}
@@ -22,15 +25,13 @@ def prompt_health():
 # --- Prompt Endpoints ---
 @router.post("/prompts", response_model=schemas.PromptInDB, status_code=status.HTTP_201_CREATED)
 def create_prompt(prompt_in: schemas.PromptCreate, db: Session = Depends(get_db)):
-    print(f"Received request to create prompt: {prompt_in}")
+    logger.info("Received create prompt request", extra={"prompt_name": prompt_in.name})
     try:
         created_prompt = service.prompt_service.create_prompt(db=db, prompt_create=prompt_in)
-        print(f"Prompt created with ID: {created_prompt.id}")
         fetched_prompt = service.prompt_service.get_prompt_by_id(db, created_prompt.id)
-        print(f"Successfully fetched prompt for return: {fetched_prompt}")
         return fetched_prompt
     except ValueError as e:
-        print(f"Error creating prompt: {e}")
+        logger.warning("Error creating prompt", extra={"prompt_name": prompt_in.name, "error": str(e)})
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 @router.get("/prompts", response_model=List[schemas.PromptSimple])

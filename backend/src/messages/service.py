@@ -43,6 +43,7 @@ class MessageService:
         content: str, 
         user_id: int,
         purpose: str = "chat", 
+        experience_mode: str | None = None,
         db: Session = Depends(get_db)
     ) -> Dict:
         """
@@ -112,7 +113,8 @@ class MessageService:
                         message_id=saved_message['id'], 
                         message_content=content,
                         user_id=user_id,
-                        purpose=purpose
+                        purpose=purpose,
+                        experience_mode=experience_mode,
                     )
                     logger.info(f"Queue service call completed - message_id: {saved_message['id']}")
 

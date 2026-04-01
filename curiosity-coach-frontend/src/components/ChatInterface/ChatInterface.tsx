@@ -31,10 +31,6 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ mode }) => {
     handleSendMessageWithAutoConversation,
     isBrainProcessing,
     isConfigViewActive,
-    brainConfigSchema,
-    isLoadingBrainConfig,
-    brainConfigError,
-    fetchBrainConfigSchema,
     preparationStatus,
     isPreparingConversation,
     isInitializingForNewUser,
@@ -80,12 +76,6 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ mode }) => {
   // Check for debug mode
   const queryParams = new URLSearchParams(location.search);
   const isDebugMode = queryParams.get('debug') === 'true';
-
-  React.useEffect(() => {
-    if (isConfigViewActive && !brainConfigSchema && !isLoadingBrainConfig && !brainConfigError) {
-      fetchBrainConfigSchema();
-    }
-  }, [isConfigViewActive, brainConfigSchema, isLoadingBrainConfig, brainConfigError, fetchBrainConfigSchema]);
 
   // Effect to auto-load exploration directions for latest AI message in debug mode
   React.useEffect(() => {
@@ -302,9 +292,6 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ mode }) => {
               messages={messages}
               isLoadingMessages={isLoadingMessages}
               isConfigViewActive={isConfigViewActive}
-              isLoadingBrainConfig={isLoadingBrainConfig}
-              brainConfigSchema={brainConfigSchema}
-              brainConfigError={brainConfigError}
               chatError={chatError}
               isBrainProcessing={isBrainProcessing}
               isLoadingSteps={isLoadingSteps}
@@ -364,7 +351,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ mode }) => {
         />
       )}
 
-      {!isDebugMode && (
+      {!isDebugMode && messages.length > 0 && (
         <CuriosityScoreIndicator score={curiosityScore} tip={curiosityTip} />
       )}
 

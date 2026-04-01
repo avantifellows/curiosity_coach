@@ -75,6 +75,7 @@ async def send_message_to_conversation(
         
         content = request.content
         purpose = request.purpose # Still optional
+        experience_mode = request.experience_mode
         user_id = current_user.id # Get user_id from authenticated user
 
         logger.debug(f"Calling message service to send message - conversation_id: {conversation_id}")
@@ -83,6 +84,7 @@ async def send_message_to_conversation(
             conversation_id=conversation_id,
             content=content,
             purpose=purpose,
+            experience_mode=experience_mode,
             db=db
         )
         

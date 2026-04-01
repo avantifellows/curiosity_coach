@@ -23,7 +23,13 @@ from src.core.core_theme_config import CORE_THEME_EXTRACTION_ENABLED, CORE_THEME
 # Add these imports at the top of main.py
 from src.core.chat_controller import control_chat_response
 from src.core.age_adapter import generate_response_for_13_year_old
-from src.process_query_entrypoint import process_query, process_follow_up, ProcessQueryResponse
+from src.process_query_entrypoint import (
+    process_query,
+    process_follow_up,
+    ProcessQueryResponse,
+    resolve_prompt_execution_context,
+)
+from src.core.turn_context import TurnExecutionContext
 from src.utils.logger import logger
 from src.config_models import FlowConfig
 from src.services.llm_service import LLMService
@@ -227,7 +233,6 @@ def strip_curiosity_signal(text: Optional[str]) -> Tuple[Optional[str], Optional
         return text, None
 
     match = _CURIOSITY_TAG_PATTERN.search(text)
-    print("&&&&&&&SDFDfDF&&&&&&&&&&&&", match)
     if not match:
         return text, None
 
@@ -242,7 +247,6 @@ def strip_curiosity_signal(text: Optional[str]) -> Tuple[Optional[str], Optional
         return cleaned, None
 
     bounded = max(0, min(100, extracted))
-    print("$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$", cleaned, bounded)
     return cleaned, bounded
 
 
@@ -264,6 +268,255 @@ async def compute_next_curiosity_score(conversation_id: Optional[int], requested
     if next_score < last_score:
         return last_score
     return next_score
+
+
+def _ensure_pipeline_metadata(response_data: ProcessQueryResponse) -> Dict[str, Any]:
+    if not isinstance(response_data.pipeline_data, dict):
+        response_data.pipeline_data = {}
+    return response_data.pipeline_data
+
+
+def _append_pipeline_step(
+    response_data: ProcessQueryResponse,
+    step: Dict[str, Any],
+    *,
+    pipeline_key: Optional[str] = None,
+    pipeline_payload: Optional[Dict[str, Any]] = None,
+) -> None:
+    response_data.steps.append(step)
+    pipeline_data = _ensure_pipeline_metadata(response_data)
+    pipeline_data.setdefault("steps", []).append(step)
+    if pipeline_key:
+        pipeline_data[pipeline_key] = pipeline_payload if pipeline_payload is not None else step
+
+
+def _get_step_field(step: Any, field_name: str) -> Any:
+    if isinstance(step, dict):
+        return step.get(field_name)
+    return getattr(step, field_name, None)
+
+
+def _set_step_field(step: Any, field_name: str, value: Any) -> None:
+    if isinstance(step, dict):
+        step[field_name] = value
+    elif hasattr(step, field_name):
+        setattr(step, field_name, value)
+
+
+def _apply_curiosity_signal_to_response(response_data: ProcessQueryResponse) -> None:
+    raw_final_response = response_data.final_response
+    cleaned_response, curiosity_signal = strip_curiosity_signal(raw_final_response)
+
+    if curiosity_signal is not None:
+        response_data.curiosity_score = curiosity_signal
+    else:
+        response_data.curiosity_score = getattr(response_data, "curiosity_score", None)
+
+    if cleaned_response is not None and raw_final_response != cleaned_response:
+        response_data.final_response = cleaned_response
+
+        if isinstance(response_data.pipeline_data, dict):
+            response_data.pipeline_data["final_response"] = cleaned_response
+            if curiosity_signal is not None:
+                response_data.pipeline_data["curiosity_score_signal"] = curiosity_signal
+
+            pipeline_steps = response_data.pipeline_data.get("steps")
+            if isinstance(pipeline_steps, list):
+                for step in pipeline_steps:
+                    if not isinstance(step, dict):
+                        continue
+                    if step.get("result") == raw_final_response:
+                        step["result"] = cleaned_response
+                    if curiosity_signal is not None:
+                        step_payload = step.get("response_data")
+                        if isinstance(step_payload, dict):
+                            step_payload["curiosity_score_signal"] = curiosity_signal
+
+        if isinstance(response_data.steps, list):
+            for step in response_data.steps:
+                if _get_step_field(step, "result") == raw_final_response:
+                    _set_step_field(step, "result", cleaned_response)
+                if curiosity_signal is not None:
+                    step_payload = _get_step_field(step, "response_data")
+                    if isinstance(step_payload, dict):
+                        step_payload["curiosity_score_signal"] = curiosity_signal
+
+    elif curiosity_signal is not None and isinstance(response_data.pipeline_data, dict):
+        response_data.pipeline_data["curiosity_score_signal"] = curiosity_signal
+
+
+def _extract_previous_exploration_directions(source_messages: List[Dict[str, Any]]) -> Optional[List[str]]:
+    try:
+        logger.info(
+            f"Using {len(source_messages)} prefetched messages for previous exploration directions lookup"
+        )
+        for message in reversed(source_messages):
+            if message.get("is_user") is True:
+                continue
+
+            pipeline_data = message.get("pipeline_data") or message.get("llm_pipeline_data") or {}
+            steps = pipeline_data.get("steps") or []
+            found_dirs = None
+
+            for step in steps:
+                if step.get("name") == "exploration_directions_evaluation":
+                    found_dirs = step.get("directions")
+                    if not found_dirs:
+                        result_str = step.get("result")
+                        if isinstance(result_str, str):
+                            found_dirs = [d.strip() for d in result_str.split(",") if d.strip()]
+                    break
+
+            if not found_dirs:
+                exploration_payload = pipeline_data.get("exploration_directions_evaluation") or {}
+                found_dirs = exploration_payload.get("directions")
+
+            if not found_dirs:
+                for key, value in pipeline_data.items():
+                    if "exploration" in key.lower() and isinstance(value, dict):
+                        found_dirs = value.get("directions")
+                        if found_dirs:
+                            break
+
+            if found_dirs and isinstance(found_dirs, list):
+                logger.info(f"Successfully found previous exploration directions: {found_dirs}")
+                return found_dirs
+    except Exception as exc:
+        logger.error(f"Error retrieving previous exploration directions: {exc}", exc_info=True)
+
+    return None
+
+
+def _build_history_with_latest_turn(
+    prefetched_history: List[Dict[str, Any]],
+    user_input: str,
+    assistant_response: str,
+) -> List[Dict[str, Any]]:
+    history = [
+        {
+            "is_user": message.get("is_user", False),
+            "content": message.get("content"),
+        }
+        for message in prefetched_history
+        if message.get("content") is not None
+    ]
+
+    if not history or not (
+        history[-1].get("is_user", False)
+        and history[-1].get("content") == user_input
+    ):
+        history.append({"is_user": True, "content": user_input})
+
+    if not history or not (
+        history[-1].get("is_user") is False
+        and history[-1].get("content") == assistant_response
+    ):
+        history.append({"is_user": False, "content": assistant_response})
+
+    return history
+
+
+async def _build_turn_execution_context(
+    *,
+    message: "MessagePayload",
+    user_input: str,
+    purpose: str,
+    conversation_history: Optional[str],
+    prefetched_history: Optional[List[Dict[str, Any]]],
+    user_persona: Optional[Dict[str, Any]],
+    current_curiosity_score: int,
+) -> TurnExecutionContext:
+    conversation_id = int(message.conversation_id) if message.conversation_id else None
+    user_id = int(message.user_id) if message.user_id else None
+
+    prompt_context = await resolve_prompt_execution_context(
+        purpose=purpose,
+        conversation_id=conversation_id,
+    )
+
+    context = TurnExecutionContext(
+        user_input=user_input,
+        purpose=purpose,
+        conversation_id=conversation_id,
+        user_id=user_id,
+        conversation_history=conversation_history,
+        prefetched_history=list(prefetched_history or []),
+        user_persona=user_persona,
+        current_curiosity_score=current_curiosity_score,
+        prompt_context=prompt_context,
+    )
+
+    if context.conversation_id:
+        try:
+            context.core_theme = await api_service.get_conversation_core_theme(context.conversation_id)
+        except Exception as exc:
+            logger.warning(
+                f"Error fetching core theme for conversation {context.conversation_id}: {exc}"
+            )
+
+    if context.prompt_context and context.prompt_context.requires_conversation_memory and context.conversation_id:
+        try:
+            context.conversation_memory = await api_service.get_conversation_memory(context.conversation_id)
+        except Exception as exc:
+            logger.warning(
+                f"Error fetching conversation memory for conv {context.conversation_id}: {exc}"
+            )
+
+    if (
+        context.prompt_context
+        and context.prompt_context.requires_previous_memories
+        and context.user_id
+        and context.conversation_id
+    ):
+        try:
+            context.previous_memories = await api_service.get_previous_memories(
+                context.user_id,
+                context.conversation_id,
+            )
+        except Exception as exc:
+            logger.warning(
+                "Error fetching previous conversation memories for "
+                f"user {context.user_id}, conversation {context.conversation_id}: {exc}"
+            )
+
+    context.previous_exploration_directions = _extract_previous_exploration_directions(
+        context.prefetched_history
+    )
+    logger.info(
+        f"Final previous_exploration_directions: {context.previous_exploration_directions}"
+    )
+    return context
+
+
+def _build_callback_payload(
+    *,
+    message: "MessagePayload",
+    response_data: ProcessQueryResponse,
+    curiosity_score: int,
+    user_input: str,
+) -> Dict[str, Any]:
+    if response_data.needs_clarification and response_data.follow_up_questions:
+        return {
+            "user_id": int(message.user_id),
+            "conversation_id": message.conversation_id,
+            "original_message_id": int(message.message_id) if message.message_id.isdigit() else None,
+            "llm_response": response_data.final_response,
+            "pipeline_data": response_data.model_dump(),
+            "needs_clarification": True,
+            "follow_up_questions": response_data.follow_up_questions,
+            "original_query": message.original_query if message.is_follow_up_response else user_input,
+            "curiosity_score": curiosity_score,
+        }
+
+    return {
+        "user_id": int(message.user_id),
+        "conversation_id": message.conversation_id,
+        "original_message_id": int(message.message_id) if message.message_id.isdigit() else None,
+        "llm_response": response_data.final_response,
+        "pipeline_data": response_data.model_dump(),
+        "needs_clarification": False,
+        "curiosity_score": curiosity_score,
+    }
 
 app = FastAPI()
 
@@ -410,6 +663,7 @@ class MessagePayload(BaseModel):
     conversation_id: str
     message_content: str
     timestamp: float # Assuming timestamp is a float epoch time
+    experience_mode: Optional[str] = None
     is_follow_up_response: bool = False  # New field to indicate if this is a response to follow-up questions
     original_query: Optional[str] = None  # Original query if this is a follow-up response
     follow_up_questions: Optional[List[str]] = None  # Follow-up questions that were asked
@@ -438,7 +692,6 @@ async def dequeue(message: MessagePayload, background_tasks: Optional[Background
     Processes a message received either from SQS or the /query endpoint.
     """
     logger.info(f"Processing message: {message.model_dump()}")
-    print(f"Processing message: {message.model_dump()}") # Log the message regardless of purpose
 
     try:
         if message.purpose in ["chat", "test-prompt"]:
@@ -563,6 +816,16 @@ async def dequeue(message: MessagePayload, background_tasks: Optional[Background
                 prefetched_messages=prefetched_history,
             )
 
+            turn_context = await _build_turn_execution_context(
+                message=message,
+                user_input=user_input,
+                purpose=message.purpose,
+                conversation_history=conversation_history_str,
+                prefetched_history=prefetched_history,
+                user_persona=user_persona,
+                current_curiosity_score=current_curiosity_score,
+            )
+
             if message.is_follow_up_response:
                 # This is a response to a follow-up question
                 logger.info("Processing as a follow-up response")
@@ -574,87 +837,42 @@ async def dequeue(message: MessagePayload, background_tasks: Optional[Background
                     follow_up_questions=message.follow_up_questions,
                     student_response=user_input,
                     config=flow_config_instance,
-                    conversation_history=conversation_history_str,
+                    conversation_history=turn_context.conversation_history,
                     purpose=message.purpose,
-                    user_persona=user_persona,
-                    conversation_memory=None,  # Can fetch if needed
-                    conversation_id=int(message.conversation_id) if message.conversation_id else None,
-                    user_id=int(message.user_id) if message.user_id else None,
+                    user_persona=turn_context.user_persona,
+                    conversation_memory=turn_context.conversation_memory,
+                    conversation_id=turn_context.conversation_id,
+                    user_id=turn_context.user_id,
                     current_curiosity_score=current_curiosity_score,
+                    prompt_context=turn_context.prompt_context,
+                    core_theme=turn_context.core_theme,
+                    previous_memories=turn_context.previous_memories,
                 )
             else:
                 # This is a new query
                 logger.info("Processing as a new query")
-                # Fetch conversation memory if any placeholder might be used
-                conversation_memory: Optional[Dict[str, Any]] = None
-                try:
-                    # Fetch memory only once per request to avoid extra latency
-                    if message.conversation_id:
-                        from src.services.api_service import api_service as brain_api_service
-                        conversation_memory = await brain_api_service.get_conversation_memory(int(message.conversation_id))
-                except Exception as e:
-                    logger.warning(f"Error fetching conversation memory for conv {message.conversation_id}: {e}")
-
                 response_data = await process_query(
                     query=user_input, 
                     config=flow_config_instance, 
-                    conversation_history=conversation_history_str,
+                    conversation_history=turn_context.conversation_history,
                     purpose=message.purpose,
-                    user_persona=user_persona,
-                    conversation_memory=conversation_memory,
-                    conversation_id=int(message.conversation_id) if message.conversation_id else None,
-                    user_id=int(message.user_id) if message.user_id else None,
+                    user_persona=turn_context.user_persona,
+                    conversation_memory=turn_context.conversation_memory,
+                    conversation_id=turn_context.conversation_id,
+                    user_id=turn_context.user_id,
                     current_curiosity_score=current_curiosity_score,
+                    prompt_context=turn_context.prompt_context,
+                    core_theme=turn_context.core_theme,
+                    previous_memories=turn_context.previous_memories,
                 )
 
-            # Handle embedded curiosity score tag in the response
-            raw_final_response = response_data.final_response
-            cleaned_response, curiosity_signal = strip_curiosity_signal(raw_final_response)
-
-            if curiosity_signal is not None:
-                response_data.curiosity_score = curiosity_signal
-            else:
-                response_data.curiosity_score = getattr(response_data, "curiosity_score", None)
-
-            if cleaned_response is not None and raw_final_response != cleaned_response:
-                response_data.final_response = cleaned_response
-
-                if isinstance(response_data.pipeline_data, dict):
-                    response_data.pipeline_data['final_response'] = cleaned_response
-                    if curiosity_signal is not None:
-                        response_data.pipeline_data['curiosity_score_signal'] = curiosity_signal
-
-                    pipeline_steps = response_data.pipeline_data.get('steps')
-                    if isinstance(pipeline_steps, list):
-                        for step in pipeline_steps:
-                            if not isinstance(step, dict):
-                                continue
-                            if step.get('result') == raw_final_response:
-                                step['result'] = cleaned_response
-                            if curiosity_signal is not None:
-                                step_payload = step.get('response_data')
-                                if isinstance(step_payload, dict):
-                                    step_payload['curiosity_score_signal'] = curiosity_signal
-
-                if isinstance(response_data.steps, list):
-                    for step in response_data.steps:
-                        if not isinstance(step, dict):
-                            continue
-                        if step.get('result') == raw_final_response:
-                            step['result'] = cleaned_response
-                        if curiosity_signal is not None:
-                            step_payload = step.get('response_data')
-                            if isinstance(step_payload, dict):
-                                step_payload['curiosity_score_signal'] = curiosity_signal
-
-            elif curiosity_signal is not None and isinstance(response_data.pipeline_data, dict):
-                response_data.pipeline_data['curiosity_score_signal'] = curiosity_signal
+            _apply_curiosity_signal_to_response(response_data)
 
             # Extract core theme from conversation
             if message.conversation_id and message.purpose in ["chat", "test-prompt"] and CORE_THEME_EXTRACTION_ENABLED:
                 try:
                     # Use prefetched history when available to count user messages
-                    conversation_history = prefetched_history or []
+                    conversation_history = turn_context.prefetched_history or []
                     if not conversation_history and message.conversation_id:
                         conversation_history = await api_service.get_conversation_history(int(message.conversation_id)) or []
 
@@ -669,7 +887,7 @@ async def dequeue(message: MessagePayload, background_tasks: Optional[Background
                             # Extract core theme
                             core_theme, core_theme_prompt = await extract_core_theme_from_conversation(
                                 int(message.conversation_id),
-                                conversation_history=prefetched_history,
+                                conversation_history=turn_context.prefetched_history,
                             )
                             
                             # Create core theme extraction step
@@ -681,14 +899,13 @@ async def dequeue(message: MessagePayload, background_tasks: Optional[Background
                                 'core_theme': core_theme,
                                 'extraction_successful': core_theme is not None
                             }
-                            
-                            # Add to main steps array
-                            response_data.steps.append(core_theme_step)
+                            _append_pipeline_step(response_data, core_theme_step)
 
                             if core_theme:
                                 # Update conversation with extracted theme
                                 success = await update_conversation_theme(int(message.conversation_id), core_theme)
                                 if success:
+                                    turn_context.core_theme = core_theme
                                     logger.info(f"Successfully updated conversation {message.conversation_id} with core theme: '{core_theme}'")
                                 else:
                                     logger.error(f"Failed to update conversation {message.conversation_id} with core theme")
@@ -697,91 +914,21 @@ async def dequeue(message: MessagePayload, background_tasks: Optional[Background
                 except Exception as e:
                     logger.error(f"Error in core theme extraction for conversation {message.conversation_id}: {e}", exc_info=True)
                     # Don't fail the main message processing if theme extraction fails
-
-            # Find previous assistant message's exploration directions to guide the controller
-            previous_exploration_directions = None
-            try:
-                source_messages = prefetched_history or []
-                logger.info(
-                    f"Using {len(source_messages)} prefetched messages for previous exploration directions lookup"
-                )
-                for m in reversed(source_messages):
-                    # Use last assistant message
-                    if m.get("is_user") is True:
-                        continue
-                        
-                    logger.debug(f"Checking assistant message: {m.get('id', 'no-id')}")
-                    pipeline_data = m.get("pipeline_data") or m.get("llm_pipeline_data") or {}
-                    logger.debug(f"Pipeline data keys: {list(pipeline_data.keys())}")
-                    steps = pipeline_data.get("steps") or []
-                    found_dirs = None
-                    
-                    # Method 1: Look in steps array
-                    for step in steps:
-                        if step.get("name") == "exploration_directions_evaluation":
-                            found_dirs = step.get("directions")
-                            logger.debug(f"Found directions in step: {found_dirs}")
-                            if not found_dirs:
-                                # Sometimes step might store directions as comma-separated in 'result'
-                                result_str = step.get("result")
-                                if isinstance(result_str, str):
-                                    found_dirs = [d.strip() for d in result_str.split(",") if d.strip()]
-                                    logger.debug(f"Parsed directions from result: {found_dirs}")
-                            break
-                    
-                    # Method 2: Look in direct pipeline_data key
-                    if not found_dirs:
-                        ede = pipeline_data.get("exploration_directions_evaluation") or {}
-                        found_dirs = ede.get("directions")
-                        logger.debug(f"Found directions in exploration_directions_evaluation: {found_dirs}")
-                    
-                    # Method 3: Look for any exploration-related data
-                    if not found_dirs:
-                        for key, value in pipeline_data.items():
-                            if "exploration" in key.lower() and isinstance(value, dict):
-                                found_dirs = value.get("directions")
-                                if found_dirs:
-                                    logger.debug(f"Found directions in {key}: {found_dirs}")
-                                    break
-                    
-                    if found_dirs and isinstance(found_dirs, list) and len(found_dirs) > 0:
-                        previous_exploration_directions = found_dirs
-                        logger.info(f"Successfully found previous exploration directions: {previous_exploration_directions}")
-                        break
-                    else:
-                        logger.debug(f"No exploration directions found in message {m.get('id', 'no-id')}")
-                        
-            except Exception as e:
-                logger.error(f"Error retrieving previous exploration directions: {e}", exc_info=True)
-                previous_exploration_directions = None
-
-            logger.info(f"Final previous_exploration_directions: {previous_exploration_directions}")
                         
             
             # Apply chat controller if core theme exis
             if message.conversation_id and response_data:
                 try:
-                    # Apply chat controller
-                    print("previous_exploration_directions", previous_exploration_directions)
-                    print("%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%")
                     chat_controller_result = await control_chat_response(
                         conversation_id=int(message.conversation_id),
                         original_response=response_data.final_response,
                         user_query=user_input,
-                        current_conversation=conversation_history_str,
-                        exploration_directions=previous_exploration_directions
+                        current_conversation=turn_context.conversation_history,
+                        exploration_directions=turn_context.previous_exploration_directions,
+                        core_theme=turn_context.core_theme,
                     )
-                    print("chat_controller_result", chat_controller_result)
-                    print("########################################################")
                     # Update the response with the controlled version
                     response_data.final_response = chat_controller_result["controlled_response"]
-                    
-                    # Add chat controller data to pipeline data for logging
-                    if response_data.pipeline_data is None:
-                        response_data.pipeline_data = {}
-                    
-                    response_data.pipeline_data["chat_controller"] = chat_controller_result
-                    # ALSO add it as a pipeline step so it shows up in the UI
                     chat_controller_step = {
                         'name': 'chat_controller',
                         'enabled': True,
@@ -792,11 +939,12 @@ async def dequeue(message: MessagePayload, background_tasks: Optional[Background
                         'core_theme': chat_controller_result.get("core_theme", ""),
                         'chat_controller_applied': chat_controller_result.get("chat_controller_applied", False)
                     }
-
-                    # Add to steps array
-                    if 'steps' not in response_data.pipeline_data:
-                        response_data.pipeline_data['steps'] = []
-                    response_data.steps.append(chat_controller_step)
+                    _append_pipeline_step(
+                        response_data,
+                        chat_controller_step,
+                        pipeline_key="chat_controller",
+                        pipeline_payload=chat_controller_result,
+                    )
                                         
                     logger.info(f"Applied chat controller to conversation {message.conversation_id}. Applied: {chat_controller_result['chat_controller_applied']}")
                     
@@ -804,71 +952,48 @@ async def dequeue(message: MessagePayload, background_tasks: Optional[Background
                     logger.error(f"Error applying chat controller for conversation {message.conversation_id}: {e}", exc_info=True)
                     # Continue with original response if chat controller fails
             
-            # Apply 13-year-old simplification to the final response (unconditionally)
-            try:
-                simplify_result = await generate_response_for_13_year_old(response_data.final_response)
-                response_data.final_response = simplify_result.get("simplified_response", response_data.final_response)
+            skip_13yo_adapter = message.experience_mode == "try"
+            if skip_13yo_adapter:
+                logger.info(
+                    "Skipping 13-year-old simplification for try mode",
+                    extra={"conversation_id": message.conversation_id, "message_id": message.message_id},
+                )
+            else:
+                try:
+                    simplify_result = await generate_response_for_13_year_old(response_data.final_response)
+                    response_data.final_response = simplify_result.get("simplified_response", response_data.final_response)
 
-                if response_data.pipeline_data is None:
-                    response_data.pipeline_data = {}
+                    step = {
+                        'name': 'response_for_13_year_old',
+                        'enabled': True,
+                        'prompt': simplify_result.get('prompt', ''),
+                        'result': simplify_result.get('simplified_response', ''),
+                        'original_response': simplify_result.get('original_response', ''),
+                        'applied': simplify_result.get('applied', False),
+                        'error': simplify_result.get('error', None)
+                    }
+                    _append_pipeline_step(
+                        response_data,
+                        step,
+                        pipeline_key='response_for_13_year_old',
+                        pipeline_payload=simplify_result,
+                    )
 
-                step = {
-                    'name': 'response_for_13_year_old',
-                    'enabled': True,
-                    'prompt': simplify_result.get('prompt', ''),
-                    'result': simplify_result.get('simplified_response', ''),
-                    'original_response': simplify_result.get('original_response', ''),
-                    'applied': simplify_result.get('applied', False),
-                    'error': simplify_result.get('error', None)
-                }
-                response_data.steps.append(step)
-                response_data.pipeline_data['response_for_13_year_old'] = simplify_result
-                # Also ensure it shows in UI lists that read from pipeline_data['steps']
-                if 'steps' not in response_data.pipeline_data:
-                    response_data.pipeline_data['steps'] = []
-                response_data.pipeline_data['steps'].append(step)
-
-                logger.info(f"Applied 13-year-old simplification. Applied={simplify_result.get('applied', False)}")
-            except Exception as e:
-                logger.error(f"Error applying 13-year-old simplification: {e}", exc_info=True)
+                    logger.info(f"Applied 13-year-old simplification. Applied={simplify_result.get('applied', False)}")
+                except Exception as e:
+                    logger.error(f"Error applying 13-year-old simplification: {e}", exc_info=True)
 
             # Now evaluate exploration directions with the latest assistant message included
             exploration_data = None
             exploration_directions_list = None
             if message.conversation_id and message.purpose in ["chat", "test-prompt"] and EXPLORATION_DIRECTIONS_ENABLED:
                 try:
-                    from src.core.exploration_directions_evaluator import (
-                        evaluate_exploration_directions,
-                        get_conversation_core_theme
+                    from src.core.exploration_directions_evaluator import evaluate_exploration_directions
+                    conversation_history_with_latest = _build_history_with_latest_turn(
+                        turn_context.prefetched_history,
+                        user_input,
+                        response_data.final_response,
                     )
-                    core_theme = await get_conversation_core_theme(int(message.conversation_id))
-                    # Use prefetched history and append this turn's assistant response
-                    conversation_history_with_latest = [
-                        {
-                            "is_user": msg.get("is_user", False),
-                            "content": msg.get("content")
-                        }
-                        for msg in (prefetched_history or [])
-                        if msg.get("content") is not None
-                    ]
-
-                    if not conversation_history_with_latest or not (
-                        conversation_history_with_latest[-1].get("is_user", False)
-                        and conversation_history_with_latest[-1].get("content") == user_input
-                    ):
-                        conversation_history_with_latest.append({
-                            "is_user": True,
-                            "content": user_input
-                        })
-
-                    if not conversation_history_with_latest or not (
-                        conversation_history_with_latest[-1].get("is_user") is False
-                        and conversation_history_with_latest[-1].get("content") == response_data.final_response
-                    ):
-                        conversation_history_with_latest.append({
-                            "is_user": False,
-                            "content": response_data.final_response
-                        })
                     user_message_count = sum(1 for msg in conversation_history_with_latest if msg.get("is_user", False))
 
                     if user_message_count < 2:
@@ -878,7 +1003,7 @@ async def dequeue(message: MessagePayload, background_tasks: Optional[Background
                     else:
                         exploration_data = await evaluate_exploration_directions(
                             conversation_id=int(message.conversation_id),
-                            core_theme=core_theme,
+                            core_theme=turn_context.core_theme,
                             conversation_history=conversation_history_with_latest,
                             current_query=user_input,
                             current_curiosity_score=current_curiosity_score
@@ -897,23 +1022,14 @@ async def dequeue(message: MessagePayload, background_tasks: Optional[Background
                                 'prompt': exploration_data.get('prompt', ''),
                                 'result': ', '.join(exploration_directions_list or []),
                                 'directions': exploration_directions_list or [],
-                                'core_theme': exploration_data.get('core_theme', core_theme or ''),
+                                'core_theme': exploration_data.get('core_theme', turn_context.core_theme or ''),
                                 'evaluation_successful': exploration_data.get('evaluation_successful', False),
                                 'curiosity_score': exploration_data.get('curiosity_score'),
                                 'curiosity_reason': exploration_data.get('curiosity_reason'),
                                 'curiosity_tip': exploration_data.get('curiosity_tip'),
                                 'curiosity_error': exploration_data.get('curiosity_error'),
                             }
-
-                            response_data.steps.append(exploration_step)
-
-                            if response_data.pipeline_data is None:
-                                response_data.pipeline_data = {}
-
-                            pipeline_steps = response_data.pipeline_data.setdefault('steps', [])
-                            pipeline_steps.append(exploration_step)
-                            response_data.pipeline_data['exploration_directions_evaluation'] = exploration_data
-                            response_data.pipeline_data['curiosity_score_evaluation'] = {
+                            curiosity_score_step = {
                                 'prompt': exploration_data.get('prompt'),
                                 'raw_response': exploration_data.get('raw_response'),
                                 'curiosity_score': exploration_data.get('curiosity_score'),
@@ -921,6 +1037,13 @@ async def dequeue(message: MessagePayload, background_tasks: Optional[Background
                                 'applied': exploration_data.get('curiosity_score') is not None,
                                 'error': exploration_data.get('curiosity_error'),
                             }
+                            _append_pipeline_step(
+                                response_data,
+                                exploration_step,
+                                pipeline_key='exploration_directions_evaluation',
+                                pipeline_payload=exploration_data,
+                            )
+                            _ensure_pipeline_metadata(response_data)['curiosity_score_evaluation'] = curiosity_score_step
 
                             logger.info(
                                 f"Generated {len(exploration_directions_list or [])} exploration directions for conversation {message.conversation_id}"
@@ -942,46 +1065,21 @@ async def dequeue(message: MessagePayload, background_tasks: Optional[Background
                     logger.error(f"Error in exploration directions evaluation for conversation {message.conversation_id}: {e}", exc_info=True)
                         
                     
-            # Create a client for fetching the prompt version ID
-            backend_url = os.getenv("BACKEND_CALLBACK_BASE_URL", "http://localhost:5000")
-            async with httpx.AsyncClient() as client:
-                if isinstance(response_data.curiosity_score, int):
-                    curiosity_score = max(current_curiosity_score, response_data.curiosity_score)
-                else:
-                    curiosity_score = current_curiosity_score
+            if isinstance(response_data.curiosity_score, int):
+                curiosity_score = max(current_curiosity_score, response_data.curiosity_score)
+            else:
+                curiosity_score = current_curiosity_score
 
-                response_data.curiosity_score = curiosity_score
-
-                if isinstance(response_data.pipeline_data, dict):
-                    response_data.pipeline_data['curiosity_score'] = curiosity_score
-
-                # Check if the response needs clarification (has follow-up questions)
-                if response_data.needs_clarification and response_data.follow_up_questions:
-                    # Prepare and schedule the callback with follow-up questions
-                    callback_payload = {
-                        "user_id": int(message.user_id),
-                        "conversation_id": message.conversation_id,
-                        "original_message_id": int(message.message_id) if message.message_id.isdigit() else None,
-                        "llm_response": response_data.final_response,  # This contains the formatted follow-up questions
-                        "pipeline_data": response_data.model_dump(),  # Include all pipeline data
-                        "needs_clarification": True,
-                        "follow_up_questions": response_data.follow_up_questions,
-                        "original_query": message.original_query if message.is_follow_up_response else user_input,
-                        "curiosity_score": curiosity_score,
-                        # DON'T send prompt_version_id - conversation already has correct prompt assigned
-                    }
-                else:
-                    # Prepare and schedule the callback with the final response
-                    callback_payload = {
-                        "user_id": int(message.user_id),
-                        "conversation_id": message.conversation_id,
-                        "original_message_id": int(message.message_id) if message.message_id.isdigit() else None,
-                        "llm_response": response_data.final_response,
-                        "pipeline_data": response_data.model_dump(),
-                        "needs_clarification": False,
-                        "curiosity_score": curiosity_score,
-                        # DON'T send prompt_version_id - conversation already has correct prompt assigned
-                    }
+            response_data.curiosity_score = curiosity_score
+            pipeline_metadata = _ensure_pipeline_metadata(response_data)
+            pipeline_metadata['curiosity_score'] = curiosity_score
+            pipeline_metadata['final_response'] = response_data.final_response
+            callback_payload = _build_callback_payload(
+                message=message,
+                response_data=response_data,
+                curiosity_score=curiosity_score,
+                user_input=user_input,
+            )
 
             # Schedule callback
             if background_tasks:
@@ -1061,104 +1159,6 @@ async def health_check():
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
-
-@app.get("/rules", response_class=HTMLResponse)
-async def show_rules(request: Request):
-    """
-    Route that displays the rules/processing flow documentation page.
-    """
-    try:
-        # Attempt to fetch active prompt versions for all relevant prompts
-        backend_url = os.getenv("BACKEND_CALLBACK_BASE_URL", "http://localhost:5000")
-        prompts_to_fetch = [
-            "intent_gathering", 
-            "knowledge_retrieval", 
-            "response_generation",
-            "learning_enhancement"
-        ]
-        
-        prompt_templates = {}
-        
-        for prompt_name in prompts_to_fetch:
-            try:
-                active_version_url = f"{backend_url}/api/prompts/{prompt_name}/versions/active"
-                logger.info(f"Fetching active prompt version for '{prompt_name}' from: {active_version_url}")
-                
-                async with httpx.AsyncClient() as client:
-                    response = await client.get(active_version_url)
-                
-                if response.status_code == 200:
-                    data = response.json()
-                    prompt_templates[f"{prompt_name}_template"] = data.get("prompt_text", "")
-                    logger.info(f"Successfully fetched active version for prompt: {prompt_name}")
-                else:
-                    logger.warning(f"No active version found for prompt '{prompt_name}' ({response.status_code}). Will use local fallback.")
-                    # Load from file as fallback
-                    prompt_file_path = os.path.join(os.path.dirname(__file__), "prompts", f"{prompt_name}_prompt.txt")
-                    if os.path.exists(prompt_file_path):
-                        logger.info(f"Falling back to local prompt template: {prompt_file_path}")
-                        with open(prompt_file_path, "r") as f:
-                            prompt_templates[f"{prompt_name}_template"] = f.read()
-                        logger.info(f"Successfully loaded local prompt template: {prompt_file_path}")
-                    else:
-                        logger.error(f"Could not load prompt template: {prompt_file_path} does not exist")
-                        prompt_templates[f"{prompt_name}_template"] = "Error: Prompt template could not be loaded."
-            except Exception as e:
-                logger.error(f"Error fetching prompt template '{prompt_name}': {str(e)}", exc_info=True)
-                prompt_templates[f"{prompt_name}_template"] = f"Error loading template: {str(e)}"
-        
-        return templates.TemplateResponse("rules.html", {
-            "request": request, 
-            **prompt_templates
-        })
-    except Exception as e:
-        logger.error(f"Error in rules endpoint: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
-
-@app.get("/simplified_rules", response_class=HTMLResponse)
-async def show_simplified_rules(request: Request):
-    """
-    Route that displays the simplified rules/processing flow documentation page.
-    """
-    try:
-        # Attempt to fetch the simplified conversation prompt template
-        backend_url = os.getenv("BACKEND_CALLBACK_BASE_URL", "http://localhost:5000")
-        prompt_name = "simplified_conversation"
-        
-        try:
-            active_version_url = f"{backend_url}/api/prompts/{prompt_name}/versions/active"
-            logger.info(f"Fetching active prompt version for '{prompt_name}' from: {active_version_url}")
-            
-            async with httpx.AsyncClient() as client:
-                response = await client.get(active_version_url)
-            
-            if response.status_code == 200:
-                data = response.json()
-                simplified_conversation_template = data.get("prompt_text", "")
-                logger.info(f"Successfully fetched active version for prompt: {prompt_name}")
-            else:
-                logger.warning(f"No active version found for prompt '{prompt_name}' ({response.status_code}). Will use local fallback.")
-                # Load from file as fallback
-                prompt_file_path = os.path.join(os.path.dirname(__file__), "prompts", f"{prompt_name}_prompt.txt")
-                if os.path.exists(prompt_file_path):
-                    logger.info(f"Falling back to local prompt template: {prompt_file_path}")
-                    with open(prompt_file_path, "r") as f:
-                        simplified_conversation_template = f.read()
-                    logger.info(f"Successfully loaded local prompt template: {prompt_file_path}")
-                else:
-                    logger.warning(f"Could not load prompt template: {prompt_file_path} does not exist")
-                    simplified_conversation_template = None
-        except Exception as e:
-            logger.error(f"Error fetching prompt template '{prompt_name}': {str(e)}", exc_info=True)
-            simplified_conversation_template = None
-        
-        return templates.TemplateResponse("simplified_rules.html", {
-            "request": request, 
-            "simplified_conversation_template": simplified_conversation_template
-        })
-    except Exception as e:
-        logger.error(f"Error in simplified_rules endpoint: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 @app.get("/get-config")
 async def get_config_schema():

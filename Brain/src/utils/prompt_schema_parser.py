@@ -6,10 +6,13 @@ that define output formats for LLMs. It searches for JSON examples in prompts
 and parses them to understand the nested structure of fields.
 """
 
+import logging
 import re
 import json
 from typing import Dict, Any, List, Optional
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 
 def extract_json_from_prompt(prompt_content: str) -> Optional[Dict[str, Any]]:
@@ -211,7 +214,7 @@ def parse_prompt_file(prompt_path: str) -> Optional[Dict[str, Any]]:
     except FileNotFoundError:
         return None
     except Exception as e:
-        print(f"Error parsing prompt file {prompt_path}: {e}")
+        logger.warning("Error parsing prompt file", exc_info=e, extra={"prompt_path": str(prompt_path)})
         return None
 
 

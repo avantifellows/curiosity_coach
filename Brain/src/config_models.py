@@ -24,10 +24,6 @@ class FlowConfig(BaseModel):
     
     steps: List[StepConfig] = Field(
         default_factory=lambda: [
-            StepConfig(name="intent_identification", enabled=True, use_conversation_history=True, is_use_conversation_history_valid=True, is_allowed_to_change_enabled=False),
-            StepConfig(name="knowledge_retrieval", enabled=True, use_conversation_history=False, is_use_conversation_history_valid=False, is_allowed_to_change_enabled=False),
-            StepConfig(name="initial_response_generation", enabled=True, use_conversation_history=True, is_use_conversation_history_valid=True, is_allowed_to_change_enabled=False),
-            StepConfig(name="learning_enhancement", enabled=True, use_conversation_history=True, is_use_conversation_history_valid=True, is_allowed_to_change_enabled=True),
             StepConfig(name="simplified_conversation", enabled=True, use_conversation_history=True, is_use_conversation_history_valid=True, is_allowed_to_change_enabled=False),
         ],
         description="Configuration for each step in the processing pipeline."

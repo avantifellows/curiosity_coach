@@ -16,7 +16,6 @@ from src.feedback import router as feedback_router
 from src.config import router as config_router
 from src.students import router as students_router
 from src.config.settings import settings
-from src.database import init_db
 from mangum import Mangum
 
 # Configure logging for Lambda
@@ -131,9 +130,9 @@ if __name__ == '__main__':
     import uvicorn
     
     port = settings.PORT
-    print(f"Starting FastAPI server on port {port}...")
-    print(f"Environment: {settings.APP_ENV}")
-    print(f"API Documentation: http://localhost:{port}{settings.API_DOCS_URL}")
+    logger.info(f"Starting FastAPI server on port {port}")
+    logger.info(f"Environment: {settings.APP_ENV}")
+    logger.info(f"API Documentation: http://localhost:{port}{settings.API_DOCS_URL}")
     
     # Point uvicorn directly to the created app instance for local run
     uvicorn.run(app, 

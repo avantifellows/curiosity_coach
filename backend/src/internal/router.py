@@ -369,7 +369,6 @@ async def trigger_analytics_flows(payload: AnalyticsTriggerPayload):
 @router.post("/analytics/knowledge-updater/{conversation_id}", status_code=204)
 def save_knowledge_updates(conversation_id: int, payload: KnowledgeItemsPayload, db: Session = Depends(get_db)):
     conv = db.query(Conversation).get(conversation_id)
-    print(payload)
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")
     try:

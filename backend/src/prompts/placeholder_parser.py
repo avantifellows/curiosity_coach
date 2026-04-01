@@ -6,9 +6,12 @@ that defines output formats for LLMs. Used to dynamically generate UI metadata
 for placeholder field selection in the prompt editor.
 """
 
+import logging
 import re
 import json
 from typing import Dict, Any, List, Optional
+
+logger = logging.getLogger(__name__)
 
 
 def extract_json_from_prompt(prompt_content: str) -> Optional[Dict[str, Any]]:
@@ -205,7 +208,7 @@ def parse_prompt_text(prompt_text: str) -> Optional[Dict[str, Any]]:
         }
 
     except Exception as e:
-        print(f"Error parsing prompt text: {e}")
+        logger.warning("Error parsing prompt text", exc_info=e)
         return None
 
 
