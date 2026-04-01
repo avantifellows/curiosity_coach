@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { AutoAwesomeRounded } from '@mui/icons-material';
 import { StudentOptions } from '../types';
 import { getStudentOptions } from '../services/api';
 
@@ -13,6 +14,8 @@ const TeacherView: React.FC = () => {
   const [studentOptions, setStudentOptions] = useState<StudentOptions | null>(null);
   const [studentOptionsLoading, setStudentOptionsLoading] = useState(false);
   const [studentOptionsError, setStudentOptionsError] = useState<string | null>(null);
+  const fieldClass = 'mt-1 block w-full rounded-xl border border-violet-200 bg-white px-3 py-3 text-base text-slate-900 shadow-sm focus:border-violet-400 focus:outline-none focus:ring-2 focus:ring-violet-200 sm:py-2 sm:text-sm disabled:cursor-not-allowed disabled:bg-violet-50';
+  const labelClass = 'block text-sm font-medium text-slate-700';
 
   useEffect(() => {
     let isMounted = true;
@@ -95,29 +98,32 @@ const TeacherView: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 py-8 px-4">
-      <div className="max-w-md w-full space-y-6 bg-white p-8 rounded-lg shadow">
+    <div className="main-gradient-bg min-h-screen flex items-center justify-center px-4 py-8">
+      <div className="max-w-md w-full space-y-6 rounded-3xl border border-violet-200 bg-white/95 p-8 shadow-sm">
         <div>
+          <div className="mx-auto mb-4 inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-violet-100 text-violet-700">
+            <AutoAwesomeRounded />
+          </div>
           <h2 className="text-center text-2xl font-bold text-gray-900">Teacher View</h2>
-          <p className="mt-2 text-center text-sm text-gray-600">
+          <p className="mt-2 text-center text-sm text-violet-700">
             Enter your class details to continue.
           </p>
         </div>
         <form className="space-y-4" onSubmit={handleSubmit}>
           {studentOptionsLoading && (
-            <p className="text-sm text-gray-500 text-center">Loading class options...</p>
+            <p className="text-sm text-slate-500 text-center">Loading class options...</p>
           )}
           {studentOptionsError && (
             <p className="text-sm text-red-600 text-center">{studentOptionsError}</p>
           )}
           <div>
-            <label htmlFor="school" className="block text-sm font-medium text-gray-700">
+            <label htmlFor="school" className={labelClass}>
               School
             </label>
             <select
               id="school"
               name="school"
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+              className={fieldClass}
               value={school}
               onChange={(e) => handleSchoolChange(e.target.value)}
               disabled={!studentOptions}
@@ -131,13 +137,13 @@ const TeacherView: React.FC = () => {
             </select>
           </div>
           <div>
-            <label htmlFor="grade" className="block text-sm font-medium text-gray-700">
+            <label htmlFor="grade" className={labelClass}>
               Grade
             </label>
             <select
               id="grade"
               name="grade"
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+              className={fieldClass}
               value={grade}
               onChange={(e) => handleGradeChange(e.target.value)}
               disabled={!studentOptions}
@@ -151,13 +157,13 @@ const TeacherView: React.FC = () => {
             </select>
           </div>
           <div>
-            <label htmlFor="section" className="block text-sm font-medium text-gray-700">
+            <label htmlFor="section" className={labelClass}>
               Section
             </label>
             <select
               id="section"
               name="section"
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+              className={fieldClass}
               value={section}
               onChange={(e) => setSection(e.target.value)}
               disabled={!studentOptions}
@@ -170,10 +176,10 @@ const TeacherView: React.FC = () => {
               ))}
             </select>
           </div>
-          {error && <p className="text-sm text-red-600">{error}</p>}
+          {error && <p className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600">{error}</p>}
           <button
             type="submit"
-            className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+            className="w-full flex justify-center rounded-xl border border-transparent bg-violet-500 px-4 py-3 text-sm font-medium text-white shadow-sm hover:bg-violet-600 focus:outline-none focus:ring-2 focus:ring-violet-200 focus:ring-offset-2"
             disabled={isSubmitting || !studentOptions}
           >
             {isSubmitting ? 'Redirecting...' : 'Continue'}

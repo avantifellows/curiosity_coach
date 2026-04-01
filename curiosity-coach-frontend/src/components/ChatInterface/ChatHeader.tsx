@@ -30,14 +30,14 @@ const ChatHeader: React.FC<ChatHeaderProps> = ({
   // Show logout button for visits 1-3 (when sidebar is hidden)
   const shouldShowLogout = currentVisitNumber !== null && currentVisitNumber >= 1 && currentVisitNumber <= 3;
 
-  // Show header on desktop when sidebar is hidden (visits 1-3), always show on mobile
-  const headerClasses = shouldShowLogout
-    ? "mobile-header" // Show on all screen sizes for visits 1-3
-    : "lg:hidden mobile-header"; // Hide on desktop for visits 4+ (sidebar visible)
+  // If there is no sidebar toggle, the header is the only persistent navigation surface.
+  const headerClasses = !onToggleSidebar || shouldShowLogout
+    ? 'mobile-header'
+    : 'lg:hidden mobile-header';
 
   return (
     <div className={headerClasses}>
-      <div className="flex items-center space-x-2">
+      <div className="flex min-w-[44px] items-center space-x-2">
         {onToggleSidebar && (
           <button
             onClick={onToggleSidebar}
@@ -64,16 +64,20 @@ const ChatHeader: React.FC<ChatHeaderProps> = ({
         )}
       </div>
 
-      <div className="flex items-center space-x-2">
-        <span className="text-white font-medium text-lg">Curiosity Coach</span>
-        <span className="text-2xl">🤔</span>
+      <div className="flex min-w-0 items-center justify-center space-x-2 px-2">
+        <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-violet-100 text-sm text-violet-700">
+          ✦
+        </span>
+        <span className="truncate text-base font-semibold text-slate-900 sm:text-lg">
+          Curiosity Coach
+        </span>
       </div>
 
-      <div className="flex items-center space-x-2">
+      <div className="flex min-w-[44px] items-center justify-end space-x-2">
         {shouldShowLogout && user && (
           <button
             onClick={onLogout}
-            className="text-sm text-gray-300 hover:text-white hover:underline transition-colors duration-200 flex items-center"
+            className="flex items-center text-sm text-slate-500 transition-colors duration-200 hover:text-slate-900"
             title="Logout"
           >
             <Logout fontSize="small" className="mr-1" />

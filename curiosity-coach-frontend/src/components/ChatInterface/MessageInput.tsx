@@ -53,36 +53,46 @@ const MessageInput: React.FC<MessageInputProps> = ({
   return (
     <div className={`fixed bottom-0 right-0 z-50 ${sidebarOffsetClass}`}>
       <div className="floating-input-bg">
-        <form onSubmit={onSubmit} className="flex items-center space-x-3 w-full max-w-4xl">
-          <textarea
-            ref={textareaRef}
-            className="floating-input"
-            rows={1}
-            placeholder=""
-            value={newMessage}
-            onChange={(e) => setNewMessage(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                if (!isWaitingForResponse && !isDisabled) {
-                  onSubmit(e);
-                }
+        <div className="w-full max-w-4xl">
+          <form onSubmit={onSubmit} className="flex items-center space-x-3">
+            <textarea
+              ref={textareaRef}
+              className="floating-input"
+              rows={1}
+              placeholder={
+                isWaitingForResponse
+                  ? 'Curiosity Coach is replying...'
+                  : 'Ask about homework, class, or anything you want to understand better'
               }
-            }}
-            disabled={isDisabled}
-          />
-          <button
-            type="submit"
-            className={`btn-gradient-primary ${isWaitingForResponse ? 'animate-pulse' : ''}`}
-            disabled={!newMessage.trim() || isWaitingForResponse || isDisabled}
-          >
-            {isWaitingForResponse ? (
-                <CircularProgress size={24} color="inherit" />
-            ) : (
-                <Telegram fontSize="medium" />
-            )}
-          </button>
-        </form>
+              value={newMessage}
+              onChange={(e) => setNewMessage(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  if (!isWaitingForResponse && !isDisabled) {
+                    onSubmit(e);
+                  }
+                }
+              }}
+              disabled={isDisabled}
+            />
+            <button
+              type="submit"
+              className={`btn-gradient-primary ${isWaitingForResponse ? 'animate-pulse' : ''}`}
+              disabled={!newMessage.trim() || isWaitingForResponse || isDisabled}
+            >
+              {isWaitingForResponse ? (
+                  <CircularProgress size={24} color="inherit" />
+              ) : (
+                  <Telegram fontSize="medium" />
+              )}
+            </button>
+          </form>
+          <div className="mt-2 flex items-center justify-between px-1 text-[11px] text-slate-500 sm:text-xs">
+            <span>Press Enter to send. Shift+Enter adds a new line.</span>
+            <span className="hidden sm:inline">Stay curious. Keep digging ✦</span>
+          </div>
+        </div>
       </div>
     </div>
   );

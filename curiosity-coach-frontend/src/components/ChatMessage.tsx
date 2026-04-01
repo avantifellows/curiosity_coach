@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Message } from '../types';
-import { SmartToy } from '@mui/icons-material';
+import { AutoAwesomeRounded } from '@mui/icons-material';
 import parse from 'html-react-parser';
 
 const escapeHtml = (raw: string): string =>
@@ -49,17 +49,15 @@ const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
   // Improved alignment with spacing from edges
   const alignment = is_user ? 'justify-end' : 'justify-start';
   
-  // Gradient backgrounds
-  const bgGradient = is_user 
-    ? 'bg-gradient-to-r from-indigo-500 to-purple-600' 
-    : 'bg-gradient-to-r from-gray-100 to-blue-100';
-  
-  const textColor = is_user ? 'text-white' : 'text-gray-700';
+  const surfaceClasses = is_user
+    ? 'bg-violet-600 text-white'
+    : 'border border-violet-200 bg-[#faf7ff] text-slate-800';
+
   const opacity = status === 'sending' ? 'opacity-70' : 'opacity-100';
   const errorStyle = status === 'error' ? 'border border-red-500' : '';
   
-  // Enhanced hover and animation effects
-  const hoverEffect = 'transition-all duration-200 hover:shadow-lg';
+  // Keep entrance motion subtle; chat should feel stable, not flashy.
+  const hoverEffect = 'transition-all duration-200';
   const appearAnimation = isVisible 
     ? (is_user ? 'translate-y-0 opacity-100' : 'translate-y-0 opacity-100') 
     : (is_user ? 'translate-y-2 opacity-0' : 'translate-y-2 opacity-0');
@@ -69,12 +67,12 @@ const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
     <div className={`flex ${alignment} ${opacity} px-4 sm:px-6 lg:px-8 ${animationTiming} ${appearAnimation}`}>
       {/* AI Avatar for non-user messages */}
       {!is_user && (
-        <div className="flex-shrink-0 h-8 w-8 rounded-full bg-indigo-100 flex items-center justify-center mr-2">
-          <SmartToy fontSize="small" className="text-indigo-600" />
+        <div className="mr-2 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-violet-100">
+          <AutoAwesomeRounded fontSize="small" className="text-violet-700" />
         </div>
       )}
       
-      <div className={`rounded-xl px-3 sm:px-4 py-2 max-w-[75%] sm:max-w-md lg:max-w-lg shadow ${bgGradient} ${textColor} ${errorStyle} ${hoverEffect} whitespace-pre-wrap break-words min-w-[120px]`}>
+      <div className={`min-w-[120px] max-w-[75%] whitespace-pre-wrap break-words rounded-2xl px-3 py-2 shadow-sm sm:max-w-md sm:px-4 ${surfaceClasses} ${errorStyle} ${hoverEffect} lg:max-w-lg`}>
         {formattedContent}
         {status === 'sending' && (
           <span className="text-xs italic ml-2 block opacity-80">

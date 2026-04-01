@@ -25,8 +25,8 @@ const CuriosityScoreIndicator: React.FC<CuriosityScoreIndicatorProps> = ({ score
   const displayTip = tip || defaultTip;
 
   return (
-    <div className="fixed top-20 right-4 z-40">
-      <div className="bg-white/90 backdrop-blur-sm shadow-lg rounded-xl px-5 py-4 flex flex-col items-center w-60">
+    <div className="fixed right-4 top-20 z-40 hidden xl:block">
+      <div className="flex w-60 flex-col items-center rounded-2xl border border-violet-200 bg-white/95 px-5 py-4 shadow-sm">
         <div className="relative">
           <svg width={72} height={72} role="img" aria-label={`Curiosity score ${safeScore} out of 100`}>
             <circle
@@ -41,7 +41,7 @@ const CuriosityScoreIndicator: React.FC<CuriosityScoreIndicatorProps> = ({ score
               cx={36}
               cy={36}
               r={radius}
-              stroke="#8B5CF6"
+              stroke="#7C3AED"
               strokeWidth={8}
               fill="none"
               strokeLinecap="round"
@@ -51,13 +51,13 @@ const CuriosityScoreIndicator: React.FC<CuriosityScoreIndicatorProps> = ({ score
             />
           </svg>
           <div className="absolute inset-0 flex items-center justify-center">
-            <span className="text-lg font-semibold text-gray-800">{safeScore}</span>
+            <span className="text-lg font-semibold text-slate-900">{safeScore}</span>
           </div>
         </div>
-        <span className="mt-2 text-xs font-medium text-gray-600 tracking-wide uppercase">Score</span>
+        <span className="mt-2 text-xs font-medium uppercase tracking-wide text-slate-500">Curiosity score</span>
         <div className="mt-3 w-full text-left space-y-1.5">
-          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Try this</p>
-          <p className="text-sm text-gray-700 leading-snug">{displayTip}</p>
+          <p className="text-xs font-semibold uppercase tracking-wide text-violet-700">Try this</p>
+          <p className="text-sm leading-snug text-slate-700">{displayTip}</p>
         </div>
       </div>
     </div>
