@@ -455,11 +455,17 @@ export const getAnalysisJobStatus = async (jobId: string): Promise<AnalysisJobSt
   }
 };
 
-export const sendMessage = async (conversationId: number, content: string, purpose: string = "chat"): Promise<SendMessageResponse> => {
+export const sendMessage = async (
+  conversationId: number,
+  content: string,
+  purpose: string = "chat",
+  experienceMode?: string
+): Promise<SendMessageResponse> => {
   try {
     const response = await API.post<SendMessageResponse>(`/conversations/${conversationId}/messages`, { 
       content,
-      purpose 
+      purpose,
+      experience_mode: experienceMode,
     });
     return response.data;
   } catch (error: any) {

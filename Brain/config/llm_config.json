@@ -3,13 +3,17 @@
     "calls": {
         "core_theme_extraction": {
             "provider": "openai",
-            "model": "gpt-4.1",
-            "temperature": 0.4,
-            "max_tokens": 500
+            "model": "gpt-5.4-mini",
+            "reasoning": {
+                "effort": "low"
+            },
+            "text": {
+                "verbosity": "low"
+            }
         },
         "age_adapter_13yo": {
             "provider": "openai",
-            "model": "gpt-5.1",
+            "model": "gpt-5.4-mini",
             "reasoning": {
                 "effort": "low"
             },
@@ -19,7 +23,7 @@
         },
         "curiosity_score_evaluation": {
             "provider": "openai",
-            "model": "gpt-5.1",
+            "model": "gpt-5.4-mini",
             "reasoning": {
                 "effort": "low"
             },
@@ -29,13 +33,17 @@
         },
         "exploration_directions_evaluation": {
             "provider": "openai",
-            "model": "gpt-4.1",
-            "temperature": 0.4,
-            "max_tokens": 500
+            "model": "gpt-5.4-mini",
+            "reasoning": {
+                "effort": "low"
+            },
+            "text": {
+                "verbosity": "low"
+            }
         },
         "chat_controller": {
             "provider": "openai",
-            "model": "gpt-5.1",
+            "model": "gpt-5.4-mini",
             "reasoning": {
                 "effort": "low"
             },
@@ -45,16 +53,24 @@
         },
         "homework_updater": {
             "provider": "openai",
-            "model": "gpt-4.1",
-            "temperature": 0.2,
-            "max_tokens": 800,
+            "model": "gpt-5.4-mini",
+            "reasoning": {
+                "effort": "low"
+            },
+            "text": {
+                "verbosity": "low"
+            },
             "json_mode": true
         },
         "knowledge_updater": {
             "provider": "openai",
-            "model": "gpt-4.1",
-            "temperature": 0.2,
-            "max_tokens": 800
+            "model": "gpt-5.4-mini",
+            "reasoning": {
+                "effort": "low"
+            },
+            "text": {
+                "verbosity": "low"
+            }
         },
         "intent_identification": {
             "provider": "groq",
@@ -64,7 +80,7 @@
         },
         "response_generation": {
             "provider": "openai",
-            "model": "gpt-5.1",
+            "model": "gpt-5.4",
             "reasoning": {
                 "effort": "medium"
             },
@@ -74,25 +90,37 @@
         },
         "simplified_conversation": {
             "provider": "openai",
-            "model": "gpt-4.1",
-            "temperature": 0.4,
-            "max_tokens": 1000
+            "model": "gpt-5.4-mini",
+            "reasoning": {
+                "effort": "medium"
+            },
+            "text": {
+                "verbosity": "low"
+            }
         },
         "knowledge_retrieval": {
             "provider": "openai",
-            "model": "gpt-4o",
-            "temperature": 0.2,
-            "max_tokens": 500
+            "model": "gpt-5.4-mini",
+            "reasoning": {
+                "effort": "low"
+            },
+            "text": {
+                "verbosity": "low"
+            }
         },
         "learning_enhancement": {
             "provider": "openai",
-            "model": "gpt-4o",
-            "temperature": 0.8,
-            "max_tokens": 1000
+            "model": "gpt-5.4-mini",
+            "reasoning": {
+                "effort": "low"
+            },
+            "text": {
+                "verbosity": "medium"
+            }
         },
         "user_persona_generation": {
             "provider": "openai",
-            "model": "gpt-5.1",
+            "model": "gpt-5.4",
             "reasoning": {
                 "effort": "medium"
             },
@@ -102,9 +130,9 @@
         },
         "memory_generation": {
             "provider": "openai",
-            "model": "gpt-5.1",
+            "model": "gpt-5.4",
             "reasoning": {
-                "effort": "high"
+                "effort": "medium"
             },
             "text": {
                 "verbosity": "medium"
@@ -112,13 +140,17 @@
         },
         "opening_message": {
             "provider": "openai",
-            "model": "gpt-4.1",
-            "temperature": 0.5,
-            "max_tokens": 4096
+            "model": "gpt-5.4-mini",
+            "reasoning": {
+                "effort": "low"
+            },
+            "text": {
+                "verbosity": "low"
+            }
         },
         "class_analysis": {
             "provider": "openai",
-            "model": "gpt-5.1",
+            "model": "gpt-5.4",
             "reasoning": {
                 "effort": "medium"
             },
@@ -128,7 +160,7 @@
         },
         "student_analysis": {
             "provider": "openai",
-            "model": "gpt-5.1",
+            "model": "gpt-5.4",
             "reasoning": {
                 "effort": "medium"
             },
@@ -138,7 +170,7 @@
         },
         "conversation_evaluation": {
             "provider": "openai",
-            "model": "gpt-5.2",
+            "model": "gpt-5.4",
             "reasoning": {
                 "effort": "medium"
             },

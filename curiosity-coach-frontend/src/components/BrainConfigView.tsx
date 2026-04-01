@@ -1,141 +1,17 @@
-import React, { useState, useEffect } from 'react';
-import { CircularProgress, Tabs, Tab } from '@mui/material';
-import { useChat } from '../context/ChatContext';
+import React from 'react';
 import PromptVersionsView from './PromptVersionsView';
 
-interface StepConfig {
-  name: string;
-  enabled: boolean;
-  use_conversation_history: boolean;
-  is_use_conversation_history_valid: boolean;
-  is_allowed_to_change_enabled: boolean;
-  // [key: string]: any; // Allow other properties if any, though we primarily care about the above
-}
-
-interface BrainConfigViewProps {
-  isLoadingBrainConfig: boolean;
-  brainConfigSchema: { // Updated to reflect the new structure
-    schema?: any; // The JSON schema part
-    current_values?: { // The current configuration values
-      steps: StepConfig[];
-    };
-    // Allow other properties from the old structure for graceful degradation if needed, though we focus on new one
-    [key: string]: any; 
-  } | null;
-  brainConfigError: string | null;
-}
-
-interface TabPanelProps {
-  children?: React.ReactNode;
-  index: number;
-  value: number;
-}
-
-function TabPanel(props: TabPanelProps) {
-  const { children, value, index, ...other } = props;
-
-  return (
-    <div
-      role="tabpanel"
-      hidden={value !== index}
-      id={`brain-config-tabpanel-${index}`}
-      aria-labelledby={`brain-config-tab-${index}`}
-      {...other}
-      className="py-4"
-    >
-      {value === index && children}
-    </div>
-  );
-}
-
-const BrainConfigView: React.FC<BrainConfigViewProps> = ({ 
-  isLoadingBrainConfig, 
-  brainConfigSchema, 
-  brainConfigError 
-}) => {
-  const { fetchBrainConfigSchema } = useChat();
-
-  const [activeTab, setActiveTab] = useState(0);
-
-  const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
-    setActiveTab(newValue);
-  };
-
-  useEffect(() => {
-    if (brainConfigSchema === null && !isLoadingBrainConfig && !brainConfigError) {
-      fetchBrainConfigSchema();
-    }
-  }, [brainConfigSchema, isLoadingBrainConfig, brainConfigError, fetchBrainConfigSchema]);
-
-  if (isLoadingBrainConfig) {
-    return (
-      <div className="flex justify-center items-center h-full p-4">
-        <CircularProgress />
-        <p className="ml-2 text-gray-500 text-sm sm:text-base">Loading Brain Configuration...</p>
-      </div>
-    );
-  }
-
-  if (brainConfigError) {
-    return (
-      <div className="flex justify-center items-center h-full p-2 sm:p-4">
-        <div className="text-center text-red-500 bg-red-100 p-3 sm:p-4 rounded shadow w-full max-w-lg">
-          <p className="font-semibold text-base sm:text-lg mb-2">Unable to load Brain Configuration</p>
-          <p className="mb-3 text-sm sm:text-base">This may occur if:</p>
-          <ul className="list-disc text-left ml-4 sm:ml-6 mb-4 text-sm sm:text-base">
-            <li>The backend server is not running</li>
-            <li>The database hasn't been initialized with configuration</li>
-            <li>There's a network connection issue</li>
-          </ul>
-          <p className="text-xs sm:text-sm mb-4 text-gray-600 break-words">{brainConfigError}</p>
-          <button 
-            onClick={() => window.location.reload()} 
-            className="bg-blue-500 hover:bg-blue-600 text-white font-semibold py-2 px-4 rounded text-sm sm:text-base"
-          >
-            Retry
-          </button>
-        </div>
-      </div>
-    );
-  }
-  
-  const currentValues = brainConfigSchema?.current_values;
-  const stepSchemaDefinition = brainConfigSchema?.schema?.$defs?.StepConfig?.properties;
-
-  if (!currentValues || !Array.isArray(currentValues.steps) || currentValues.steps.length === 0 || !stepSchemaDefinition) {
-    return (
-      <div className="flex justify-center items-center h-full p-4">
-        <p className="text-gray-500 text-center text-sm sm:text-base px-2">
-          {currentValues && Array.isArray(currentValues.steps) && currentValues.steps.length === 0 
-            ? "No configuration steps found."
-            : "Brain configuration is not available, has an unexpected format, or no steps are defined."}
-        </p>
-      </div>
-    );
-  }
-
+const BrainConfigView: React.FC = () => {
   return (
     <div className="p-2 sm:p-4 lg:p-6 space-y-4 sm:space-y-6 bg-white shadow rounded-lg m-2 sm:m-4">
-      <Tabs 
-        value={activeTab} 
-        onChange={handleTabChange} 
-        className="border-b"
-        variant="fullWidth"
-        scrollButtons="auto"
-      >
-        <Tab 
-          label="Prompt Versions" 
-          id="brain-config-tab-0" 
-          aria-controls="brain-config-tabpanel-0"
-          className="text-sm sm:text-base"
-        />
-      </Tabs>
-
-      <TabPanel value={activeTab} index={0}>
+      <div className="border-b pb-3">
+        <h2 className="text-lg font-semibold text-gray-900">Prompt Versions</h2>
+      </div>
+      <div className="py-1">
         <PromptVersionsView />
-      </TabPanel>
+      </div>
     </div>
   );
 };
 
-export default BrainConfigView; 
+export default BrainConfigView;

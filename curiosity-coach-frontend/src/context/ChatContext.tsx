@@ -39,15 +39,6 @@ interface ChatContextState {
   // New state for Brain Config View
   isConfigViewActive: boolean;
   setIsConfigViewActive: (isActive: boolean) => void;
-  brainConfigSchema: any | null; // To store the fetched JSON schema
-  isLoadingBrainConfig: boolean;
-  brainConfigError: string | null;
-  fetchBrainConfigSchema: () => Promise<void>;
-
-  // New state and function for updating Brain Config
-  isSavingBrainConfig: boolean;
-  saveBrainConfigError: string | null;
-  updateBrainConfig: (newConfig: any) => Promise<boolean>; // Returns true on success
 
   // New state and function for updating Conversation Title
   isUpdatingConversationTitle: boolean;
@@ -82,13 +73,6 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   // New state for Brain Config
   const [isConfigViewActive, setIsConfigViewActive] = useState(false);
-  const [brainConfigSchema, setBrainConfigSchema] = useState<any | null>(null);
-  const [isLoadingBrainConfig, setIsLoadingBrainConfig] = useState(false);
-  const [brainConfigError, setBrainConfigError] = useState<string | null>(null);
-
-  // New state for saving brain config
-  const [isSavingBrainConfig, setIsSavingBrainConfig] = useState(false);
-  const [saveBrainConfigError, setSaveBrainConfigError] = useState<string | null>(null);
 
   // New state for updating conversation title
   const [isUpdatingConversationTitle, setIsUpdatingConversationTitle] = useState(false);
@@ -96,6 +80,10 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const { user } = useAuth(); // Get user from AuthContext to fetch data only when logged in
   const location = useLocation(); // Get current route
+  const experienceMode = React.useMemo(() => {
+    const queryParams = new URLSearchParams(location.search);
+    return queryParams.get('mode') === 'try' ? 'try' : undefined;
+  }, [location.search]);
   const cleanupPollingRef = useRef<(() => void) | null>(null); // Ref to hold the cleanup function
   const hasAutoCreatedConversationRef = useRef<boolean>(false); // Track if we've auto-created a conversation in this session
 
@@ -123,7 +111,10 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       // Use ref to ensure we only create once per session
       // ONLY run on /chat route - don't auto-create when user is on other pages like /prompts
       
-      const isOnChatRoute = location.pathname === '/chat' || location.pathname === '/';
+      const isOnChatRoute =
+        location.pathname === '/chat' ||
+        location.pathname === '/' ||
+        location.pathname === '/try';
       if (!hasAutoCreatedConversationRef.current && isOnChatRoute) {
         console.log(`[OnboardingDebug] User login detected on chat route - automatically creating new conversation (Visit ${fetchedConversations.length + 1})`);
         hasAutoCreatedConversationRef.current = true; // Mark as created
@@ -441,7 +432,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setMessages(prev => [...prev, tempUserMessage]);
 
     try {
-      const response = await sendMessage(currentConversationId, content, purpose);
+      const response = await sendMessage(currentConversationId, content, purpose, experienceMode);
       
       if (!response.success || !response.message || typeof response.message.id !== 'number') {
           console.error("Invalid response from sendMessage:", response);
@@ -483,7 +474,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     } finally {
       setIsSendingMessage(false);
     }
-  }, [currentConversationId, pollAiResponse, messages, updateTitleFromFirstMessage, handleUpdateConversationTitle]);
+  }, [currentConversationId, experienceMode, pollAiResponse, messages, updateTitleFromFirstMessage, handleUpdateConversationTitle]);
 
   // --- Send Message with Auto-Conversation Creation --- 
   const handleSendMessageWithAutoConversation = useCallback(async (content: string, purpose: string = "chat") => {
@@ -533,7 +524,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setMessages(prev => [...prev, tempUserMessage]);
 
     try {
-      const response = await sendMessage(conversationId, content, purpose);
+      const response = await sendMessage(conversationId, content, purpose, experienceMode);
       
       if (!response.success || !response.message || typeof response.message.id !== 'number') {
           console.error("Invalid response from sendMessage:", response);
@@ -575,74 +566,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     } finally {
       setIsSendingMessage(false);
     }
-  }, [user, currentConversationId, handleCreateConversation, pollAiResponse, messages, updateTitleFromFirstMessage, handleUpdateConversationTitle]);
-
-  // --- Fetch Brain Config Schema ---
-  const fetchBrainConfigSchema = useCallback(async () => {
-    if (!user) return;
-    setIsLoadingBrainConfig(true);
-    setBrainConfigError(null);
-    setBrainConfigSchema(null); // Clear previous schema
-    try {
-      const brainApiUrl = process.env.REACT_APP_BRAIN_API_URL;
-      if (!brainApiUrl) {
-        throw new Error("REACT_APP_BRAIN_API_URL is not defined in .env file.");
-      }
-      const response = await fetch(`${brainApiUrl}/get-config`);
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ detail: 'Failed to fetch brain config schema' }));
-        throw new Error(errorData.detail || `HTTP error ${response.status}`);
-      }
-      const schema = await response.json();
-      setBrainConfigSchema(schema);
-    } catch (err: any) {
-      console.error("Failed to fetch brain config schema:", err);
-      setBrainConfigError(err.message || 'An unknown error occurred');
-    } finally {
-      setIsLoadingBrainConfig(false);
-    }
-  }, [user]);
-
-  // --- Update Brain Config ---
-  const updateBrainConfig = useCallback(async (newConfig: any): Promise<boolean> => {
-    if (!user) {
-      setSaveBrainConfigError("User not authenticated.");
-      return false;
-    }
-    setIsSavingBrainConfig(true);
-    setSaveBrainConfigError(null);
-    try {
-      const brainApiUrl = process.env.REACT_APP_BRAIN_API_URL;
-      if (!brainApiUrl) {
-        throw new Error("REACT_APP_BRAIN_API_URL is not defined in .env file.");
-      }
-      const response = await fetch(`${brainApiUrl}/set-config`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(newConfig),
-      });
-
-      const responseData = await response.json();
-
-      if (!response.ok) {
-        throw new Error(responseData.detail || `HTTP error ${response.status}`);
-      }
-      
-      // Optionally, refetch the schema or update local schema if needed after save
-      // For now, just indicate success. The BrainConfigView can reset its 'dirty' state.
-      // await fetchBrainConfigSchema(); // Or update state based on responseData.new_config
-      
-      return true;
-    } catch (err: any) {
-      console.error("Failed to update brain config:", err);
-      setSaveBrainConfigError(err.message || 'An unknown error occurred while saving configuration');
-      return false;
-    } finally {
-      setIsSavingBrainConfig(false);
-    }
-  }, [user]); // Removed fetchBrainConfigSchema from deps for now
+  }, [user, currentConversationId, experienceMode, handleCreateConversation, pollAiResponse, messages, updateTitleFromFirstMessage, handleUpdateConversationTitle]);
 
   // --- Initial Fetch ---
   useEffect(() => {
@@ -693,14 +617,6 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     // New exports for Brain Config
     isConfigViewActive,
     setIsConfigViewActive,
-    brainConfigSchema,
-    isLoadingBrainConfig,
-    brainConfigError,
-    fetchBrainConfigSchema,
-    // New exports for saving Brain Config
-    isSavingBrainConfig,
-    saveBrainConfigError,
-    updateBrainConfig,
     // New exports for Conversation Title Update
     isUpdatingConversationTitle,
     updateConversationTitleError,

@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.orm import Session
+import logging
 from src.auth.schemas import (
     PhoneNumberRequest, LoginRequest, LoginResponse, UserResponse,
     StudentLoginRequest, StudentLoginResponse, StudentResponse
@@ -13,6 +14,8 @@ router = APIRouter(
     prefix="/api/auth",
     tags=["authentication"]
 )
+
+logger = logging.getLogger(__name__)
 
 @router.post("/login", response_model=LoginResponse)
 async def login_with_identifier(request: LoginRequest, db: Session = Depends(get_db)):
@@ -36,7 +39,7 @@ async def login_with_identifier(request: LoginRequest, db: Session = Depends(get
             'generated_name': generated_name
         }
     except Exception as e:
-        print(f"Login error: {e}")
+        logger.exception("Login error")
         # Consider more specific error handling
         raise HTTPException(status_code=500, detail=f"Error during login: {str(e)}")
 
@@ -59,7 +62,7 @@ async def login_with_phone(request: PhoneNumberRequest, db: Session = Depends(ge
             'user': user
         }
     except Exception as e:
-        print(f"Login error: {e}")
+        logger.exception("Phone login error")
         # Consider more specific error handling
         raise HTTPException(status_code=500, detail=f"Error during login: {str(e)}")
 
@@ -110,5 +113,5 @@ async def login_with_student(request: StudentLoginRequest, db: Session = Depends
             'student': student
         }
     except Exception as e:
-        print(f"Student login error: {e}")
-        raise HTTPException(status_code=500, detail=f"Error during student login: {str(e)}") 
+        logger.exception("Student login error")
+        raise HTTPException(status_code=500, detail=f"Error during student login: {str(e)}")

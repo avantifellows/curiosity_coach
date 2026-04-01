@@ -2,73 +2,28 @@ from typing import Optional, Dict, Any, List, Union, Literal
 from pydantic import BaseModel, Field
 
 # Pydantic models for process_query response
-class IntentSubject(BaseModel):
-    main_topic: Optional[str]
-    related_topics: List[str]
-
-class IntentContext(BaseModel):
-    known_information: Optional[str] = None
-    motivation: Optional[str] = None
-    learning_goal: Optional[str] = None
-
-class IntentDetails(BaseModel):
-    category: Optional[str] = None
-    specific_type: Optional[str] = None
-    confidence: Optional[float] = None
-
-class IntentData(BaseModel):
-    subject: IntentSubject
-    intents: Dict[str, Optional[IntentDetails]]
-    context: Optional[IntentContext] = None
-    intent_category: Optional[str] = Field(None, description="The category of intent: 'educational', 'clarification', 'greeting', 'administrative', etc.")
-
-class IntentGatheringStepData(BaseModel):
-    name: Literal["intent_gathering"]
-    enabled: bool
-    result: Optional[Dict[str, Any]] = None
-    main_topic: Optional[str] = None
-    related_topics: Optional[List[str]] = None
-    needs_clarification: bool = False
-
-class FollowUpProcessingStepData(BaseModel):
-    name: Literal["follow_up_processing"]
-    enabled: bool
-    result: Optional[Dict[str, Any]] = None
-    main_topic: Optional[str] = None
-    related_topics: Optional[List[str]] = None
-    needs_clarification: bool = False
-
-class KnowledgeStepData(BaseModel):
-    name: Literal["knowledge_retrieval"]
+class PipelineStepBase(BaseModel):
     enabled: bool
     prompt: Optional[str] = None
-    result: Optional[str] = None # Assuming context_info is a string
-
-class InitialResponseStepData(BaseModel):
-    name: Literal["initial_response_generation"]
-    enabled: bool
-    prompt: Optional[str] = None
-    result: Optional[str] = None # Assuming initial_response is a string
-
-class LearningEnhancementStepData(BaseModel):
-    name: Literal["learning_enhancement"]
-    enabled: bool
-    prompt: Optional[str] = None
-    result: Optional[str] = None # Assuming enhanced_response_val is a string
-
-# Add SimplifiedConversationStepData model
-class SimplifiedConversationStepData(BaseModel):
-    name: Literal["simplified_conversation"]
-    enabled: bool
-    prompt: Optional[str] = None
-    result: Optional[str] = None
+    prompt_name: Optional[str] = None
+    prompt_version: Optional[int] = None
+    prompt_template: Optional[str] = None
+    formatted_prompt: Optional[str] = None
+    result: Optional[Any] = None
     response_data: Optional[Dict[str, Any]] = None
+    step_id: Optional[str] = None
+    step_kind: Optional[str] = None
+
+    model_config = {"extra": "allow"}
+
+
+class SimplifiedConversationStepData(PipelineStepBase):
+    name: Literal["simplified_conversation"]
+    result: Optional[str] = None
     needs_clarification: bool = False
 
-class CuriosityScoreEvaluationStepData(BaseModel):
+class CuriosityScoreEvaluationStepData(PipelineStepBase):
     name: Literal["curiosity_score_evaluation"]
-    enabled: bool
-    prompt: Optional[str] = None
     result: Optional[str] = None
     raw_response: Optional[str] = None
     curiosity_score: Optional[int] = None
@@ -76,14 +31,14 @@ class CuriosityScoreEvaluationStepData(BaseModel):
     applied: bool = False
     error: Optional[str] = None
 
+class GenericPipelineStepData(PipelineStepBase):
+    name: str
+
+
 PipelineStepData = Union[
-    IntentGatheringStepData, 
-    FollowUpProcessingStepData,
-    KnowledgeStepData, 
-    InitialResponseStepData, 
-    LearningEnhancementStepData,
     SimplifiedConversationStepData,
-    CuriosityScoreEvaluationStepData
+    CuriosityScoreEvaluationStepData,
+    GenericPipelineStepData,
 ]
 
 class PipelineData(BaseModel):

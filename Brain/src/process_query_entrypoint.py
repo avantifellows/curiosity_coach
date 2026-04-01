@@ -4,9 +4,78 @@ from typing import Optional, Dict, Any, List, Tuple
 from src.config_models import FlowConfig
 from src.schemas import ProcessQueryResponse
 import httpx
+from src.core.turn_context import PromptExecutionContext
+from src.services.api_service import api_service
+from src.utils.prompt_injection import inject_core_theme_placeholder
 
 # Always use simplified conversation mode
 FORCE_SIMPLIFIED_MODE = True
+
+
+def prompt_template_requires_conversation_memory(prompt_template: str) -> bool:
+    return "{{CONVERSATION_MEMORY" in prompt_template
+
+
+def prompt_template_requires_previous_memories(prompt_template: str) -> bool:
+    return "{{PREVIOUS_CONVERSATIONS_MEMORY" in prompt_template
+
+
+def prompt_template_requires_core_theme(prompt_template: str) -> bool:
+    return "{{CORE_THEME" in prompt_template
+
+
+async def resolve_prompt_execution_context(
+    purpose: str = "chat",
+    conversation_id: Optional[int] = None,
+) -> PromptExecutionContext:
+    """
+    Resolve the prompt template and stable metadata for the current turn.
+    """
+    logger.info(
+        f"Resolving prompt execution context (purpose={purpose}, conversation_id={conversation_id})"
+    )
+
+    prompt_file_path = os.path.join(os.path.dirname(__file__), "prompts", "simplified_conversation_prompt.txt")
+    prompt_template: Optional[str] = None
+    prompt_name_used = "simplified_conversation"
+    prompt_version_used: Optional[int] = None
+    prompt_purpose: Optional[str] = None
+
+    if conversation_id:
+        try:
+            prompt_response = await api_service.get_conversation_prompt(conversation_id)
+            if prompt_response and "prompt_text" in prompt_response:
+                prompt_template = prompt_response["prompt_text"]
+                prompt_version_used = prompt_response.get("version_number")
+                prompt_purpose = prompt_response.get("prompt_purpose")
+                if prompt_purpose:
+                    prompt_name_used = prompt_purpose
+                elif prompt_version_used is not None:
+                    prompt_name_used = f"conversation_prompt_v{prompt_version_used}"
+                logger.info(
+                    "Using conversation-assigned prompt "
+                    f"(name={prompt_name_used}, version={prompt_version_used}, purpose={prompt_purpose})"
+                )
+            else:
+                logger.warning(
+                    f"Prompt response missing prompt_text for conversation_id={conversation_id}; using fallback"
+                )
+        except Exception as exc:
+            logger.error(
+                f"Could not fetch assigned prompt for conversation_id={conversation_id}: {exc}",
+                exc_info=True,
+            )
+
+    if not prompt_template:
+        prompt_template = await _get_prompt_template(prompt_file_path, "simplified_conversation", purpose)
+        logger.info("Falling back to simplified_conversation prompt template")
+
+    return PromptExecutionContext(
+        prompt_template=prompt_template,
+        prompt_name=prompt_name_used,
+        prompt_version=prompt_version_used,
+        prompt_purpose=prompt_purpose,
+    )
 
 async def generate_simplified_response(
     query: str,
@@ -17,6 +86,9 @@ async def generate_simplified_response(
     conversation_id: Optional[int] = None,
     user_id: Optional[int] = None,
     current_curiosity_score: int = 0,
+    prompt_context: Optional[PromptExecutionContext] = None,
+    core_theme: Optional[str] = None,
+    previous_memories: Optional[List[Dict[str, Any]]] = None,
 ) -> Tuple[str, str, str, Dict[str, Any], str, Optional[int]]:
     """
     Generate a simplified response using a single prompt approach.
@@ -36,48 +108,20 @@ async def generate_simplified_response(
     """
     logger.info(f"Generating simplified response for query: {query} (purpose: {purpose}, conversation_id: {conversation_id})")
     
-    # Define prompt file path
-    prompt_file_path = os.path.join(os.path.dirname(__file__), "prompts", "simplified_conversation_prompt.txt")
-    
-    # Track which prompt we're using
-    prompt_name_used = "simplified_conversation"
-    prompt_version_used = None
-    
     try:
-        # Try to fetch conversation's assigned prompt first (for visit-based prompts)
-        prompt_template = None
-        if conversation_id:
-            try:
-                from src.services.api_service import api_service as brain_api_service
-                logger.info(f"🔍 BRAIN: Fetching assigned prompt for conversation_id={conversation_id}")
-                prompt_response = await brain_api_service.get_conversation_prompt(conversation_id)
-                logger.info(f"📦 BRAIN: Received prompt_response: {prompt_response if prompt_response else 'None'}")
-                if prompt_response and "prompt_text" in prompt_response:
-                    prompt_template = prompt_response["prompt_text"]
-                    prompt_version_used = prompt_response.get("version_number")
-                    # Use prompt_purpose if available (visit_1, visit_2, visit_3, steady_state)
-                    prompt_purpose = prompt_response.get("prompt_purpose")
-                    if prompt_purpose:
-                        prompt_name_used = prompt_purpose
-                    else:
-                        # Fallback to generic name if purpose not available
-                        prompt_name_used = f"conversation_prompt_v{prompt_version_used}"
-                    logger.info(f"✅ BRAIN: Using conversation's assigned prompt - purpose={prompt_purpose}, version={prompt_version_used}, name={prompt_name_used}, template_length={len(prompt_template)}")
-                else:
-                    logger.warning(f"⚠️ BRAIN: prompt_response missing prompt_text field!")
-            except Exception as e:
-                logger.error(f"❌ BRAIN: Could not fetch conversation's assigned prompt: {e}. Will use default.", exc_info=True)
-        else:
-            logger.warning(f"⚠️ BRAIN: No conversation_id provided, cannot fetch visit-based prompt")
-        
-        # Fallback to default "simplified_conversation" prompt if needed
-        if not prompt_template:
-            logger.warning(f"🔄 BRAIN: FALLING BACK to default simplified_conversation prompt (this should NOT happen for visit-based conversations!)")
-            prompt_template = await _get_prompt_template(prompt_file_path, "simplified_conversation", purpose)
-            logger.info(f"📝 BRAIN: Loaded fallback template, length={len(prompt_template)}")
+        effective_prompt_context = prompt_context or await resolve_prompt_execution_context(
+            purpose=purpose,
+            conversation_id=conversation_id,
+        )
+        prompt_template = effective_prompt_context.prompt_template
+        prompt_name_used = effective_prompt_context.prompt_name
+        prompt_version_used = effective_prompt_context.prompt_version
 
         # Format the prompt with query and conversation history
-        logger.info(f"📝 BRAIN: Formatting prompt with query (length={len(query)}) and history (length={len(conversation_history) if conversation_history else 0})")
+        logger.info(
+            f"Formatting prompt with query length={len(query)} and "
+            f"history length={len(conversation_history) if conversation_history else 0}"
+        )
         curiosity_score_str = str(max(0, min(100, current_curiosity_score)))
         prompt_template = prompt_template.replace("{{CURRENT_CURIOSITY_SCORE}}", curiosity_score_str)
 
@@ -85,39 +129,29 @@ async def generate_simplified_response(
         
         if conversation_history:
             formatted_prompt = formatted_prompt.replace("{{CONVERSATION_HISTORY}}", conversation_history)
-            logger.info(f"✅ BRAIN: Injected conversation history into prompt")
         else:
             formatted_prompt = formatted_prompt.replace("{{CONVERSATION_HISTORY}}", "No previous conversation.")
-            logger.info(f"ℹ️ BRAIN: No conversation history - using placeholder")
         
         # Inject previous memories placeholder (for visit-based prompts)
         # Check for any variant of PREVIOUS_CONVERSATIONS_MEMORY placeholder (including nested keys)
         if "{{PREVIOUS_CONVERSATIONS_MEMORY" in formatted_prompt:
             from src.utils.prompt_injection import inject_previous_memories_placeholder
-            previous_memories = None
-            if user_id and conversation_id:
+            resolved_previous_memories = previous_memories
+            if resolved_previous_memories is None and user_id and conversation_id:
                 try:
-                    previous_memories = await brain_api_service.get_previous_memories(user_id, conversation_id)
-                    logger.info(f"Fetched {len(previous_memories)} previous memories for user {user_id}")
+                    resolved_previous_memories = await api_service.get_previous_memories(user_id, conversation_id)
+                    logger.info(f"Fetched {len(resolved_previous_memories)} previous memories for user {user_id}")
                 except Exception as e:
                     logger.warning(f"Could not fetch previous memories: {e}")
-            formatted_prompt = inject_previous_memories_placeholder(formatted_prompt, previous_memories)
+            formatted_prompt = inject_previous_memories_placeholder(formatted_prompt, resolved_previous_memories)
         
         # Inject persona placeholders (supports {{USER_PERSONA}} and key-specific variants)
         if "{{USER_PERSONA" in formatted_prompt:
             from src.utils.prompt_injection import inject_persona_placeholders
             formatted_prompt = inject_persona_placeholders(formatted_prompt, user_persona)
 
-                # Inject core theme placeholder (for visit-based prompts)
-        if "{{CORE_THEME}}" in formatted_prompt:
-            from src.utils.prompt_injection import inject_core_theme_placeholder
-            core_theme = None
-            if conversation_id:
-                try:
-                    core_theme = await brain_api_service.get_conversation_core_theme(conversation_id)
-                    logger.info(f"Fetched core theme for conversation {conversation_id}: {core_theme}")
-                except Exception as e:
-                    logger.warning(f"Could not fetch core theme: {e}")
+        # Inject core theme placeholder (for visit-based prompts)
+        if "{{CORE_THEME" in formatted_prompt:
             formatted_prompt = inject_core_theme_placeholder(formatted_prompt, core_theme)
         
         # Inject conversation memory placeholders if present
@@ -246,6 +280,9 @@ async def process_query(
     conversation_id: Optional[int] = None,
     user_id: Optional[int] = None,
     current_curiosity_score: int = 0,
+    prompt_context: Optional[PromptExecutionContext] = None,
+    core_theme: Optional[str] = None,
+    previous_memories: Optional[List[Dict[str, Any]]] = None,
 ) -> ProcessQueryResponse:
     """
     Process a user query through the intent identification and response generation pipeline.
@@ -303,6 +340,9 @@ async def process_query(
                 conversation_id,
                 user_id,
                 current_curiosity_score=current_curiosity_score,
+                prompt_context=prompt_context,
+                core_theme=core_theme,
+                previous_memories=previous_memories,
             )
             
             # Check if we need clarification
@@ -349,6 +389,9 @@ async def process_follow_up(
     conversation_id: Optional[int] = None,
     user_id: Optional[int] = None,
     current_curiosity_score: int = 0,
+    prompt_context: Optional[PromptExecutionContext] = None,
+    core_theme: Optional[str] = None,
+    previous_memories: Optional[List[Dict[str, Any]]] = None,
 ) -> ProcessQueryResponse:
     """
     Process a follow-up response from the student to determine intent and generate a final response.
@@ -412,6 +455,9 @@ async def process_follow_up(
                 conversation_id,
                 user_id,
                 current_curiosity_score=current_curiosity_score,
+                prompt_context=prompt_context,
+                core_theme=core_theme,
+                previous_memories=previous_memories,
             )
             
             # Check if we need clarification (again)
@@ -444,4 +490,3 @@ async def process_follow_up(
     except Exception as e:
         logger.error(f"Error in process_follow_up: {str(e)}", exc_info=True)
         raise
-

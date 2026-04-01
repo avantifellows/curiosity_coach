@@ -99,13 +99,15 @@ const Login: React.FC = () => {
   // Debug mode detection from URL query params
   const searchParams = new URLSearchParams(location.search);
   const debugMode = searchParams.get('debug') === 'true';
+  const tryMode = location.pathname === '/try' || searchParams.get('mode') === 'try';
+  const useIdentifierLogin = debugMode || tryMode;
 
   const [studentOptions, setStudentOptions] = useState<StudentOptions | null>(null);
   const [studentOptionsLoading, setStudentOptionsLoading] = useState(false);
   const [studentOptionsError, setStudentOptionsError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (debugMode) {
+    if (useIdentifierLogin) {
       return;
     }
 
@@ -136,7 +138,7 @@ const Login: React.FC = () => {
     return () => {
       isMounted = false;
     };
-  }, [debugMode]);
+  }, [useIdentifierLogin]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -144,14 +146,17 @@ const Login: React.FC = () => {
     setIsLoading(true);
 
     try {
-      if (debugMode) {
-        // Debug mode: use identifier-based login
+      if (useIdentifierLogin) {
+        // Identifier-based login for debug and try modes
         const response = await loginUser(identifier);
         if (response.success && response.user) {
           login(response.user);
 
           // Preserve query parameters during navigation
           const queryParams = new URLSearchParams(location.search);
+          if (tryMode && !queryParams.has('mode')) {
+            queryParams.set('mode', 'try');
+          }
           const targetPath = queryParams.toString() ? `/chat?${queryParams.toString()}` : '/chat';
           navigate(targetPath);
         } else {
@@ -229,8 +234,8 @@ const Login: React.FC = () => {
         </div>
 
         <form className="mt-6 sm:mt-8 space-y-4 sm:space-y-6" onSubmit={handleSubmit}>
-          {debugMode ? (
-            // Debug mode: Simple identifier input
+          {useIdentifierLogin ? (
+            // Identifier-based login for debug and try modes
             <div>
               <label htmlFor="identifier" className="sr-only">User ID</label>
               <input
@@ -244,7 +249,9 @@ const Login: React.FC = () => {
                 value={identifier}
                 onChange={(e) => setIdentifier(e.target.value)}
               />
-              <p className="mt-1 text-xs text-gray-500">Developer mode: Enter user ID for testing</p>
+              <p className="mt-1 text-xs text-gray-500">
+                {debugMode ? 'Developer mode: Enter user ID for testing' : 'Enter user ID for testing'}
+              </p>
             </div>
           ) : (
             // Student mode: Multiple fields

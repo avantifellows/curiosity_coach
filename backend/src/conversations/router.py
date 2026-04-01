@@ -174,7 +174,6 @@ async def create_new_conversation(
     start_time = time.time()
     title = conversation_data.title if conversation_data else "New Chat"
     core_chat_theme = conversation_data.core_chat_theme if conversation_data else None
-    print("core_chat_theme", core_chat_theme)
     preparation_status = "ready"
     ai_opening_message = None
     conversation = None

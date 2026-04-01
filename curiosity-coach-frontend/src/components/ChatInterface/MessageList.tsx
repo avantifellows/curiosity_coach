@@ -10,9 +10,6 @@ interface MessageListProps {
   messages: Message[];
   isLoadingMessages: boolean;
   isConfigViewActive: boolean;
-  isLoadingBrainConfig: boolean;
-  brainConfigSchema: any;
-  brainConfigError: string | null;
   chatError: string | null;
   isBrainProcessing: boolean;
   isLoadingSteps: boolean;
@@ -28,9 +25,6 @@ const MessageList: React.FC<MessageListProps> = ({
   messages,
   isLoadingMessages,
   isConfigViewActive,
-  isLoadingBrainConfig,
-  brainConfigSchema,
-  brainConfigError,
   chatError,
   isBrainProcessing,
   isLoadingSteps,
@@ -60,11 +54,7 @@ const MessageList: React.FC<MessageListProps> = ({
       {/* Messages container */}
       <div className="flex flex-col">
         {isConfigViewActive ? (
-          <BrainConfigView 
-            isLoadingBrainConfig={isLoadingBrainConfig}
-            brainConfigSchema={brainConfigSchema}
-            brainConfigError={brainConfigError}
-          />
+          <BrainConfigView />
         ) : isLoadingMessages ? (
           <div className="flex justify-center items-center h-full py-20">
             <CircularProgress />
