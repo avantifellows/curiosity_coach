@@ -45,16 +45,16 @@ The following diagram illustrates the typical flow of a user query through the C
 
 ```mermaid
 graph TD
-    User((User)) --> Frontend_S3{Frontend Application (S3)};
-    Frontend_S3 -- API Call (HTTPS) --> Backend_Lambda[Backend Lambda (Function URL)];
-    Backend_Lambda -- Read/Write --> RDS_DB[(RDS PostgreSQL)];
-    Backend_Lambda -- Sends Task --> SQS_Queue[SQS Queue];
-    SQS_Queue -- Triggers --> Brain_Lambda[Brain Lambda];
-    Brain_Lambda -- Reads Config --> S3_FlowConfig[S3 (flow_config.json)];
-    Brain_Lambda -- Interacts --> LLM_Services[LLM APIs (e.g., OpenAI, Groq)];
-    Brain_Lambda -- Sends Result (HTTP Callback) --> Backend_Lambda;
-    Backend_Lambda -- API Response (HTTPS) --> Frontend_S3;
-    Frontend_S3 -- Displays to --> User;
+    User((User)) --> Frontend_S3{"Frontend Application (S3)"};
+    Frontend_S3 -- "API Call (HTTPS)" --> Backend_Lambda["Backend Lambda (Function URL)"];
+    Backend_Lambda -- "Read/Write" --> RDS_DB[("RDS PostgreSQL")];
+    Backend_Lambda -- "Sends Task" --> SQS_Queue["SQS Queue"];
+    SQS_Queue -- "Triggers" --> Brain_Lambda["Brain Lambda"];
+    Brain_Lambda -- "Reads Config" --> S3_FlowConfig["S3 (flow_config.json)"];
+    Brain_Lambda -- "Interacts" --> LLM_Services["LLM APIs (e.g., OpenAI, Groq)"];
+    Brain_Lambda -- "Sends Result (HTTP Callback)" --> Backend_Lambda;
+    Backend_Lambda -- "API Response (HTTPS)" --> Frontend_S3;
+    Frontend_S3 -- "Displays to" --> User;
 ```
 
 **Flow Description:**
