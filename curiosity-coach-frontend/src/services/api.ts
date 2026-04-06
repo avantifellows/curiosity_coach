@@ -12,6 +12,8 @@ import {
   StudentLoginResponse,
   StudentLoginRequest,
   StudentOptions,
+  ProjectSource,
+  ProjectSubscriptionResponse,
   StudentWithConversation,
   PaginatedStudentConversations,
   ConversationWithMessages,
@@ -69,6 +71,28 @@ export const getStudentOptions = async (): Promise<StudentOptions> => {
   } catch (error: any) {
     console.error("Error fetching student options:", error.response?.data || error.message);
     throw new Error(error.response?.data?.detail || 'Failed to get student options');
+  }
+};
+
+export const getProjectSources = async (): Promise<ProjectSource[]> => {
+  try {
+    const response = await API.get<ProjectSource[]>('/projects/sources');
+    return response.data;
+  } catch (error: any) {
+    console.error("Error fetching project sources:", error.response?.data || error.message);
+    throw new Error(error.response?.data?.detail || 'Failed to fetch project sources');
+  }
+};
+
+export const subscribeToProject = async (kbSourceId: number): Promise<ProjectSubscriptionResponse> => {
+  try {
+    const response = await API.post<ProjectSubscriptionResponse>('/projects/subscribe', {
+      kb_source_id: kbSourceId,
+    });
+    return response.data;
+  } catch (error: any) {
+    console.error("Error subscribing to project:", error.response?.data || error.message);
+    throw new Error(error.response?.data?.detail || 'Failed to subscribe to project');
   }
 };
 

@@ -11,6 +11,7 @@ import ClassSummary from './components/ClassSummary';
 import TeacherDashboard from './components/TeacherDashboard';
 import TeacherConversationView from './components/TeacherConversationView';
 import StudentAnalysis from './components/StudentAnalysis';
+import StudentDashboard from './components/StudentDashboard';
 
 // Protected route component
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -39,6 +40,14 @@ const App: React.FC = () => {
             <Routes>
               <Route path="/" element={<Login />} />
               <Route path="/try" element={<Login />} />
+              <Route
+                path="/student-dashboard"
+                element={
+                  <ProtectedRoute>
+                    <StudentDashboard />
+                  </ProtectedRoute>
+                }
+              />
               <Route
                 path="/chat"
                 element={

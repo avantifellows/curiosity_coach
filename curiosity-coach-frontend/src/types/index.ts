@@ -157,6 +157,19 @@ export interface StudentOptions {
   sections: string[];
 }
 
+export interface ProjectSource {
+  id: number;
+  file_name: string;
+  details?: string | null;
+}
+
+export interface ProjectSubscriptionResponse {
+  kb_source_id: number;
+  total_units: number;
+  created_count: number;
+  existing_count: number;
+}
+
 export interface DashboardClassSummary {
   cohort_start: string;
   cohort_end: string;

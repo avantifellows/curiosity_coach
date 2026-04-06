@@ -212,7 +212,9 @@ const Login: React.FC = () => {
 
           // Preserve query parameters during navigation
           const queryParams = new URLSearchParams(location.search);
-          const targetPath = queryParams.toString() ? `/chat?${queryParams.toString()}` : '/chat';
+          const targetPath = queryParams.toString()
+            ? `/student-dashboard?${queryParams.toString()}`
+            : '/student-dashboard';
           navigate(targetPath);
         } else {
           setError(response.message || 'Student login failed');
