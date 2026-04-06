@@ -496,6 +496,80 @@ class APIService:
             logger.error(f"Error posting items for flow {flow_slug} (conversation {conversation_id}): {e}")
             return False 
 
+    async def ingest_pdf_topics(
+        self,
+        file_name: str,
+        details: Optional[str],
+        created_by: Optional[int],
+        force_proceed: bool,
+        questions: List[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        """
+        Persist extracted PDF topics via backend internal endpoint.
+        """
+        url = f"{self.backend_url}/api/internal/pdf-topics/ingest"
+        payload = {
+            "file_name": file_name,
+            "details": details,
+            "created_by": created_by,
+            "force_proceed": force_proceed,
+            "questions": questions,
+        }
+        timeout = httpx.Timeout(30.0, connect=10.0)
+        try:
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                logger.info("Posting extracted PDF topics to backend ingestion endpoint")
+                response = await client.post(url, json=payload)
+                response.raise_for_status()
+                data = response.json()
+                logger.info(
+                    "Successfully ingested PDF topics",
+                    extra={
+                        "kb_source_id": data.get("kb_source_id"),
+                        "question_count": data.get("question_count"),
+                        "foundational_unit_count": data.get("foundational_unit_count"),
+                    },
+                )
+                return data
+        except httpx.TimeoutException as e:
+            logger.error(f"Timeout ingesting PDF topics: {e}", exc_info=True)
+            raise
+        except httpx.HTTPStatusError as e:
+            logger.error(
+                "HTTP error ingesting PDF topics: %s - %s",
+                e.response.status_code,
+                e.response.text,
+                exc_info=True,
+            )
+            raise
+        except httpx.RequestError as e:
+            logger.error(f"Request error ingesting PDF topics: {e}", exc_info=True)
+            raise
+
+    async def check_pdf_topics_file_name_exists(self, file_name: str) -> Dict[str, Any]:
+        url = f"{self.backend_url}/api/internal/pdf-topics/file-name-exists"
+        payload = {"file_name": file_name}
+        timeout = httpx.Timeout(15.0, connect=10.0)
+        try:
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                response = await client.post(url, json=payload)
+                response.raise_for_status()
+                return response.json()
+        except httpx.TimeoutException as e:
+            logger.error(f"Timeout checking PDF file name existence: {e}", exc_info=True)
+            raise
+        except httpx.HTTPStatusError as e:
+            logger.error(
+                "HTTP error checking PDF file name existence: %s - %s",
+                e.response.status_code,
+                e.response.text,
+                exc_info=True,
+            )
+            raise
+        except httpx.RequestError as e:
+            logger.error(f"Request error checking PDF file name existence: {e}", exc_info=True)
+            raise
+
 
 # Singleton instance
 api_service = APIService() 

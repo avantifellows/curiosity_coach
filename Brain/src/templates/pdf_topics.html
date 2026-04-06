@@ -24,6 +24,13 @@
             >
                 Extract Questions
             </button>
+            <button
+                id="save-btn"
+                class="w-full mt-3 bg-green-600 text-white py-2 px-4 rounded-lg hover:bg-green-700 disabled:opacity-50"
+                disabled
+            >
+                Upload Current Schema to DB
+            </button>
 
             <p id="status" class="mt-4 text-gray-600 text-sm hidden"></p>
 
@@ -36,6 +43,22 @@
             </div>
         </div>
     </div>
+    <div id="details-modal" class="fixed inset-0 bg-black bg-opacity-40 hidden items-center justify-center px-4">
+        <div class="bg-white w-full max-w-lg rounded-lg shadow-lg p-6">
+            <h3 class="text-lg font-semibold text-gray-800">Add Details Before Upload</h3>
+            <p class="text-sm text-gray-600 mt-2">Enter details for this upload.</p>
+            <textarea
+                id="details-input"
+                class="w-full mt-3 border rounded p-2 text-gray-700"
+                rows="4"
+                placeholder="Enter details..."
+            ></textarea>
+            <div class="mt-4 flex justify-end space-x-2">
+                <button id="details-cancel-btn" class="px-4 py-2 rounded border text-gray-700">Cancel</button>
+                <button id="details-submit-btn" class="px-4 py-2 rounded bg-green-600 text-white hover:bg-green-700">Submit & Upload</button>
+            </div>
+        </div>
+    </div>
 
     <script>
         const extractBtn = document.getElementById("extract-btn");
@@ -44,6 +67,13 @@
         const resultsEl = document.getElementById("results");
         const questionCountEl = document.getElementById("question-count");
         const questionListEl = document.getElementById("question-list");
+        const saveBtn = document.getElementById("save-btn");
+        const detailsModal = document.getElementById("details-modal");
+        const detailsInput = document.getElementById("details-input");
+        const detailsCancelBtn = document.getElementById("details-cancel-btn");
+        const detailsSubmitBtn = document.getElementById("details-submit-btn");
+        let lastExtraction = null;
+        let saveInFlight = false;
 
         function showStatus(message) {
             statusEl.textContent = message;
@@ -54,6 +84,21 @@
             resultsEl.classList.add("hidden");
             questionCountEl.textContent = "";
             questionListEl.innerHTML = "";
+            lastExtraction = null;
+            saveBtn.disabled = true;
+            saveBtn.classList.remove("hidden");
+        }
+
+        function openDetailsModal() {
+            detailsInput.value = "";
+            detailsModal.classList.remove("hidden");
+            detailsModal.classList.add("flex");
+            detailsInput.focus();
+        }
+
+        function closeDetailsModal() {
+            detailsModal.classList.add("hidden");
+            detailsModal.classList.remove("flex");
         }
 
         function renderQuestions(questions) {
@@ -111,15 +156,105 @@
                 const questions = Array.isArray(data.questions)
                     ? data.questions
                     : (Array.isArray(data.Questions) ? data.Questions : []);
+                lastExtraction = {
+                    filename: data.filename,
+                    questions
+                };
                 renderQuestions(questions);
                 questionCountEl.textContent = `${questions.length} questions · ${data.page_count} pages`;
                 resultsEl.classList.remove("hidden");
+                saveBtn.disabled = questions.length === 0;
                 showStatus(`Done: ${data.filename}`);
             } catch (error) {
                 showStatus(`Error: ${error.message}`);
             } finally {
                 extractBtn.disabled = false;
                 extractBtn.textContent = "Extract Questions";
+            }
+        });
+
+        detailsCancelBtn.addEventListener("click", () => {
+            if (saveInFlight) return;
+            closeDetailsModal();
+        });
+
+        saveBtn.addEventListener("click", () => {
+            if (!lastExtraction || !Array.isArray(lastExtraction.questions) || lastExtraction.questions.length === 0) {
+                showStatus("Please extract questions before uploading to DB.");
+                return;
+            }
+            openDetailsModal();
+        });
+
+        detailsSubmitBtn.addEventListener("click", async () => {
+            if (saveInFlight) return;
+            if (!lastExtraction || !lastExtraction.filename) {
+                showStatus("No extracted file found. Please extract again.");
+                closeDetailsModal();
+                return;
+            }
+
+            try {
+                saveInFlight = true;
+                saveBtn.disabled = true;
+                saveBtn.textContent = "Uploading...";
+                detailsSubmitBtn.disabled = true;
+                detailsSubmitBtn.textContent = "Submitting...";
+                showStatus("Checking if file already exists...");
+
+                const duplicateCheckResponse = await fetch("/check-extracted-topics-file-name", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ file_name: lastExtraction.filename })
+                });
+                const duplicateData = await duplicateCheckResponse.json();
+                if (!duplicateCheckResponse.ok) {
+                    throw new Error(duplicateData.detail || "Failed to check file-name duplicates");
+                }
+
+                let forceProceed = false;
+                if (duplicateData.exists) {
+                    const proceed = window.confirm(
+                        `File "${lastExtraction.filename}" already exists (${duplicateData.existing_count} records). Do you want to proceed?`
+                    );
+                    if (!proceed) {
+                        showStatus("Upload cancelled.");
+                        return;
+                    }
+                    forceProceed = true;
+                }
+
+                showStatus("Saving extracted schema to DB...");
+                const response = await fetch("/save-extracted-topics", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        file_name: lastExtraction.filename,
+                        details: detailsInput.value || null,
+                        force_proceed: forceProceed,
+                        questions: lastExtraction.questions
+                    })
+                });
+
+                const data = await response.json();
+                if (!response.ok) {
+                    const detail = typeof data.detail === "string" ? data.detail : (data.detail?.message || "Failed to save extracted schema");
+                    throw new Error(detail);
+                }
+
+                showStatus(
+                    `Saved to DB: kb_source=${data.kb_source_id}, questions=${data.question_count}, foundational_units=${data.foundational_unit_count}`
+                );
+                saveBtn.classList.add("hidden");
+                closeDetailsModal();
+            } catch (error) {
+                showStatus(`Error: ${error.message}`);
+            } finally {
+                saveInFlight = false;
+                saveBtn.disabled = false;
+                saveBtn.textContent = "Upload Current Schema to DB";
+                detailsSubmitBtn.disabled = false;
+                detailsSubmitBtn.textContent = "Submit & Upload";
             }
         });
     </script>

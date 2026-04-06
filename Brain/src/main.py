@@ -751,6 +751,23 @@ class BatchTaskRequest(BaseModel):
     # Student analysis fields
     student_id: Optional[int] = None
 
+
+class ExtractedTopicItem(BaseModel):
+    question: str
+    foundational_units: List[str]
+
+
+class SaveExtractedTopicsRequest(BaseModel):
+    file_name: str
+    details: Optional[str] = None
+    created_by: Optional[int] = None
+    force_proceed: bool = False
+    questions: List[ExtractedTopicItem]
+
+
+class CheckExtractedTopicsFileNameRequest(BaseModel):
+    file_name: str
+
 # Updated dequeue function containing the core logic
 async def dequeue(message: MessagePayload, background_tasks: Optional[BackgroundTasks] = None):
     """
@@ -2065,6 +2082,79 @@ async def extract_topics_from_pdf(file: UploadFile = File(...)):
     except Exception as e:
         logger.error("Error extracting topics from PDF: %s", e, exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to extract topics: {str(e)}")
+
+
+@app.post("/save-extracted-topics")
+async def save_extracted_topics(payload: SaveExtractedTopicsRequest):
+    """Persist already-generated PDF extraction output to backend DB tables."""
+    try:
+        normalized_questions = _validate_and_normalize_pdf_questions_payload(
+            {
+                "questions": [
+                    {
+                        "question": item.question,
+                        "foundational_units": item.foundational_units,
+                    }
+                    for item in payload.questions
+                ]
+            }
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    file_name = (payload.file_name or "").strip()
+    if not file_name:
+        raise HTTPException(status_code=422, detail="file_name is required")
+
+    details = payload.details.strip() if isinstance(payload.details, str) and payload.details.strip() else None
+
+    try:
+        ingestion_result = await api_service.ingest_pdf_topics(
+            file_name=file_name,
+            details=details,
+            created_by=payload.created_by,
+            force_proceed=payload.force_proceed,
+            questions=normalized_questions,
+        )
+    except httpx.TimeoutException as exc:
+        raise HTTPException(status_code=504, detail="Timed out while saving extracted topics") from exc
+    except httpx.HTTPStatusError as exc:
+        detail = "Backend ingestion request failed"
+        if exc.response is not None:
+            try:
+                detail = exc.response.json().get("detail", exc.response.text)
+            except Exception:
+                detail = exc.response.text
+        raise HTTPException(status_code=exc.response.status_code, detail=detail) from exc
+    except httpx.RequestError as exc:
+        raise HTTPException(status_code=503, detail=f"Could not reach backend ingestion endpoint: {str(exc)}") from exc
+    except Exception as exc:
+        logger.error("Unexpected error while saving extracted topics: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to save extracted topics: {str(exc)}") from exc
+
+    return ingestion_result
+
+
+@app.post("/check-extracted-topics-file-name")
+async def check_extracted_topics_file_name(payload: CheckExtractedTopicsFileNameRequest):
+    file_name = (payload.file_name or "").strip()
+    if not file_name:
+        raise HTTPException(status_code=422, detail="file_name is required")
+
+    try:
+        return await api_service.check_pdf_topics_file_name_exists(file_name)
+    except httpx.TimeoutException as exc:
+        raise HTTPException(status_code=504, detail="Timed out while checking file name") from exc
+    except httpx.HTTPStatusError as exc:
+        detail = "Backend file-name-check request failed"
+        if exc.response is not None:
+            try:
+                detail = exc.response.json().get("detail", exc.response.text)
+            except Exception:
+                detail = exc.response.text
+        raise HTTPException(status_code=exc.response.status_code, detail=detail) from exc
+    except httpx.RequestError as exc:
+        raise HTTPException(status_code=503, detail=f"Could not reach backend file-name-check endpoint: {str(exc)}") from exc
 
 
 if __name__ == '__main__':
