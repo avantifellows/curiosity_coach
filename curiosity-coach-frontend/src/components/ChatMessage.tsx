@@ -51,7 +51,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
   
   const surfaceClasses = is_user
     ? 'bg-violet-600 text-white'
-    : 'border border-violet-200 bg-[#faf7ff] text-slate-800';
+    : 'border border-violet-300 bg-[#efe7ff] text-slate-800';
 
   const opacity = status === 'sending' ? 'opacity-70' : 'opacity-100';
   const errorStyle = status === 'error' ? 'border border-red-500' : '';

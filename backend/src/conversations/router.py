@@ -207,15 +207,21 @@ async def create_new_conversation(
             logger.warning(f"⚠️ BACKEND: NO prompt_version found for purpose={prompt_purpose}!")
         
         # 3. Create conversation and record visit (with race condition protection)
+        pipeline_key = models.normalize_pipeline_key(current_user.default_pipeline_key)
         conversation = models.create_conversation(
             db=db,
             user_id=current_user.id,
             title=title,
             core_chat_theme=core_chat_theme,
-            prompt_version_id=prompt_version.id if prompt_version else None
+            prompt_version_id=prompt_version.id if prompt_version else None,
+            pipeline_key=pipeline_key,
         )
-        
-        logger.info(f"📝 BACKEND: Created conversation id={conversation.id} with prompt_version_id={conversation.prompt_version_id}")
+
+        logger.info(
+            f"📝 BACKEND: Created conversation id={conversation.id} "
+            f"with prompt_version_id={conversation.prompt_version_id} "
+            f"and pipeline_key={conversation.pipeline_key}"
+        )
         
         # Record visit number with unique constraint protection
         try:

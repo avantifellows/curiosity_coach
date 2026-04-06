@@ -252,6 +252,29 @@ class APIService:
             logger.error(f"Error response {e.response.status_code} while fetching student for user {user_id}: {e.response.text}")
             return None
 
+    async def get_user_by_id(self, user_id: int) -> Optional[Dict[str, Any]]:
+        """
+        Fetch user record by user_id.
+
+        Returns:
+            User dict with id, phone_number, name, created_at or None if not found
+        """
+        url = f"{self.backend_url}/api/internal/users/{user_id}"
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(url)
+                if response.status_code == 404:
+                    logger.warning(f"No user record found for user_id {user_id}")
+                    return None
+                response.raise_for_status()
+                return response.json()
+        except httpx.RequestError as e:
+            logger.error(f"Error fetching user for user_id {user_id}: {e}")
+            return None
+        except httpx.HTTPStatusError as e:
+            logger.error(f"Error response {e.response.status_code} while fetching user for user_id {user_id}: {e.response.text}")
+            return None
+
     async def get_student_conversation_transcript(self, student_id: int) -> Optional[Dict[str, Any]]:
         """
         Fetch formatted conversation transcripts for a student.
