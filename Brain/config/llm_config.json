@@ -78,6 +78,16 @@
             "temperature": 0.3,
             "max_tokens": 500
         },
+        "intent_router": {
+            "provider": "openai",
+            "model": "gpt-5.4-mini",
+            "reasoning": {
+                "effort": "low"
+            },
+            "text": {
+                "verbosity": "low"
+            }
+        },
         "response_generation": {
             "provider": "openai",
             "model": "gpt-5.4",

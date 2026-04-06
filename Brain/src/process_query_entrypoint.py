@@ -27,6 +27,7 @@ def prompt_template_requires_core_theme(prompt_template: str) -> bool:
 async def resolve_prompt_execution_context(
     purpose: str = "chat",
     conversation_id: Optional[int] = None,
+    prompt_response: Optional[Dict[str, Any]] = None,
 ) -> PromptExecutionContext:
     """
     Resolve the prompt template and stable metadata for the current turn.
@@ -40,14 +41,18 @@ async def resolve_prompt_execution_context(
     prompt_name_used = "simplified_conversation"
     prompt_version_used: Optional[int] = None
     prompt_purpose: Optional[str] = None
+    prompt_id_used: Optional[int] = None
 
     if conversation_id:
         try:
-            prompt_response = await api_service.get_conversation_prompt(conversation_id)
-            if prompt_response and "prompt_text" in prompt_response:
-                prompt_template = prompt_response["prompt_text"]
-                prompt_version_used = prompt_response.get("version_number")
-                prompt_purpose = prompt_response.get("prompt_purpose")
+            effective_prompt_response = prompt_response
+            if effective_prompt_response is None:
+                effective_prompt_response = await api_service.get_conversation_prompt(conversation_id)
+            if effective_prompt_response and "prompt_text" in effective_prompt_response:
+                prompt_template = effective_prompt_response["prompt_text"]
+                prompt_version_used = effective_prompt_response.get("version_number")
+                prompt_purpose = effective_prompt_response.get("prompt_purpose")
+                prompt_id_used = effective_prompt_response.get("prompt_id")
                 if prompt_purpose:
                     prompt_name_used = prompt_purpose
                 elif prompt_version_used is not None:
@@ -75,6 +80,7 @@ async def resolve_prompt_execution_context(
         prompt_name=prompt_name_used,
         prompt_version=prompt_version_used,
         prompt_purpose=prompt_purpose,
+        prompt_id=prompt_id_used,
     )
 
 async def generate_simplified_response(

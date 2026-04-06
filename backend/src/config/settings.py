@@ -1,10 +1,11 @@
 import os
+from pathlib import Path
 from pydantic_settings import BaseSettings
 from dotenv import load_dotenv
 
 # Load the appropriate environment file
-env_file = '.env.local' # if local or prod or staging
-load_dotenv(env_file)
+env_file = Path(__file__).resolve().parents[2] / '.env.local'
+load_dotenv(env_file, override=True)
 
 class Settings(BaseSettings):
     """Application settings."""
@@ -54,6 +55,6 @@ class Settings(BaseSettings):
     ENABLE_CONDITIONAL_SIDEBAR: bool = os.getenv('ENABLE_CONDITIONAL_SIDEBAR', 'true').lower() == 'true'
     
     class Config:
-        env_file = env_file
+        env_file = str(env_file)
 
 settings = Settings() 
