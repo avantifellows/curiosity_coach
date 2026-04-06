@@ -4,23 +4,19 @@ from src.core.age_adapter import generate_response_for_13_year_old
 from src.core.chat_controller import control_chat_response
 from src.core.exploration_directions_config import EXPLORATION_DIRECTIONS_ENABLED
 from src.core.exploration_directions_evaluator import evaluate_exploration_directions
-from src.core.turn_context import PromptExecutionContext, TurnExecutionContext
+from src.core.turn_context import TurnExecutionContext
 from src.schemas import ProcessQueryResponse
 from src.utils.logger import logger
 
 from src.pipelines.common import (
+    ASSIGNED_PROMPT,
     append_pipeline_step,
     build_history_with_latest_turn,
     ensure_pipeline_metadata,
     run_common_steps,
 )
 
-
-async def resolve_prompt_context(
-    *,
-    prompt_context: PromptExecutionContext,
-) -> PromptExecutionContext:
-    return prompt_context
+TURN_PROMPT_POLICY = ASSIGNED_PROMPT
 
 
 async def execute_turn(

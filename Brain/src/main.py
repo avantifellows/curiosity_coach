@@ -31,6 +31,7 @@ from src.pipelines import (
     prepare_turn_system,
     execute_turn_system,
 )
+from src.core.prompt_renderer import RenderContext, render_prompt_template
 from src.core.turn_context import PromptExecutionContext, TurnExecutionContext
 from src.utils.logger import logger
 from src.config_models import FlowConfig
@@ -39,7 +40,6 @@ from src.services.api_service import api_service
 from src.schemas import ConversationMemoryData, OpeningMessageRequest, ClassAnalysisRequest, ClassAnalysisResponse, StudentAnalysisRequest, StudentAnalysisResponse
 from src.core.user_persona_generator import generate_persona_for_user
 from pydantic import ValidationError
-from src.utils.prompt_injection import inject_core_theme_placeholder
 from src.analytics_agent import runner as analytics_runner
 # Load environment variables from .env file
 load_dotenv()
@@ -455,6 +455,7 @@ async def _build_turn_execution_context(
         conversation_id=conversation_id,
         user_id=user_id,
         user_created_at=(user_record or {}).get("created_at"),
+        user_name=(user_record or {}).get("name"),
         pipeline_key=(prompt_response or {}).get("pipeline_key", "legacy"),
         conversation_history=conversation_history,
         prefetched_history=list(prefetched_history or []),
@@ -890,6 +891,8 @@ async def dequeue(message: MessagePayload, background_tasks: Optional[Background
                     conversation_memory=turn_context.conversation_memory,
                     conversation_id=turn_context.conversation_id,
                     user_id=turn_context.user_id,
+                    user_created_at=turn_context.user_created_at,
+                    user_name=turn_context.user_name,
                     current_curiosity_score=current_curiosity_score,
                     prompt_context=turn_context.prompt_context,
                     core_theme=turn_context.core_theme,
@@ -907,6 +910,8 @@ async def dequeue(message: MessagePayload, background_tasks: Optional[Background
                     conversation_memory=turn_context.conversation_memory,
                     conversation_id=turn_context.conversation_id,
                     user_id=turn_context.user_id,
+                    user_created_at=turn_context.user_created_at,
+                    user_name=turn_context.user_name,
                     current_curiosity_score=current_curiosity_score,
                     prompt_context=turn_context.prompt_context,
                     core_theme=turn_context.core_theme,
@@ -1091,8 +1096,6 @@ async def generate_opening_message(payload: OpeningMessageRequest):
         "callback_url": str
     }
     """
-    from src.utils.prompt_injection import inject_previous_memories_placeholder, inject_persona_placeholders
-    
     logger.info(f"Opening message generation requested for conversation {payload.conversation_id}, visit {payload.visit_number}")
     
     # 0. Check if opening message already exists (idempotency)
@@ -1109,6 +1112,8 @@ async def generate_opening_message(payload: OpeningMessageRequest):
         prompt_response = await api_service.get_conversation_prompt(payload.conversation_id)
         if not prompt_response:
             raise HTTPException(status_code=404, detail="Conversation prompt not found")
+
+        user_record = await api_service.get_user_by_id(payload.user_id)
 
         opening_prompt_context = await apply_pipeline_opening_prompt_override(
             pipeline_key=prompt_response.get("pipeline_key"),
@@ -1139,17 +1144,21 @@ async def generate_opening_message(payload: OpeningMessageRequest):
             if persona:
                 logger.info(f"Fetched persona for user {payload.user_id}")
         
-        # 4. Inject placeholders into prompt (create formatted version)
-        formatted_prompt = inject_previous_memories_placeholder(prompt_template, previous_memories)
-        formatted_prompt = inject_persona_placeholders(formatted_prompt, persona)
-        
-        # NEW: Fetch and inject core theme for current conversation
+        # 4. Build the formatted prompt using the shared renderer
         core_theme = await api_service.get_conversation_core_theme(payload.conversation_id)
-        formatted_prompt = inject_core_theme_placeholder(formatted_prompt, core_theme)
-                
-        # Replace CONVERSATION_HISTORY and QUERY placeholders (for opening message, both are empty/not applicable)
-        formatted_prompt = formatted_prompt.replace("{{CONVERSATION_HISTORY}}", "No previous conversation.")
-        formatted_prompt = formatted_prompt.replace("{{QUERY}}", "")
+        formatted_prompt = render_prompt_template(
+            prompt_template,
+            context=RenderContext(
+                query="",
+                conversation_history=None,
+                previous_memories=previous_memories,
+                user_persona=persona,
+                core_theme=core_theme,
+                user_id=payload.user_id,
+                user_created_at=(user_record or {}).get("created_at"),
+                user_name=(user_record or {}).get("name"),
+            ),
+        )
         
         # 5. Generate opening message with LLM
         # The visit-based prompt is designed to produce a welcoming opening message

@@ -2,47 +2,23 @@
 from typing import Any
 import json
 
-from src.core.turn_context import PromptExecutionContext, TurnExecutionContext
-from src.pipelines.common import append_pipeline_step
+from src.core.prompt_renderer import (
+    build_render_context_for_turn,
+    render_prompt_template,
+    replace_extra_placeholders,
+)
+from src.core.turn_context import TurnExecutionContext
+from src.pipelines.common import ASSIGNED_PROMPT, named_prompt, prepend_pipeline_step
 from src.schemas import ProcessQueryResponse
 from src.services.api_service import api_service
 from src.utils.logger import logger
-from src.utils.prompt_injection import inject_persona_placeholders, inject_core_theme_placeholder
 from src.services.llm_service import LLMService
 
 
 ROUTER_PROMPT_NAME = "intent_router"
 RESPONSE_PROMPT_NAME = "intent_response"
-
-
-async def resolve_prompt_context(
-    *,
-    prompt_context: PromptExecutionContext,
-) -> PromptExecutionContext:
-    if not RESPONSE_PROMPT_NAME:
-        return prompt_context
-
-    prompt_template = await api_service.get_prompt_template(
-        RESPONSE_PROMPT_NAME,
-        prefer_production=False,
-    )
-    if not prompt_template:
-        return prompt_context
-
-    return PromptExecutionContext(
-        prompt_template=prompt_template,
-        prompt_name=RESPONSE_PROMPT_NAME,
-        prompt_version=None,
-        prompt_purpose=None,
-        prompt_id=None,
-    )
-
-
-async def resolve_opening_prompt_context(
-    *,
-    prompt_context: PromptExecutionContext,
-) -> PromptExecutionContext:
-    return prompt_context
+TURN_PROMPT_POLICY = named_prompt(RESPONSE_PROMPT_NAME, prefer_production=False)
+OPENING_PROMPT_POLICY = ASSIGNED_PROMPT
 
 async def prepare_turn(
     *,
@@ -60,30 +36,10 @@ async def prepare_turn(
     if not prompt_template:
         return turn_context
 
-    formatted_prompt = prompt_template.replace("{{QUERY}}", user_input or "")
-
-    if turn_context.conversation_history:
-        formatted_prompt = formatted_prompt.replace(
-            "{{CONVERSATION_HISTORY}}",
-            turn_context.conversation_history,
-        )
-    else:
-        formatted_prompt = formatted_prompt.replace(
-            "{{CONVERSATION_HISTORY}}",
-            "No previous conversation.",
-        )
-
-    if "{{USER_PERSONA" in formatted_prompt:
-        formatted_prompt = inject_persona_placeholders(
-            formatted_prompt,
-            turn_context.user_persona,
-        )
-
-    if "{{CORE_THEME" in formatted_prompt:
-        formatted_prompt = inject_core_theme_placeholder(
-            formatted_prompt,
-            turn_context.core_theme,
-        )
+    formatted_prompt = render_prompt_template(
+        prompt_template,
+        context=build_render_context_for_turn(turn_context, query=user_input or ""),
+    )
 
     logger.info(
         "Prepared intent router prompt for conversation_id=%s (length=%s)",
@@ -128,34 +84,24 @@ async def prepare_turn(
         logger.warning("No prompt context found for conversation_id=%s", turn_context.conversation_id)
         return turn_context
 
-    response_prompt_template = turn_context.prompt_context.prompt_template
+    response_prompt_template = replace_extra_placeholders(
+        turn_context.prompt_context.prompt_template,
+        {
+            "INTENT_MODE": router_data.get("mode") or "direct_answer",
+            "INTENT_SHOULD_ASK_QUESTION": router_data.get("should_ask_question")
+            if router_data.get("should_ask_question") is not None
+            else False,
+            "INTENT_RESPONSE_GOAL": router_data.get("response_goal")
+            or "Answer clearly and stay on the current topic.",
+            "INTENT_TOPIC_ACTION": router_data.get("topic_action") or "stay_deep",
+            "INTENT_QUESTION_STYLE": router_data.get("question_style") or "none",
+        },
+    )
     response_prompt_name = turn_context.prompt_context.prompt_name
     response_prompt_version = turn_context.prompt_context.prompt_version
     response_prompt_id = turn_context.prompt_context.prompt_id
 
-    # add defaults if anything missing or invalid
-    response_prompt_template = response_prompt_template.replace(
-        "{{INTENT_MODE}}",
-        str(router_data.get("mode") or "direct_answer"),
-    )
-    response_prompt_template = response_prompt_template.replace(
-        "{{INTENT_SHOULD_ASK_QUESTION}}",
-        str(router_data.get("should_ask_question") if router_data.get("should_ask_question") is not None else False),
-    )
-    response_prompt_template = response_prompt_template.replace(
-        "{{INTENT_RESPONSE_GOAL}}",
-        str(router_data.get("response_goal") or "Answer clearly and stay on the current topic."),
-    )
-    response_prompt_template = response_prompt_template.replace(
-        "{{INTENT_TOPIC_ACTION}}",
-        str(router_data.get("topic_action") or "stay_deep"),
-    )
-    response_prompt_template = response_prompt_template.replace(
-        "{{INTENT_QUESTION_STYLE}}",
-        str(router_data.get("question_style") or "none"),
-    )
-
-    turn_context.prompt_context = PromptExecutionContext(
+    turn_context.prompt_context = turn_context.prompt_context.__class__(
         prompt_template=response_prompt_template,
         prompt_name=response_prompt_name,
         prompt_version=response_prompt_version,
@@ -214,7 +160,7 @@ async def execute_turn(
             "response_prompt_version": router_state.get("response_prompt_version"),
             "response_prompt_id": router_state.get("response_prompt_id"),
         }
-        append_pipeline_step(
+        prepend_pipeline_step(
             response_data,
             router_step,
             pipeline_key="intent_router",

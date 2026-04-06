@@ -27,6 +27,7 @@ Think of Brain as two layers:
 - loading the conversation's assigned pipeline key
 - resolving prompt context
 - building `TurnExecutionContext`
+- rendering shared prompt placeholders
 - calling optional pre-generation pipeline prep
 - running the base first-pass generation
 - calling the selected pipeline file
@@ -44,14 +45,15 @@ It is the part that changes how a turn is handled.
 
 The real lifecycle is:
 
-1. `resolve_prompt_context(...)`
-2. optional `resolve_opening_prompt_context(...)`
+1. turn prompt policy resolution
+2. optional opening prompt policy resolution
 3. optional `prepare_turn(...)`
 4. base response generation
 5. `execute_turn(...)`
 
-The opening hook matters for systems that want normal turns and opening messages to use different prompts.
-The pre-generation hook matters for systems like `intent_router` that need to do routing before the final reply prompt runs.
+Shared placeholder rendering happens in one place now.
+The opening hook still matters for systems that want normal turns and opening messages to use different prompts.
+The pre-generation hook still matters for systems like `intent_router` that need to do routing before the final reply prompt runs.
 
 ## The core rule
 
@@ -126,26 +128,20 @@ Relevant file:
   - conversation history
   - prompt assignment
   - persona
+  - user name
+  - user created_at
+  - core theme
   - previous exploration directions
-- `resolve_prompt_context(...)` swaps the normal turn prompt to `intent_response`
-- `resolve_opening_prompt_context(...)` keeps opening messages on the visit prompt
+- turn prompt policy swaps the normal turn prompt to `intent_response`
+- opening prompt policy keeps opening messages on the visit prompt
 - `prepare_turn(...)` fetches `intent_router`
-- `prepare_turn(...)` fills router placeholders with:
-  - `{{QUERY}}` from current user input
-  - `{{CONVERSATION_HISTORY}}` from `turn_context.conversation_history`
-  - `{{USER_PERSONA...}}` from `turn_context.user_persona`
-  - `{{CORE_THEME...}}` from `turn_context.core_theme`
+- `prepare_turn(...)` uses the shared renderer for router prompt placeholders
 - `prepare_turn(...)` runs the router LLM call
 - `prepare_turn(...)` parses router JSON
 - `prepare_turn(...)` injects `{{INTENT_*}}` fields into `intent_response`
 - base response generation runs next
-- common response formatting then fills:
-  - `{{QUERY}}`
-  - `{{CONVERSATION_HISTORY}}`
-  - `{{USER_PERSONA...}}`
-  - `{{CORE_THEME...}}`
-  - curiosity score placeholder if present
-- `execute_turn(...)` saves the router decision into pipeline steps
+- common response rendering then fills all standard placeholders
+- `execute_turn(...)` saves the router decision into pipeline steps before the response step
 
 ## How previous state gets fed back in
 
@@ -190,16 +186,9 @@ That is the real design effort.
 
 ## The pipeline contract
 
-Every pipeline file should expose:
+Every pipeline file must expose:
 
 ```py
-async def resolve_prompt_context(
-    *,
-    prompt_context: PromptExecutionContext,
-) -> PromptExecutionContext:
-    ...
-
-
 async def execute_turn(
     *,
     message: Any,
@@ -233,13 +222,27 @@ async def prepare_turn(
     ...
 ```
 
-### `resolve_prompt_context(...)`
+And a pipeline may declare prompt policies instead of writing resolver functions:
 
-Use this if the pipeline wants to:
+```py
+from src.pipelines.common import ASSIGNED_PROMPT, named_prompt
 
-- reuse the conversation-assigned prompt
-- pin itself to one prompt from the prompt UI
-- swap prompt families
+TURN_PROMPT_POLICY = named_prompt("intent_response", prefer_production=False)
+OPENING_PROMPT_POLICY = ASSIGNED_PROMPT
+```
+
+If the policy model is not enough, a pipeline can still expose custom resolver functions:
+
+- `resolve_prompt_context(...)`
+- `resolve_opening_prompt_context(...)`
+
+### `TURN_PROMPT_POLICY`
+
+Use this for most pipelines.
+
+- `ASSIGNED_PROMPT` means use the conversation-assigned prompt
+- `named_prompt("foo", prefer_production=False)` means pin the turn to one DB prompt
+- if you do not define a turn policy, Brain falls back to the conversation-assigned prompt
 
 ### `resolve_opening_prompt_context(...)`
 
@@ -250,7 +253,8 @@ Typical use:
 - keep the normal visit prompt for openings
 - but use a custom system prompt for regular turn generation
 
-If this function is not present, Brain falls back to `resolve_prompt_context(...)` for openings too.
+If this function is not present, Brain uses `OPENING_PROMPT_POLICY` if defined.
+If neither is present, Brain falls back to the turn prompt policy.
 
 ### `execute_turn(...)`
 
@@ -281,48 +285,38 @@ Typical uses:
 - replace `turn_context.prompt_context`
 - inject extra placeholders into the final response prompt
 
+### Shared rendering
+
+Use the shared renderer instead of hand-writing `.replace(...)` chains.
+
+File:
+- [prompt_renderer.py](/Users/surya/may2022/avanti_code/curiosity_coach/Brain/src/core/prompt_renderer.py)
+
+What it already knows how to inject:
+- `{{QUERY}}`
+- `{{CONVERSATION_HISTORY}}`
+- `{{CURRENT_CURIOSITY_SCORE}}`
+- `{{PREVIOUS_CONVERSATIONS_MEMORY...}}`
+- `{{USER_PERSONA...}}`
+- `{{CORE_THEME...}}`
+- `{{CONVERSATION_MEMORY...}}`
+- `{{USER_ID}}`
+- `{{USER_CREATED_AT}}`
+- `{{USER_NAME}}`
+- `{{NAME}}`
+
 ## Minimal file skeleton
 
 ```py
-from typing import Any, Optional
+from typing import Any
 
-from src.core.turn_context import PromptExecutionContext, TurnExecutionContext
+from src.core.turn_context import TurnExecutionContext
 from src.schemas import ProcessQueryResponse
-from src.services.api_service import api_service
 
+from src.pipelines.common import ASSIGNED_PROMPT, named_prompt
 
-PROMPT_NAME_OVERRIDE: Optional[str] = None
-
-
-async def resolve_prompt_context(
-    *,
-    prompt_context: PromptExecutionContext,
-) -> PromptExecutionContext:
-    if not PROMPT_NAME_OVERRIDE:
-        return prompt_context
-
-    prompt_template = await api_service.get_prompt_template(
-        PROMPT_NAME_OVERRIDE,
-        prefer_production=False,
-    )
-    if not prompt_template:
-        return prompt_context
-
-    return PromptExecutionContext(
-        prompt_template=prompt_template,
-        prompt_name=PROMPT_NAME_OVERRIDE,
-        prompt_version=None,
-        prompt_purpose=None,
-        prompt_id=None,
-    )
-
-
-async def resolve_opening_prompt_context(
-    *,
-    prompt_context: PromptExecutionContext,
-) -> PromptExecutionContext:
-    return prompt_context
-
+TURN_PROMPT_POLICY = ASSIGNED_PROMPT
+# TURN_PROMPT_POLICY = named_prompt("my_prompt", prefer_production=False)
 
 async def prepare_turn(
     *,
@@ -347,8 +341,8 @@ async def execute_turn(
 ## How to add a new system
 
 1. Create a new file here, for example `my_variant.py`
-2. Implement `resolve_prompt_context(...)`
-3. If needed, implement `resolve_opening_prompt_context(...)`
+2. Set `TURN_PROMPT_POLICY`
+3. If needed, set `OPENING_PROMPT_POLICY`
 4. If needed, implement `prepare_turn(...)`
 5. Implement `execute_turn(...)`
 6. Set the user default in DB:

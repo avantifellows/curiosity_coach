@@ -4,9 +4,9 @@ from typing import Optional, Dict, Any, List, Tuple
 from src.config_models import FlowConfig
 from src.schemas import ProcessQueryResponse
 import httpx
+from src.core.prompt_renderer import RenderContext, render_prompt_template
 from src.core.turn_context import PromptExecutionContext
 from src.services.api_service import api_service
-from src.utils.prompt_injection import inject_core_theme_placeholder
 
 # Always use simplified conversation mode
 FORCE_SIMPLIFIED_MODE = True
@@ -91,6 +91,8 @@ async def generate_simplified_response(
     conversation_memory: Optional[Dict[str, Any]] = None,
     conversation_id: Optional[int] = None,
     user_id: Optional[int] = None,
+    user_created_at: Optional[str] = None,
+    user_name: Optional[str] = None,
     current_curiosity_score: int = 0,
     prompt_context: Optional[PromptExecutionContext] = None,
     core_theme: Optional[str] = None,
@@ -128,42 +130,34 @@ async def generate_simplified_response(
             f"Formatting prompt with query length={len(query)} and "
             f"history length={len(conversation_history) if conversation_history else 0}"
         )
-        curiosity_score_str = str(max(0, min(100, current_curiosity_score)))
-        prompt_template = prompt_template.replace("{{CURRENT_CURIOSITY_SCORE}}", curiosity_score_str)
+        resolved_previous_memories = previous_memories
+        if (
+            resolved_previous_memories is None
+            and "{{PREVIOUS_CONVERSATIONS_MEMORY" in prompt_template
+            and user_id
+            and conversation_id
+        ):
+            try:
+                resolved_previous_memories = await api_service.get_previous_memories(user_id, conversation_id)
+                logger.info(f"Fetched {len(resolved_previous_memories)} previous memories for user {user_id}")
+            except Exception as e:
+                logger.warning(f"Could not fetch previous memories: {e}")
 
-        formatted_prompt = prompt_template.replace("{{QUERY}}", query)
-        
-        if conversation_history:
-            formatted_prompt = formatted_prompt.replace("{{CONVERSATION_HISTORY}}", conversation_history)
-        else:
-            formatted_prompt = formatted_prompt.replace("{{CONVERSATION_HISTORY}}", "No previous conversation.")
-        
-        # Inject previous memories placeholder (for visit-based prompts)
-        # Check for any variant of PREVIOUS_CONVERSATIONS_MEMORY placeholder (including nested keys)
-        if "{{PREVIOUS_CONVERSATIONS_MEMORY" in formatted_prompt:
-            from src.utils.prompt_injection import inject_previous_memories_placeholder
-            resolved_previous_memories = previous_memories
-            if resolved_previous_memories is None and user_id and conversation_id:
-                try:
-                    resolved_previous_memories = await api_service.get_previous_memories(user_id, conversation_id)
-                    logger.info(f"Fetched {len(resolved_previous_memories)} previous memories for user {user_id}")
-                except Exception as e:
-                    logger.warning(f"Could not fetch previous memories: {e}")
-            formatted_prompt = inject_previous_memories_placeholder(formatted_prompt, resolved_previous_memories)
-        
-        # Inject persona placeholders (supports {{USER_PERSONA}} and key-specific variants)
-        if "{{USER_PERSONA" in formatted_prompt:
-            from src.utils.prompt_injection import inject_persona_placeholders
-            formatted_prompt = inject_persona_placeholders(formatted_prompt, user_persona)
-
-        # Inject core theme placeholder (for visit-based prompts)
-        if "{{CORE_THEME" in formatted_prompt:
-            formatted_prompt = inject_core_theme_placeholder(formatted_prompt, core_theme)
-        
-        # Inject conversation memory placeholders if present
-        if "{{CONVERSATION_MEMORY" in formatted_prompt:
-            from src.utils.prompt_injection import inject_memory_placeholders
-            formatted_prompt = inject_memory_placeholders(formatted_prompt, conversation_memory)
+        formatted_prompt = render_prompt_template(
+            prompt_template,
+            context=RenderContext(
+                query=query,
+                conversation_history=conversation_history,
+                current_curiosity_score=current_curiosity_score,
+                previous_memories=resolved_previous_memories,
+                user_persona=user_persona,
+                core_theme=core_theme,
+                conversation_memory=conversation_memory,
+                user_id=user_id,
+                user_created_at=user_created_at,
+                user_name=user_name,
+            ),
+        )
 
         # Call LLM service
         from src.services.llm_service import LLMService
@@ -285,6 +279,8 @@ async def process_query(
     conversation_memory: Optional[Dict[str, Any]] = None,
     conversation_id: Optional[int] = None,
     user_id: Optional[int] = None,
+    user_created_at: Optional[str] = None,
+    user_name: Optional[str] = None,
     current_curiosity_score: int = 0,
     prompt_context: Optional[PromptExecutionContext] = None,
     core_theme: Optional[str] = None,
@@ -345,6 +341,8 @@ async def process_query(
                 conversation_memory,
                 conversation_id,
                 user_id,
+                user_created_at,
+                user_name,
                 current_curiosity_score=current_curiosity_score,
                 prompt_context=prompt_context,
                 core_theme=core_theme,
@@ -394,6 +392,8 @@ async def process_follow_up(
     conversation_memory: Optional[Dict[str, Any]] = None,
     conversation_id: Optional[int] = None,
     user_id: Optional[int] = None,
+    user_created_at: Optional[str] = None,
+    user_name: Optional[str] = None,
     current_curiosity_score: int = 0,
     prompt_context: Optional[PromptExecutionContext] = None,
     core_theme: Optional[str] = None,
@@ -460,6 +460,8 @@ async def process_follow_up(
                 conversation_memory,
                 conversation_id,
                 user_id,
+                user_created_at,
+                user_name,
                 current_curiosity_score=current_curiosity_score,
                 prompt_context=prompt_context,
                 core_theme=core_theme,

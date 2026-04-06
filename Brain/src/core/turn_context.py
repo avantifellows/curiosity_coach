@@ -30,6 +30,7 @@ class TurnExecutionContext:
     conversation_id: Optional[int] = None
     user_id: Optional[int] = None
     user_created_at: Optional[str] = None
+    user_name: Optional[str] = None
     pipeline_key: str = "legacy"
     conversation_history: Optional[str] = None
     prefetched_history: List[Dict[str, Any]] = field(default_factory=list)

@@ -1,12 +1,13 @@
 from typing import Any, Optional
 
-from src.core.turn_context import PromptExecutionContext, TurnExecutionContext
+from src.core.prompt_renderer import RenderContext, render_prompt_template
+from src.core.turn_context import TurnExecutionContext
 from src.schemas import ProcessQueryResponse
 from src.services.api_service import api_service
 from src.services.llm_service import LLMService
 from src.utils.logger import logger
 
-from src.pipelines.common import append_pipeline_step, run_common_steps
+from src.pipelines.common import ASSIGNED_PROMPT, append_pipeline_step, named_prompt, run_common_steps
 
 # First pass:
 # - leave as None to reuse the conversation-assigned prompt
@@ -18,35 +19,11 @@ FIRST_PROMPT_NAME_OVERRIDE: Optional[str] = None
 # - set to a prompt name if you want the second pass to come from the prompt UI
 SECOND_PROMPT_NAME_OVERRIDE: Optional[str] = None
 
-
-async def resolve_prompt_context(
-    *,
-    prompt_context: PromptExecutionContext,
-) -> PromptExecutionContext:
-    if not FIRST_PROMPT_NAME_OVERRIDE:
-        return prompt_context
-
-    prompt_template = await api_service.get_prompt_template(
-        FIRST_PROMPT_NAME_OVERRIDE,
-        prefer_production=False,
-    )
-    if not prompt_template:
-        logger.warning(
-            f"Could not load first-pass prompt '{FIRST_PROMPT_NAME_OVERRIDE}', "
-            "falling back to conversation-assigned prompt"
-        )
-        return prompt_context
-
-    logger.info(
-        f"Using hardcoded first-pass prompt '{FIRST_PROMPT_NAME_OVERRIDE}' for double_prompt pipeline"
-    )
-    return PromptExecutionContext(
-        prompt_template=prompt_template,
-        prompt_name=FIRST_PROMPT_NAME_OVERRIDE,
-        prompt_version=None,
-        prompt_purpose=None,
-        prompt_id=None,
-    )
+TURN_PROMPT_POLICY = (
+    named_prompt(FIRST_PROMPT_NAME_OVERRIDE, prefer_production=False)
+    if FIRST_PROMPT_NAME_OVERRIDE
+    else ASSIGNED_PROMPT
+)
 
 
 async def _resolve_second_prompt_template() -> Optional[tuple[str, str]]:
@@ -90,11 +67,21 @@ async def execute_turn(
         return current_curiosity_score
 
     second_prompt_template, second_prompt_name = second_prompt_resolution
-    formatted_second_prompt = (
-        second_prompt_template
-        .replace("{{QUERY}}", user_input or "")
-        .replace("{{CONVERSATION_HISTORY}}", turn_context.conversation_history or "No previous conversation.")
-        .replace("{{DRAFT_RESPONSE}}", draft_response)
+    formatted_second_prompt = render_prompt_template(
+        second_prompt_template,
+        context=RenderContext(
+            query=user_input or "",
+            conversation_history=turn_context.conversation_history,
+            current_curiosity_score=turn_context.current_curiosity_score,
+            previous_memories=turn_context.previous_memories,
+            user_persona=turn_context.user_persona,
+            core_theme=turn_context.core_theme,
+            conversation_memory=turn_context.conversation_memory,
+            user_id=turn_context.user_id,
+            user_created_at=turn_context.user_created_at,
+            user_name=turn_context.user_name,
+            extra_vars={"DRAFT_RESPONSE": draft_response},
+        ),
     )
 
     try:

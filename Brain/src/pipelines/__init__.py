@@ -6,7 +6,13 @@ from src.core.turn_context import PromptExecutionContext, TurnExecutionContext
 from src.schemas import ProcessQueryResponse
 from src.utils.logger import logger
 
-from src.pipelines.common import DEFAULT_PIPELINE_KEY, ensure_pipeline_metadata, normalize_pipeline_key
+from src.pipelines.common import (
+    ASSIGNED_PROMPT,
+    DEFAULT_PIPELINE_KEY,
+    ensure_pipeline_metadata,
+    normalize_pipeline_key,
+    resolve_prompt_from_policy,
+)
 
 
 def _load_pipeline_module(pipeline_key: Optional[str]) -> ModuleType:
@@ -81,7 +87,11 @@ async def apply_pipeline_prompt_override(
     prompt_context: PromptExecutionContext,
 ) -> PromptExecutionContext:
     module = _load_pipeline_module(pipeline_key)
-    return await module.resolve_prompt_context(prompt_context=prompt_context)
+    resolve_prompt_context = getattr(module, "resolve_prompt_context", None)
+    if resolve_prompt_context is not None:
+        return await resolve_prompt_context(prompt_context=prompt_context)
+    turn_prompt_policy = getattr(module, "TURN_PROMPT_POLICY", ASSIGNED_PROMPT)
+    return await resolve_prompt_from_policy(prompt_context=prompt_context, policy=turn_prompt_policy)
 
 
 async def apply_pipeline_opening_prompt_override(
@@ -91,9 +101,15 @@ async def apply_pipeline_opening_prompt_override(
 ) -> PromptExecutionContext:
     module = _load_pipeline_module(pipeline_key)
     resolve_opening_prompt_context = getattr(module, "resolve_opening_prompt_context", None)
-    if resolve_opening_prompt_context is None:
-        return await module.resolve_prompt_context(prompt_context=prompt_context)
-    return await resolve_opening_prompt_context(prompt_context=prompt_context)
+    if resolve_opening_prompt_context is not None:
+        return await resolve_opening_prompt_context(prompt_context=prompt_context)
+    opening_prompt_policy = getattr(module, "OPENING_PROMPT_POLICY", None)
+    if opening_prompt_policy is not None:
+        return await resolve_prompt_from_policy(prompt_context=prompt_context, policy=opening_prompt_policy)
+    return await apply_pipeline_prompt_override(
+        pipeline_key=pipeline_key,
+        prompt_context=prompt_context,
+    )
 
 
 __all__ = [

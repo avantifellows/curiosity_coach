@@ -1,4 +1,5 @@
-from typing import Any, Dict, List, Optional
+from dataclasses import dataclass
+from typing import Any, Dict, List, Optional, Union
 
 from src.core.core_theme_config import (
     CORE_THEME_EXTRACTION_ENABLED,
@@ -8,12 +9,33 @@ from src.core.core_theme_extractor import (
     extract_core_theme_from_conversation,
     update_conversation_theme,
 )
-from src.core.turn_context import TurnExecutionContext
+from src.core.turn_context import PromptExecutionContext, TurnExecutionContext
 from src.schemas import ProcessQueryResponse
 from src.services.api_service import api_service
 from src.utils.logger import logger
 
 DEFAULT_PIPELINE_KEY = "legacy"
+
+
+@dataclass(frozen=True)
+class AssignedPromptPolicy:
+    pass
+
+
+@dataclass(frozen=True)
+class NamedPromptPolicy:
+    prompt_name: str
+    prefer_production: bool = False
+
+
+ASSIGNED_PROMPT = AssignedPromptPolicy()
+
+
+def named_prompt(prompt_name: str, *, prefer_production: bool = False) -> NamedPromptPolicy:
+    return NamedPromptPolicy(
+        prompt_name=prompt_name,
+        prefer_production=prefer_production,
+    )
 
 
 def normalize_pipeline_key(pipeline_key: Optional[str]) -> str:
@@ -42,6 +64,51 @@ def append_pipeline_step(
     pipeline_data.setdefault("steps", []).append(step)
     if pipeline_key:
         pipeline_data[pipeline_key] = pipeline_payload if pipeline_payload is not None else step
+
+
+def prepend_pipeline_step(
+    response_data: ProcessQueryResponse,
+    step: Dict[str, Any],
+    *,
+    pipeline_key: Optional[str] = None,
+    pipeline_payload: Optional[Dict[str, Any]] = None,
+) -> None:
+    response_data.steps.insert(0, step)
+    pipeline_data = ensure_pipeline_metadata(response_data)
+    pipeline_data.setdefault("steps", []).insert(0, step)
+    if pipeline_key:
+        pipeline_data[pipeline_key] = pipeline_payload if pipeline_payload is not None else step
+
+
+async def resolve_prompt_from_policy(
+    *,
+    prompt_context: PromptExecutionContext,
+    policy: Optional[Union[AssignedPromptPolicy, NamedPromptPolicy]],
+) -> PromptExecutionContext:
+    if policy is None or isinstance(policy, AssignedPromptPolicy):
+        return prompt_context
+
+    if isinstance(policy, NamedPromptPolicy):
+        prompt_template = await api_service.get_prompt_template(
+            policy.prompt_name,
+            prefer_production=policy.prefer_production,
+        )
+        if not prompt_template:
+            logger.warning(
+                f"Could not load prompt '{policy.prompt_name}', falling back to conversation-assigned prompt"
+            )
+            return prompt_context
+
+        logger.info(f"Using named prompt '{policy.prompt_name}' from pipeline policy")
+        return PromptExecutionContext(
+            prompt_template=prompt_template,
+            prompt_name=policy.prompt_name,
+            prompt_version=None,
+            prompt_purpose=None,
+            prompt_id=None,
+        )
+
+    return prompt_context
 
 
 def build_history_with_latest_turn(
