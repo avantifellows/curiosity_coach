@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request, HTTPException, BackgroundTasks, Depends
+from fastapi import FastAPI, Request, HTTPException, BackgroundTasks, Depends, UploadFile, File
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.middleware.cors import CORSMiddleware
@@ -10,6 +10,7 @@ import os
 from dotenv import load_dotenv # Added import
 import json # Added for S3 config parsing
 import re
+import io
 import boto3 # Added for S3 interaction
 from botocore.exceptions import NoCredentialsError, PartialCredentialsError, ClientError # Added for S3 error handling
 from mangum import Mangum
@@ -18,6 +19,7 @@ import asyncio
 from concurrent.futures import ThreadPoolExecutor
 import threading
 from functools import partial
+from pypdf import PdfReader
 from src.core.core_theme_extractor import extract_core_theme_from_conversation, update_conversation_theme
 from src.core.core_theme_config import CORE_THEME_EXTRACTION_ENABLED, CORE_THEME_TRIGGER_MESSAGE_COUNT, CORE_THEME_MAX_RETRIES, CORE_THEME_PROMPT_NAME
 # Add these imports at the top of main.py
@@ -185,6 +187,69 @@ def _parse_evaluation_metrics(raw_response: str) -> Dict[str, Any]:
     metrics["topics"] = normalized_topics[:5]
 
     return metrics
+
+
+def _validate_and_normalize_pdf_questions_payload(parsed: Any) -> List[Dict[str, Any]]:
+    """Validate and normalize extracted questions with foundational units."""
+    if not isinstance(parsed, dict):
+        raise ValueError("LLM response schema error: expected a JSON object")
+
+    # Temporary compatibility while prompt key naming is being standardized.
+    raw_questions = parsed.get("questions")
+    if raw_questions is None:
+        raw_questions = parsed.get("Questions")
+
+    if not isinstance(raw_questions, list) or not raw_questions:
+        raise ValueError("LLM response schema error: 'questions' must be a non-empty list")
+
+    normalized_questions: List[Dict[str, Any]] = []
+    for idx, item in enumerate(raw_questions):
+        if not isinstance(item, dict):
+            raise ValueError(
+                f"LLM response schema error: questions[{idx}] must be an object with "
+                "'question' and 'foundational_units'"
+            )
+
+        question = item.get("question")
+        foundational_units = item.get("foundational_units")
+
+        if not isinstance(question, str) or not question.strip():
+            raise ValueError(
+                f"LLM response schema error: questions[{idx}].question must be a non-empty string"
+            )
+        if not isinstance(foundational_units, list):
+            raise ValueError(
+                f"LLM response schema error: questions[{idx}].foundational_units must be a list"
+            )
+
+        clean_units: List[str] = []
+        for unit in foundational_units:
+            if not isinstance(unit, str):
+                raise ValueError(
+                    f"LLM response schema error: questions[{idx}].foundational_units "
+                    "must contain only strings"
+                )
+            normalized_unit = unit.strip()
+            if normalized_unit:
+                clean_units.append(normalized_unit)
+
+        if not clean_units:
+            raise ValueError(
+                f"LLM response schema error: questions[{idx}].foundational_units "
+                "must contain at least one non-empty string"
+            )
+
+        normalized_questions.append(
+            {
+                "question": question.strip(),
+                "foundational_units": clean_units,
+            }
+        )
+
+    if not normalized_questions:
+        raise ValueError("LLM response schema error: no valid questions found")
+
+    return normalized_questions
 
 
 async def get_current_curiosity_score(
@@ -1939,6 +2004,67 @@ async def analyze_student_conversations(request: StudentAnalysisRequest):
     except Exception as e:
         logger.error(f"Error generating student analysis: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to generate analysis: {str(e)}")
+
+
+@app.get("/pdf-topics", response_class=HTMLResponse)
+async def pdf_topics_page(request: Request):
+    """Serve PDF topic extraction UI."""
+    return templates.TemplateResponse("pdf_topics.html", {"request": request})
+
+
+@app.post("/extract-topics-from-pdf")
+async def extract_topics_from_pdf(file: UploadFile = File(...)):
+    """Extract questions and foundational units from uploaded PDF."""
+    try:
+        if not file.filename:
+            raise HTTPException(status_code=400, detail="Uploaded file is missing a filename")
+
+        contents = await file.read()
+        if not contents:
+            raise HTTPException(status_code=400, detail="Uploaded file is empty")
+
+        reader = PdfReader(io.BytesIO(contents))
+        pdf_text = "\n".join((page.extract_text() or "").strip() for page in reader.pages).strip()
+        if not pdf_text:
+            raise HTTPException(status_code=400, detail="Could not extract text from PDF")
+
+        prompt_name = "pdf_topic_extraction"
+        prompt_template = await api_service.get_prompt_template(prompt_name, prefer_production=True)
+        if not prompt_template:
+            raise HTTPException(status_code=404, detail=f"Prompt '{prompt_name}' not found in database")
+
+        final_prompt = prompt_template.replace("{{PDF_CONTENT}}", pdf_text)
+
+        llm_service = LLMService()
+        raw_response = llm_service.get_completion(
+            messages=[{"role": "user", "content": final_prompt}],
+            call_type="pdf_topic_extraction",
+            json_mode=True,
+        )
+
+        try:
+            parsed = json.loads(raw_response)
+        except json.JSONDecodeError as exc:
+            logger.error("LLM returned invalid JSON for PDF topic extraction: %s", raw_response)
+            raise HTTPException(status_code=500, detail="LLM returned invalid JSON") from exc
+
+        try:
+            questions = _validate_and_normalize_pdf_questions_payload(parsed)
+        except ValueError as exc:
+            logger.warning("PDF extraction schema validation failed: %s", exc)
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+        return {
+            "filename": file.filename,
+            "page_count": len(reader.pages),
+            "questions": questions,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Error extracting topics from PDF: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to extract topics: {str(e)}")
 
 
 if __name__ == '__main__':

@@ -177,6 +177,16 @@
             "text": {
                 "verbosity": "low"
             }
+        },
+        "pdf_topic_extraction": {
+            "provider": "openai",
+            "model": "gpt-5.4-mini",
+            "reasoning": {
+                "effort": "medium"
+            },
+            "text": {
+                "verbosity": "low"
+            }
         }
     },
     "providers": {

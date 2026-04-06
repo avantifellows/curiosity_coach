@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF Question Extractor</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+</head>
+<body class="bg-gray-100 min-h-screen">
+    <div class="container mx-auto px-4 py-8 max-w-2xl">
+        <h1 class="text-4xl font-bold text-center mb-8 text-indigo-600">PDF Question Extractor</h1>
+
+        <div class="bg-white rounded-lg shadow-lg p-6">
+            <label class="block mb-2 font-semibold text-gray-700">Upload a PDF</label>
+            <input
+                type="file"
+                id="pdf-file"
+                accept=".pdf,application/pdf"
+                class="block w-full mb-4 border rounded p-2 text-gray-700"
+            >
+            <button
+                id="extract-btn"
+                class="w-full bg-indigo-600 text-white py-2 px-4 rounded-lg hover:bg-indigo-700 disabled:opacity-50"
+            >
+                Extract Questions
+            </button>
+
+            <p id="status" class="mt-4 text-gray-600 text-sm hidden"></p>
+
+            <div id="results" class="mt-6 hidden">
+                <div class="flex items-center justify-between mb-3">
+                    <h2 class="text-xl font-semibold text-gray-700">Questions Found</h2>
+                    <span id="question-count" class="text-sm text-gray-400"></span>
+                </div>
+                <div id="question-list" class="space-y-4"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const extractBtn = document.getElementById("extract-btn");
+        const pdfFileInput = document.getElementById("pdf-file");
+        const statusEl = document.getElementById("status");
+        const resultsEl = document.getElementById("results");
+        const questionCountEl = document.getElementById("question-count");
+        const questionListEl = document.getElementById("question-list");
+
+        function showStatus(message) {
+            statusEl.textContent = message;
+            statusEl.classList.remove("hidden");
+        }
+
+        function resetResults() {
+            resultsEl.classList.add("hidden");
+            questionCountEl.textContent = "";
+            questionListEl.innerHTML = "";
+        }
+
+        function renderQuestions(questions) {
+            questionListEl.innerHTML = "";
+            questions.forEach((item, index) => {
+                const card = document.createElement("div");
+                card.className = "border border-gray-200 rounded-lg p-4";
+
+                const questionText = document.createElement("h3");
+                questionText.className = "text-gray-900 font-semibold";
+                questionText.textContent = `${index + 1}. ${item.question}`;
+                card.appendChild(questionText);
+
+                const units = Array.isArray(item.foundational_units) ? item.foundational_units : [];
+                const unitsList = document.createElement("ul");
+                unitsList.className = "list-disc pl-5 mt-2 text-gray-700 space-y-1";
+                units.forEach((unit) => {
+                    const unitItem = document.createElement("li");
+                    unitItem.textContent = unit;
+                    unitsList.appendChild(unitItem);
+                });
+
+                card.appendChild(unitsList);
+                questionListEl.appendChild(card);
+            });
+        }
+
+        extractBtn.addEventListener("click", async () => {
+            const file = pdfFileInput.files[0];
+            if (!file) {
+                showStatus("Please select a PDF file.");
+                return;
+            }
+
+            extractBtn.disabled = true;
+            extractBtn.textContent = "Extracting...";
+            resetResults();
+            showStatus(`Processing "${file.name}"...`);
+
+            try {
+                const formData = new FormData();
+                formData.append("file", file);
+
+                const response = await fetch("/extract-topics-from-pdf", {
+                    method: "POST",
+                    body: formData
+                });
+
+                const data = await response.json();
+                if (!response.ok) {
+                    throw new Error(data.detail || "Failed to extract questions");
+                }
+
+                // Keep short-term compatibility with alternate key naming.
+                const questions = Array.isArray(data.questions)
+                    ? data.questions
+                    : (Array.isArray(data.Questions) ? data.Questions : []);
+                renderQuestions(questions);
+                questionCountEl.textContent = `${questions.length} questions · ${data.page_count} pages`;
+                resultsEl.classList.remove("hidden");
+                showStatus(`Done: ${data.filename}`);
+            } catch (error) {
+                showStatus(`Error: ${error.message}`);
+            } finally {
+                extractBtn.disabled = false;
+                extractBtn.textContent = "Extract Questions";
+            }
+        });
+    </script>
+</body>
+</html>
