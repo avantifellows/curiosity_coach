@@ -37,6 +37,11 @@ class SubscribeProjectResponse(BaseModel):
     existing_count: int
 
 
+class SubscribedProjectResponse(BaseModel):
+    kb_source_id: int
+    file_name: str
+
+
 @router.get("/sources", response_model=List[ProjectSourceResponse])
 def list_project_sources(
     db: Session = Depends(get_db),
@@ -54,6 +59,34 @@ def list_project_sources(
             details=source.details,
         )
         for source in sources
+    ]
+
+
+@router.get("/subscribed", response_model=List[SubscribedProjectResponse])
+def list_subscribed_projects(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    rows = (
+        db.query(
+            KBSource.id.label("kb_source_id"),
+            KBSource.file_name.label("file_name"),
+        )
+        .join(Question, Question.kb_source_id == KBSource.id)
+        .join(FoundationalUnit, FoundationalUnit.question_id == Question.id)
+        .join(Progress, Progress.foundational_unit_id == FoundationalUnit.id)
+        .filter(Progress.user_id == current_user.id)
+        .distinct()
+        .order_by(KBSource.file_name.asc())
+        .all()
+    )
+
+    return [
+        SubscribedProjectResponse(
+            kb_source_id=row.kb_source_id,
+            file_name=row.file_name,
+        )
+        for row in rows
     ]
 
 
