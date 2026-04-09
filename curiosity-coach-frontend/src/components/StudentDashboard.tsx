@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { getProjectSources, subscribeToProject } from '../services/api';
-import { ProjectSource } from '../types';
+import { getProjectSources, getSubscribedProjects, subscribeToProject } from '../services/api';
+import { ProjectSource, SubscribedProject } from '../types';
 
 const StudentDashboard: React.FC = () => {
   const navigate = useNavigate();
@@ -14,6 +14,11 @@ const StudentDashboard: React.FC = () => {
   const [isSubscribing, setIsSubscribing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [isChatModalOpen, setIsChatModalOpen] = useState(false);
+  const [loadingSubscribedProjects, setLoadingSubscribedProjects] = useState(false);
+  const [subscribedProjects, setSubscribedProjects] = useState<SubscribedProject[]>([]);
+  const [chatPickerError, setChatPickerError] = useState<string | null>(null);
+  const [selectedChatOption, setSelectedChatOption] = useState<string>('');
 
   const studentName = useMemo(
     () => user?.student?.first_name || user?.name || 'Student',
@@ -73,6 +78,62 @@ const StudentDashboard: React.FC = () => {
     }
   };
 
+  const openChatPicker = async () => {
+    setIsChatModalOpen(true);
+    setChatPickerError(null);
+    setLoadingSubscribedProjects(true);
+    try {
+      const projects = await getSubscribedProjects();
+      setSubscribedProjects(projects);
+      if (projects.length > 0) {
+        setSelectedChatOption(String(projects[0].kb_source_id));
+      } else {
+        setSelectedChatOption('');
+      }
+    } catch (err: any) {
+      setSubscribedProjects([]);
+      setSelectedChatOption('');
+      setChatPickerError(err.message || 'Failed to load subscribed projects');
+    } finally {
+      setLoadingSubscribedProjects(false);
+    }
+  };
+
+  const closeChatPicker = () => {
+    setIsChatModalOpen(false);
+    setChatPickerError(null);
+  };
+
+  const handleContinueToChat = () => {
+    if (subscribedProjects.length === 0) {
+      return;
+    }
+
+    let chosenProject: SubscribedProject | undefined;
+    let selectionMode: 'selected' | 'random' = 'selected';
+
+    if (selectedChatOption === 'random') {
+      selectionMode = 'random';
+      const randomIndex = Math.floor(Math.random() * subscribedProjects.length);
+      chosenProject = subscribedProjects[randomIndex];
+    } else {
+      const selectedId = Number(selectedChatOption);
+      chosenProject = subscribedProjects.find((project) => project.kb_source_id === selectedId);
+    }
+
+    if (!chosenProject) {
+      setChatPickerError('Please choose a valid project option');
+      return;
+    }
+
+    const params = new URLSearchParams({
+      project_source_id: String(chosenProject.kb_source_id),
+      project_selection: selectionMode,
+    });
+    closeChatPicker();
+    navigate(`/chat?${params.toString()}`);
+  };
+
   return (
     <div className="main-gradient-bg min-h-screen px-4 py-8 sm:px-6 lg:px-8">
       <div className="mx-auto w-full max-w-4xl space-y-6">
@@ -126,13 +187,91 @@ const StudentDashboard: React.FC = () => {
           </p>
           <button
             type="button"
-            onClick={() => navigate('/chat')}
+            onClick={openChatPicker}
             className="mt-4 rounded-xl bg-slate-900 px-5 py-3 text-sm font-medium text-white hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-300 sm:py-2"
           >
             Go to chat
           </button>
         </div>
       </div>
+
+      {isChatModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 px-4">
+          <div className="w-full max-w-md rounded-2xl border border-violet-200 bg-white p-6 shadow-lg">
+            <h3 className="text-lg font-semibold text-slate-900">Choose project for this chat</h3>
+            <p className="mt-1 text-sm text-slate-600">
+              Pick one of your subscribed projects or choose random.
+            </p>
+
+            <div className="mt-4 space-y-2">
+              {loadingSubscribedProjects && (
+                <div className="rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-600">
+                  Loading subscribed projects...
+                </div>
+              )}
+
+              {!loadingSubscribedProjects && subscribedProjects.length === 0 && (
+                <div className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-700">
+                  You have not subscribed to any project yet. Subscribe first, then continue to chat.
+                </div>
+              )}
+
+              {!loadingSubscribedProjects && subscribedProjects.length > 0 && (
+                <>
+                  {subscribedProjects.map((project) => (
+                    <label
+                      key={project.kb_source_id}
+                      className="flex cursor-pointer items-center gap-3 rounded-lg border border-violet-200 px-3 py-2 text-sm text-slate-800"
+                    >
+                      <input
+                        type="radio"
+                        name="chat-project-option"
+                        value={String(project.kb_source_id)}
+                        checked={selectedChatOption === String(project.kb_source_id)}
+                        onChange={(e) => setSelectedChatOption(e.target.value)}
+                      />
+                      <span>{project.file_name}</span>
+                    </label>
+                  ))}
+
+                  <label className="flex cursor-pointer items-center gap-3 rounded-lg border border-violet-200 px-3 py-2 text-sm font-medium text-slate-800">
+                    <input
+                      type="radio"
+                      name="chat-project-option"
+                      value="random"
+                      checked={selectedChatOption === 'random'}
+                      onChange={(e) => setSelectedChatOption(e.target.value)}
+                    />
+                    <span>Random</span>
+                  </label>
+                </>
+              )}
+
+              {chatPickerError && (
+                <div className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{chatPickerError}</div>
+              )}
+            </div>
+
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={closeChatPicker}
+                className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleContinueToChat}
+                disabled={loadingSubscribedProjects || subscribedProjects.length === 0 || !selectedChatOption}
+                className="rounded-lg bg-slate-900 px-3 py-2 text-sm text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Continue
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

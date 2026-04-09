@@ -24,6 +24,8 @@ interface ChatContextState {
   currentConversationId: number | null;
   currentVisitNumber: number | null;
   currentPromptVersionId: number | undefined;
+  selectedProjectSourceId: number | null;
+  projectSelection: 'selected' | 'random' | null;
   messages: Message[];
   isLoadingConversations: boolean;
   isLoadingMessages: boolean;
@@ -84,8 +86,33 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const queryParams = new URLSearchParams(location.search);
     return queryParams.get('mode') === 'try' ? 'try' : undefined;
   }, [location.search]);
+  const selectedProjectSourceId = React.useMemo(() => {
+    const queryParams = new URLSearchParams(location.search);
+    const rawProjectId = queryParams.get('project_source_id');
+    if (!rawProjectId) {
+      return null;
+    }
+    const parsed = Number(rawProjectId);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+  }, [location.search]);
+  const projectSelection = React.useMemo(() => {
+    const queryParams = new URLSearchParams(location.search);
+    const rawSelection = queryParams.get('project_selection');
+    return rawSelection === 'selected' || rawSelection === 'random'
+      ? rawSelection
+      : null;
+  }, [location.search]);
   const cleanupPollingRef = useRef<(() => void) | null>(null); // Ref to hold the cleanup function
   const hasAutoCreatedConversationRef = useRef<boolean>(false); // Track if we've auto-created a conversation in this session
+
+  useEffect(() => {
+    if (selectedProjectSourceId === null) {
+      return;
+    }
+    console.log(
+      `[ProjectSelection] project_source_id=${selectedProjectSourceId}, project_selection=${projectSelection ?? 'selected'}`
+    );
+  }, [selectedProjectSourceId, projectSelection]);
 
   // --- Function to update title based on first message ---
   const updateTitleFromFirstMessage = useCallback((conversationId: number, content: string, currentMessagesLength: number) => {
@@ -603,6 +630,8 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     currentConversationId,
     currentVisitNumber,
     currentPromptVersionId,
+    selectedProjectSourceId,
+    projectSelection,
     messages,
     isLoadingConversations,
     isLoadingMessages,

@@ -170,6 +170,11 @@ export interface ProjectSubscriptionResponse {
   existing_count: number;
 }
 
+export interface SubscribedProject {
+  kb_source_id: number;
+  file_name: string;
+}
+
 export interface DashboardClassSummary {
   cohort_start: string;
   cohort_end: string;
