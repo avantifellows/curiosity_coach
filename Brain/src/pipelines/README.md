@@ -155,7 +155,7 @@ Relevant file:
 - base response generation runs on that guided assigned prompt
 - `execute_turn(...)` saves the router step first
 - `execute_turn(...)` then reuses the full legacy post-processing stack
-- if router says not to ask a question, the final trailing coach question is stripped back out
+- on real repair turns, the final trailing coach question is stripped back out
 
 This is the easiest way to try "intent on top of legacy" without rewriting the visit prompts first.
 

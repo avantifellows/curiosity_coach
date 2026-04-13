@@ -147,9 +147,9 @@ def should_apply_intent_guidance(router_state: Dict[str, Any]) -> bool:
     topic_action = router_state.get("topic_action")
     should_ask_question = router_state.get("should_ask_question")
 
-    if should_ask_question is False:
+    if mode == "confusion_repair":
         return True
-    if mode in {"reengagement", "confusion_repair"}:
+    if should_ask_question is False and mode == "reengagement":
         return True
     if topic_action in {"repair_current_topic", "reengage_same_topic"}:
         return True
@@ -200,3 +200,9 @@ def remove_trailing_question(
     if changed and cleaned:
         return cleaned
     return response_text
+
+
+def should_strip_trailing_question(router_state: Dict[str, Any]) -> bool:
+    mode = router_state.get("mode")
+    topic_action = router_state.get("topic_action")
+    return mode == "confusion_repair" or topic_action == "repair_current_topic"

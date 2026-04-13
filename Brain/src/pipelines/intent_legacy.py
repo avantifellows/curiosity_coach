@@ -9,6 +9,7 @@ from src.pipelines.intent_support import (
     remove_trailing_question,
     run_intent_router,
     should_apply_intent_guidance,
+    should_strip_trailing_question,
 )
 from src.schemas import ProcessQueryResponse
 from src.utils.logger import logger
@@ -80,7 +81,7 @@ async def execute_turn(
         user_input=user_input,
         current_curiosity_score=current_curiosity_score,
     )
-    if router_state and router_state.get("should_ask_question") is False:
+    if router_state and should_strip_trailing_question(router_state):
         response_data.final_response = remove_trailing_question(response_data.final_response)
 
     return updated_curiosity_score
