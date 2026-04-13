@@ -1,0 +1,79 @@
+from typing import Any
+
+from src.core.turn_context import TurnExecutionContext
+from src.pipelines import legacy
+from src.pipelines.common import ASSIGNED_PROMPT
+from src.pipelines.intent_support import (
+    inject_intent_guidance,
+    prepend_intent_router_step,
+    run_intent_router,
+)
+from src.schemas import ProcessQueryResponse
+from src.utils.logger import logger
+
+TURN_PROMPT_POLICY = ASSIGNED_PROMPT
+OPENING_PROMPT_POLICY = ASSIGNED_PROMPT
+
+
+async def prepare_turn(
+    *,
+    message: Any,
+    turn_context: TurnExecutionContext,
+    user_input: str,
+) -> TurnExecutionContext:
+    router_state = await run_intent_router(
+        turn_context=turn_context,
+        user_input=user_input,
+    )
+    if not router_state:
+        return turn_context
+
+    if not turn_context.prompt_context:
+        logger.warning(
+            "No prompt context found for intent_legacy conversation_id=%s",
+            turn_context.conversation_id,
+        )
+        return turn_context
+
+    guided_prompt_template = inject_intent_guidance(
+        prompt_template=turn_context.prompt_context.prompt_template,
+        router_state=router_state,
+    )
+
+    turn_context.prompt_context = turn_context.prompt_context.__class__(
+        prompt_template=guided_prompt_template,
+        prompt_name=turn_context.prompt_context.prompt_name,
+        prompt_version=turn_context.prompt_context.prompt_version,
+        prompt_purpose=turn_context.prompt_context.prompt_purpose,
+        prompt_id=turn_context.prompt_context.prompt_id,
+    )
+
+    turn_context.pipeline_state["intent_router"] = {
+        **router_state,
+        "response_prompt_name": turn_context.prompt_context.prompt_name,
+        "response_prompt_version": turn_context.prompt_context.prompt_version,
+        "response_prompt_id": turn_context.prompt_context.prompt_id,
+        "response_prompt_template": guided_prompt_template,
+    }
+    return turn_context
+
+
+async def execute_turn(
+    *,
+    message: Any,
+    response_data: ProcessQueryResponse,
+    turn_context: TurnExecutionContext,
+    user_input: str,
+    current_curiosity_score: int,
+) -> int:
+    router_state = turn_context.pipeline_state.get("intent_router")
+    if router_state:
+        prepend_intent_router_step(response_data, router_state)
+
+    return await legacy.execute_turn(
+        message=message,
+        response_data=response_data,
+        turn_context=turn_context,
+        user_input=user_input,
+        current_curiosity_score=current_curiosity_score,
+    )

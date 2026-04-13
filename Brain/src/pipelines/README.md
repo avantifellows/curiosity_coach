@@ -13,6 +13,8 @@ Examples already in this folder:
 - [legacy.py](/Users/surya/may2022/avanti_code/curiosity_coach/Brain/src/pipelines/legacy.py)
 - [single_prompt.py](/Users/surya/may2022/avanti_code/curiosity_coach/Brain/src/pipelines/single_prompt.py)
 - [double_prompt.py](/Users/surya/may2022/avanti_code/curiosity_coach/Brain/src/pipelines/double_prompt.py)
+- [intent_router.py](/Users/surya/may2022/avanti_code/curiosity_coach/Brain/src/pipelines/intent_router.py)
+- [intent_legacy.py](/Users/surya/may2022/avanti_code/curiosity_coach/Brain/src/pipelines/intent_legacy.py)
 
 ## The mental model
 
@@ -54,6 +56,7 @@ The real lifecycle is:
 Shared placeholder rendering happens in one place now.
 The opening hook still matters for systems that want normal turns and opening messages to use different prompts.
 The pre-generation hook still matters for systems like `intent_router` that need to do routing before the final reply prompt runs.
+Shared router helpers live in [intent_support.py](/Users/surya/may2022/avanti_code/curiosity_coach/Brain/src/pipelines/intent_support.py) so router-based pipelines do not have to duplicate LLM calling, JSON parsing, and trace-step building.
 
 ## The core rule
 
@@ -142,6 +145,18 @@ Relevant file:
 - base response generation runs next
 - common response rendering then fills all standard placeholders
 - `execute_turn(...)` saves the router decision into pipeline steps before the response step
+
+### `intent_legacy`
+
+- opening prompt stays on the assigned visit / steady-state prompt
+- turn prompt also stays on the assigned visit / steady-state prompt
+- `prepare_turn(...)` runs `intent_router`
+- `prepare_turn(...)` injects a soft routing guidance block into the assigned prompt
+- base response generation runs on that guided assigned prompt
+- `execute_turn(...)` saves the router step first
+- `execute_turn(...)` then reuses the full legacy post-processing stack
+
+This is the easiest way to try "intent on top of legacy" without rewriting the visit prompts first.
 
 ## How previous state gets fed back in
 
