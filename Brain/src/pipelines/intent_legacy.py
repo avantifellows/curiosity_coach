@@ -6,7 +6,9 @@ from src.pipelines.common import ASSIGNED_PROMPT
 from src.pipelines.intent_support import (
     inject_intent_guidance,
     prepend_intent_router_step,
+    remove_trailing_question,
     run_intent_router,
+    should_apply_intent_guidance,
 )
 from src.schemas import ProcessQueryResponse
 from src.utils.logger import logger
@@ -35,10 +37,12 @@ async def prepare_turn(
         )
         return turn_context
 
-    guided_prompt_template = inject_intent_guidance(
-        prompt_template=turn_context.prompt_context.prompt_template,
-        router_state=router_state,
-    )
+    guided_prompt_template = turn_context.prompt_context.prompt_template
+    if should_apply_intent_guidance(router_state):
+        guided_prompt_template = inject_intent_guidance(
+            prompt_template=guided_prompt_template,
+            router_state=router_state,
+        )
 
     turn_context.prompt_context = turn_context.prompt_context.__class__(
         prompt_template=guided_prompt_template,
@@ -69,11 +73,14 @@ async def execute_turn(
     router_state = turn_context.pipeline_state.get("intent_router")
     if router_state:
         prepend_intent_router_step(response_data, router_state)
-
-    return await legacy.execute_turn(
+    updated_curiosity_score = await legacy.execute_turn(
         message=message,
         response_data=response_data,
         turn_context=turn_context,
         user_input=user_input,
         current_curiosity_score=current_curiosity_score,
     )
+    if router_state and router_state.get("should_ask_question") is False:
+        response_data.final_response = remove_trailing_question(response_data.final_response)
+
+    return updated_curiosity_score

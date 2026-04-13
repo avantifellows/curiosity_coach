@@ -1,3 +1,4 @@
+import re
 from typing import Any, Dict, Optional
 import json
 
@@ -141,6 +142,20 @@ def build_intent_guidance_block(router_state: Dict[str, Any]) -> str:
     )
 
 
+def should_apply_intent_guidance(router_state: Dict[str, Any]) -> bool:
+    mode = router_state.get("mode")
+    topic_action = router_state.get("topic_action")
+    should_ask_question = router_state.get("should_ask_question")
+
+    if should_ask_question is False:
+        return True
+    if mode in {"reengagement", "confusion_repair"}:
+        return True
+    if topic_action in {"repair_current_topic", "reengage_same_topic"}:
+        return True
+    return False
+
+
 def inject_intent_guidance(
     *,
     prompt_template: str,
@@ -150,3 +165,38 @@ def inject_intent_guidance(
     if "{{INTENT_ROUTING_GUIDANCE}}" in prompt_template:
         return prompt_template.replace("{{INTENT_ROUTING_GUIDANCE}}", guidance_block)
     return f"{guidance_block}\n\n{prompt_template}"
+
+
+def remove_trailing_question(
+    response_text: str,
+) -> str:
+    if "?" not in response_text:
+        return response_text
+
+    paragraphs = response_text.split("\n\n")
+    updated_paragraphs = []
+    changed = False
+
+    sentence_pattern = re.compile(r"[^.!?]*[.!?](?:\s+|$)", re.DOTALL)
+
+    for paragraph in paragraphs:
+        if "?" not in paragraph:
+            updated_paragraphs.append(paragraph)
+            continue
+
+        sentences = [match.group(0).strip() for match in sentence_pattern.finditer(paragraph)]
+        remainder = sentence_pattern.sub("", paragraph).strip()
+        if remainder:
+            sentences.append(remainder)
+
+        kept_sentences = [sentence for sentence in sentences if "?" not in sentence]
+        if len(kept_sentences) != len(sentences):
+            changed = True
+
+        if kept_sentences:
+            updated_paragraphs.append(" ".join(kept_sentences).strip())
+
+    cleaned = "\n\n".join(part for part in updated_paragraphs if part).strip()
+    if changed and cleaned:
+        return cleaned
+    return response_text
