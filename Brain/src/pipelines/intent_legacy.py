@@ -4,12 +4,9 @@ from src.core.turn_context import TurnExecutionContext
 from src.pipelines import legacy
 from src.pipelines.common import ASSIGNED_PROMPT
 from src.pipelines.intent_support import (
-    inject_intent_guidance,
-    prepend_intent_router_step,
-    remove_trailing_question,
-    run_intent_router,
-    should_apply_intent_guidance,
-    should_strip_trailing_question,
+    build_interest_check_prompt,
+    prepend_interest_router_step,
+    run_interest_router,
 )
 from src.schemas import ProcessQueryResponse
 from src.utils.logger import logger
@@ -24,7 +21,7 @@ async def prepare_turn(
     turn_context: TurnExecutionContext,
     user_input: str,
 ) -> TurnExecutionContext:
-    router_state = await run_intent_router(
+    router_state = await run_interest_router(
         turn_context=turn_context,
         user_input=user_input,
     )
@@ -39,25 +36,33 @@ async def prepare_turn(
         return turn_context
 
     guided_prompt_template = turn_context.prompt_context.prompt_template
-    if should_apply_intent_guidance(router_state):
-        guided_prompt_template = inject_intent_guidance(
-            prompt_template=guided_prompt_template,
-            router_state=router_state,
-        )
+    if router_state.get("switch_away_from_legacy"):
+        guided_prompt_template = build_interest_check_prompt(router_state)
+
+    response_prompt_name = turn_context.prompt_context.prompt_name
+    response_prompt_version = turn_context.prompt_context.prompt_version
+    response_prompt_id = turn_context.prompt_context.prompt_id
+    response_prompt_purpose = turn_context.prompt_context.prompt_purpose
+
+    if router_state.get("switch_away_from_legacy"):
+        response_prompt_name = "interest_check_in"
+        response_prompt_version = None
+        response_prompt_id = None
+        response_prompt_purpose = "interest_check_in"
 
     turn_context.prompt_context = turn_context.prompt_context.__class__(
         prompt_template=guided_prompt_template,
-        prompt_name=turn_context.prompt_context.prompt_name,
-        prompt_version=turn_context.prompt_context.prompt_version,
-        prompt_purpose=turn_context.prompt_context.prompt_purpose,
-        prompt_id=turn_context.prompt_context.prompt_id,
+        prompt_name=response_prompt_name,
+        prompt_version=response_prompt_version,
+        prompt_purpose=response_prompt_purpose,
+        prompt_id=response_prompt_id,
     )
 
-    turn_context.pipeline_state["intent_router"] = {
+    turn_context.pipeline_state["interest_router"] = {
         **router_state,
-        "response_prompt_name": turn_context.prompt_context.prompt_name,
-        "response_prompt_version": turn_context.prompt_context.prompt_version,
-        "response_prompt_id": turn_context.prompt_context.prompt_id,
+        "response_prompt_name": response_prompt_name,
+        "response_prompt_version": response_prompt_version,
+        "response_prompt_id": response_prompt_id,
         "response_prompt_template": guided_prompt_template,
     }
     return turn_context
@@ -71,9 +76,12 @@ async def execute_turn(
     user_input: str,
     current_curiosity_score: int,
 ) -> int:
-    router_state = turn_context.pipeline_state.get("intent_router")
+    router_state = turn_context.pipeline_state.get("interest_router")
     if router_state:
-        prepend_intent_router_step(response_data, router_state)
+        prepend_interest_router_step(response_data, router_state)
+    if router_state and router_state.get("switch_away_from_legacy"):
+        return current_curiosity_score
+
     updated_curiosity_score = await legacy.execute_turn(
         message=message,
         response_data=response_data,
@@ -81,7 +89,5 @@ async def execute_turn(
         user_input=user_input,
         current_curiosity_score=current_curiosity_score,
     )
-    if router_state and should_strip_trailing_question(router_state):
-        response_data.final_response = remove_trailing_question(response_data.final_response)
 
     return updated_curiosity_score

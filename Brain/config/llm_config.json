@@ -80,9 +80,9 @@
         },
         "intent_router": {
             "provider": "openai",
-            "model": "gpt-5.4-mini",
+            "model": "gpt-5.4",
             "reasoning": {
-                "effort": "low"
+                "effort": "medium"
             },
             "text": {
                 "verbosity": "low"

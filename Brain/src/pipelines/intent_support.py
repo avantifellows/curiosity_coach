@@ -13,6 +13,7 @@ from src.pipelines.common import prepend_pipeline_step
 
 
 DEFAULT_ROUTER_PROMPT_NAME = "intent_router"
+DEFAULT_INTEREST_ROUTER_PROMPT_NAME = "interest_dip_router"
 
 
 async def run_intent_router(
@@ -206,3 +207,137 @@ def should_strip_trailing_question(router_state: Dict[str, Any]) -> bool:
     mode = router_state.get("mode")
     topic_action = router_state.get("topic_action")
     return mode == "confusion_repair" or topic_action == "repair_current_topic"
+
+
+async def run_interest_router(
+    *,
+    turn_context: TurnExecutionContext,
+    user_input: str,
+    router_prompt_name: str = DEFAULT_INTEREST_ROUTER_PROMPT_NAME,
+) -> Optional[Dict[str, Any]]:
+    prompt_template = await api_service.get_prompt_template(
+        router_prompt_name,
+        prefer_production=False,
+    )
+    if not prompt_template:
+        return None
+
+    formatted_prompt = render_prompt_template(
+        prompt_template,
+        context=build_render_context_for_turn(turn_context, query=user_input or ""),
+    )
+
+    logger.info(
+        "Prepared interest router prompt for conversation_id=%s (length=%s)",
+        turn_context.conversation_id,
+        len(formatted_prompt),
+    )
+
+    llm_service = LLMService()
+    messages = [
+        {
+            "role": "system",
+            "content": "You detect significant dips in student interest. Return only the JSON requested in the prompt.",
+        },
+        {
+            "role": "user",
+            "content": formatted_prompt,
+        },
+    ]
+
+    router_output = llm_service.get_completion(messages, call_type="intent_router")
+
+    logger.info(
+        "Interest router raw output for conversation_id=%s: %s",
+        turn_context.conversation_id,
+        router_output,
+    )
+
+    try:
+        router_data = json.loads(router_output)
+    except Exception as exc:
+        logger.warning(
+            "Failed to parse interest router output for conversation_id=%s: %s. Raw output: %s",
+            turn_context.conversation_id,
+            exc,
+            router_output,
+        )
+        return None
+
+    has_significant_dip = bool(router_data.get("has_significant_dip"))
+    switch_away_from_legacy = router_data.get("switch_away_from_legacy")
+    if switch_away_from_legacy is None:
+        switch_away_from_legacy = has_significant_dip
+    else:
+        switch_away_from_legacy = bool(switch_away_from_legacy)
+
+    logger.info(
+        "Interest router parsed output for conversation_id=%s: has_significant_dip=%s, switch_away_from_legacy=%s, reason=%s",
+        turn_context.conversation_id,
+        has_significant_dip,
+        switch_away_from_legacy,
+        router_data.get("reason"),
+    )
+
+    return {
+        "prompt_name": router_prompt_name,
+        "prompt_template": prompt_template,
+        "formatted_prompt": formatted_prompt,
+        "raw_output": router_output,
+        "parsed_output": router_data,
+        "has_significant_dip": has_significant_dip,
+        "switch_away_from_legacy": switch_away_from_legacy,
+        "reason": router_data.get("reason") or "unclear",
+        "reasoning": router_data.get("reasoning"),
+        "signals": router_data.get("signals"),
+        "check_in_question": router_data.get("check_in_question")
+        or "Feels like I may be losing you a bit — what’s not working right now?",
+    }
+
+
+def prepend_interest_router_step(
+    response_data: ProcessQueryResponse,
+    router_state: Dict[str, Any],
+) -> None:
+    router_step = {
+        "name": "interest_router",
+        "enabled": True,
+        "prompt_name": router_state.get("prompt_name"),
+        "prompt_template": router_state.get("prompt_template"),
+        "formatted_prompt": router_state.get("formatted_prompt"),
+        "prompt": router_state.get("formatted_prompt"),
+        "raw_result": router_state.get("raw_output"),
+        "result": json.dumps(router_state.get("parsed_output", {}), ensure_ascii=True),
+        "has_significant_dip": router_state.get("has_significant_dip"),
+        "switch_away_from_legacy": router_state.get("switch_away_from_legacy"),
+        "reason": router_state.get("reason"),
+        "reasoning": router_state.get("reasoning"),
+        "signals": router_state.get("signals"),
+        "check_in_question": router_state.get("check_in_question"),
+    }
+    prepend_pipeline_step(
+        response_data,
+        router_step,
+        pipeline_key="interest_router",
+        pipeline_payload=router_state,
+    )
+
+
+def build_interest_check_prompt(
+    router_state: Dict[str, Any],
+) -> str:
+    return (
+        "You are a curiosity coach.\n"
+        "For this one turn, do not continue the teaching flow.\n"
+        "The student seems to have significantly lost interest.\n\n"
+        f"Likely reason: {router_state.get('reason')}\n"
+        f"Why: {router_state.get('reasoning') or 'Not specified.'}\n"
+        f"Signals: {router_state.get('signals') or 'Not specified.'}\n"
+        f"Suggested question: {router_state.get('check_in_question')}\n\n"
+        "Write exactly one short, low-pressure, contextual question to understand why.\n"
+        "Do not explain the topic.\n"
+        "Do not quiz.\n"
+        "Do not ask more than one question.\n"
+        "Do not say the student lost interest.\n"
+        "Return only the question.\n"
+    )

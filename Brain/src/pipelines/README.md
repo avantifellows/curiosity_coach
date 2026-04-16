@@ -150,14 +150,14 @@ Relevant file:
 
 - opening prompt stays on the assigned visit / steady-state prompt
 - turn prompt also stays on the assigned visit / steady-state prompt
-- `prepare_turn(...)` runs `intent_router`
-- `prepare_turn(...)` injects a soft routing guidance block only on corrective turns
-- base response generation runs on that guided assigned prompt
-- `execute_turn(...)` saves the router step first
-- `execute_turn(...)` then reuses the full legacy post-processing stack
-- on real repair turns, the final trailing coach question is stripped back out
+- `prepare_turn(...)` runs `interest_dip_router`
+- if interest looks healthy, the normal legacy flow stays untouched
+- if there is a significant dip, `prepare_turn(...)` swaps in a short check-in prompt for that turn
+- `execute_turn(...)` saves the interest-router step first
+- if the router says to switch away, legacy post-processing is skipped for that turn
+- otherwise the full legacy post-processing stack runs as usual
 
-This is the easiest way to try "intent on top of legacy" without rewriting the visit prompts first.
+This is the easiest way to test interest-dip detection without rewriting the visit prompts first.
 
 ## How previous state gets fed back in
 
