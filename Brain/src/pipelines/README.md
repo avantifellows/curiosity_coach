@@ -152,12 +152,13 @@ Relevant file:
 - turn prompt also stays on the assigned visit / steady-state prompt
 - `prepare_turn(...)` runs `interest_dip_router`
 - if interest looks healthy, the normal legacy flow stays untouched
-- if there is a significant dip, `prepare_turn(...)` swaps in a short check-in prompt for that turn
+- if there is a significant dip, the router can choose one of a few recovery actions
+- recovery can mean: backtrack, answer directly first, shift to an adjacent topic, or ask a short meta check-in
 - `execute_turn(...)` saves the interest-router step first
-- if the router says to switch away, legacy post-processing is skipped for that turn
+- if the router chooses `meta_check_in`, legacy post-processing is skipped for that turn
 - otherwise the full legacy post-processing stack runs as usual
 
-This is the easiest way to test interest-dip detection without rewriting the visit prompts first.
+This keeps the router focused on disinterest, while still letting it suggest lightweight recovery moves.
 
 ## How previous state gets fed back in
 

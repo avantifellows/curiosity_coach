@@ -5,6 +5,7 @@ from src.pipelines import legacy
 from src.pipelines.common import ASSIGNED_PROMPT
 from src.pipelines.intent_support import (
     build_interest_check_prompt,
+    inject_interest_recovery_guidance,
     prepend_interest_router_step,
     run_interest_router,
 )
@@ -36,15 +37,26 @@ async def prepare_turn(
         return turn_context
 
     guided_prompt_template = turn_context.prompt_context.prompt_template
-    if router_state.get("switch_away_from_legacy"):
+    recovery_action = router_state.get("recovery_action")
+
+    if recovery_action == "meta_check_in":
         guided_prompt_template = build_interest_check_prompt(router_state)
+    elif recovery_action in {
+        "backtrack_and_reground",
+        "answer_directly_then_continue",
+        "shift_to_adjacent_topic",
+    }:
+        guided_prompt_template = inject_interest_recovery_guidance(
+            prompt_template=guided_prompt_template,
+            router_state=router_state,
+        )
 
     response_prompt_name = turn_context.prompt_context.prompt_name
     response_prompt_version = turn_context.prompt_context.prompt_version
     response_prompt_id = turn_context.prompt_context.prompt_id
     response_prompt_purpose = turn_context.prompt_context.prompt_purpose
 
-    if router_state.get("switch_away_from_legacy"):
+    if recovery_action == "meta_check_in":
         response_prompt_name = "interest_check_in"
         response_prompt_version = None
         response_prompt_id = None
@@ -79,7 +91,7 @@ async def execute_turn(
     router_state = turn_context.pipeline_state.get("interest_router")
     if router_state:
         prepend_interest_router_step(response_data, router_state)
-    if router_state and router_state.get("switch_away_from_legacy"):
+    if router_state and router_state.get("recovery_action") == "meta_check_in":
         return current_curiosity_score
 
     updated_curiosity_score = await legacy.execute_turn(

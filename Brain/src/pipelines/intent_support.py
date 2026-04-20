@@ -272,12 +272,17 @@ async def run_interest_router(
         switch_away_from_legacy = bool(switch_away_from_legacy)
 
     logger.info(
-        "Interest router parsed output for conversation_id=%s: has_significant_dip=%s, switch_away_from_legacy=%s, reason=%s",
+        "Interest router parsed output for conversation_id=%s: has_significant_dip=%s, switch_away_from_legacy=%s, reason=%s, recovery_action=%s",
         turn_context.conversation_id,
         has_significant_dip,
         switch_away_from_legacy,
         router_data.get("reason"),
+        router_data.get("recovery_action"),
     )
+
+    recovery_action = router_data.get("recovery_action")
+    if not recovery_action:
+        recovery_action = "meta_check_in" if switch_away_from_legacy else "continue_legacy"
 
     return {
         "prompt_name": router_prompt_name,
@@ -290,6 +295,9 @@ async def run_interest_router(
         "reason": router_data.get("reason") or "unclear",
         "reasoning": router_data.get("reasoning"),
         "signals": router_data.get("signals"),
+        "recovery_action": recovery_action,
+        "repair_focus": router_data.get("repair_focus"),
+        "coach_adjustment": router_data.get("coach_adjustment"),
         "check_in_question": router_data.get("check_in_question")
         or "Feels like I may be losing you a bit — what’s not working right now?",
     }
@@ -313,6 +321,9 @@ def prepend_interest_router_step(
         "reason": router_state.get("reason"),
         "reasoning": router_state.get("reasoning"),
         "signals": router_state.get("signals"),
+        "recovery_action": router_state.get("recovery_action"),
+        "repair_focus": router_state.get("repair_focus"),
+        "coach_adjustment": router_state.get("coach_adjustment"),
         "check_in_question": router_state.get("check_in_question"),
     }
     prepend_pipeline_step(
@@ -341,3 +352,33 @@ def build_interest_check_prompt(
         "Do not say the student lost interest.\n"
         "Return only the question.\n"
     )
+
+
+def build_interest_recovery_guidance_block(
+    router_state: Dict[str, Any],
+) -> str:
+    return (
+        "Recovery guidance for this turn:\n"
+        f"- interest dip detected: {router_state.get('has_significant_dip')}\n"
+        f"- likely reason: {router_state.get('reason')}\n"
+        f"- recovery action: {router_state.get('recovery_action')}\n"
+        f"- repair focus: {router_state.get('repair_focus') or 'Not specified.'}\n"
+        f"- coach adjustment: {router_state.get('coach_adjustment') or 'Not specified.'}\n"
+        f"- signals: {router_state.get('signals') or 'Not specified.'}\n\n"
+        "Use this to recover the conversation, not to become robotic.\n"
+        "If the action is `backtrack_and_reground`, go back to the last understandable point and rebuild from there with simpler language.\n"
+        "If the action is `answer_directly_then_continue`, answer plainly first with minimal analogy, then resume normal curiosity-coach behavior only if it feels natural.\n"
+        "If the action is `shift_to_adjacent_topic`, accept the nearby topic or angle the student is reaching for instead of dragging them back.\n"
+        "Do not keep pushing the exact same line that already caused friction.\n"
+    )
+
+
+def inject_interest_recovery_guidance(
+    *,
+    prompt_template: str,
+    router_state: Dict[str, Any],
+) -> str:
+    guidance_block = build_interest_recovery_guidance_block(router_state).strip()
+    if "{{INTEREST_RECOVERY_GUIDANCE}}" in prompt_template:
+        return prompt_template.replace("{{INTEREST_RECOVERY_GUIDANCE}}", guidance_block)
+    return f"{guidance_block}\n\n{prompt_template}"
