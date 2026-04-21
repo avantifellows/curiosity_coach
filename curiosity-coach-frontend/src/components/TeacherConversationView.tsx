@@ -121,10 +121,8 @@ const isAfterSchoolHours = (createdAt: string): boolean => {
 const TeacherConversationView: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const state = useMemo(
-    () => resolveTeacherClassContext((location.state as ConversationLocationState) || {}),
-    [location.state]
-  );
+  const state = useMemo(() => (location.state as ConversationLocationState) || {}, [location.state]);
+  const savedClassContext = useMemo(() => resolveTeacherClassContext(state), [state]);
   const searchParams = useMemo(() => new URLSearchParams(location.search), [location.search]);
   const dayParam = searchParams.get('day') || null;
   const studentId = parseIdParam(searchParams.get('student_id'));
@@ -134,13 +132,13 @@ const TeacherConversationView: React.FC = () => {
   const [dayFilter, setDayFilter] = useState<string | null>(dayParam);
 
   const classInfo = useMemo(() => {
-    const school = state.school ?? searchParams.get('school') ?? student?.school ?? undefined;
-    const gradeParam = state.grade ?? searchParams.get('grade') ?? student?.grade;
+    const school = state.school ?? savedClassContext.school ?? searchParams.get('school') ?? student?.school ?? undefined;
+    const gradeParam = state.grade ?? savedClassContext.grade ?? searchParams.get('grade') ?? student?.grade;
     const gradeValue = typeof gradeParam === 'number' ? gradeParam : Number(gradeParam);
     const grade = Number.isNaN(gradeValue) ? undefined : gradeValue;
-    const section = state.section ?? searchParams.get('section') ?? student?.section ?? undefined;
+    const section = state.section ?? savedClassContext.section ?? searchParams.get('section') ?? student?.section ?? undefined;
     return { school, grade, section };
-  }, [state.grade, state.school, state.section, searchParams, student]);
+  }, [savedClassContext.grade, savedClassContext.school, savedClassContext.section, state.grade, state.school, state.section, searchParams, student]);
 
   useEffect(() => {
     if (!classInfo.school || !classInfo.grade) {
