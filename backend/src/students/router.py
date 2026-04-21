@@ -63,6 +63,12 @@ def _normalize_section_value(section: Optional[str]) -> Optional[str]:
     return normalized or None
 
 
+def _apply_section_filter(query, section_value: Optional[str]):
+    if section_value is None:
+        return query.filter(Student.section.is_(None))
+    return query.filter(Student.section == section_value)
+
+
 def _normalize_tag_name(raw_tag: str) -> str:
     normalized = " ".join(raw_tag.strip().split())
     if not normalized:
@@ -115,8 +121,7 @@ def _fetch_students_for_class(
         )
     )
 
-    if section_value is not None:
-        query = query.filter(Student.section == section_value)
+    query = _apply_section_filter(query, section_value)
 
     if tags:
         if tag_mode == "all":
@@ -609,8 +614,7 @@ def list_class_tags(
         )
     )
 
-    if section_value is not None:
-        query = query.filter(Student.section == section_value)
+    query = _apply_section_filter(query, section_value)
 
     if normalized_query:
         query = query.filter(Tag.name.ilike(f"%{normalized_query}%"))
@@ -645,8 +649,7 @@ def list_class_conversation_tags(
         )
     )
 
-    if section_value is not None:
-        query = query.filter(Student.section == section_value)
+    query = _apply_section_filter(query, section_value)
 
     if normalized_query:
         query = query.filter(Tag.name.ilike(f"%{normalized_query}%"))
