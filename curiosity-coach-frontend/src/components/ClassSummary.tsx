@@ -9,6 +9,7 @@ import {
 } from '../services/api';
 import { AnalysisStatus } from '../types';
 import parse from 'html-react-parser';
+import { resolveTeacherClassContext, saveTeacherClassContext } from '../utils/teacherClassContext';
 
 // Helper to detect if an error is likely a timeout (API Gateway 30s limit)
 const isTimeoutError = (err: unknown): boolean => {
@@ -41,7 +42,7 @@ const AnalysisLoading: React.FC<{ message?: string; subtext?: string }> = ({
 interface ClassSummaryState {
   school?: string;
   grade?: number | string;
-  section?: string;
+  section?: string | null;
 }
 
 interface ConversationWithStudent extends ConversationWithMessages {
@@ -53,7 +54,7 @@ interface ConversationWithStudent extends ConversationWithMessages {
 const ClassSummary: React.FC = () => {
   const location = useLocation();
   const navigate = useNavigate();
-  const state = (location.state as ClassSummaryState) || {};
+  const state = resolveTeacherClassContext((location.state as ClassSummaryState) || {});
 
   const { school, grade, section } = state;
   const [students, setStudents] = useState<StudentWithConversation[] | null>(null);
@@ -155,7 +156,14 @@ const ClassSummary: React.FC = () => {
   }, [grade]);
 
   useEffect(() => {
-    if (!school || !gradeNumber || !section) {
+    if (!school || !gradeNumber) {
+      return;
+    }
+    saveTeacherClassContext({ school, grade: gradeNumber, section });
+  }, [school, gradeNumber, section]);
+
+  useEffect(() => {
+    if (!school || !gradeNumber) {
       navigate('/teacher-view', { replace: true });
       return;
     }
@@ -190,7 +198,7 @@ const ClassSummary: React.FC = () => {
 
   const fetchAnalysis = useCallback(
     async (forceRefresh = false) => {
-      if (!school || !gradeNumber || !section) {
+      if (!school || !gradeNumber) {
         return;
       }
 
@@ -269,7 +277,7 @@ const ClassSummary: React.FC = () => {
 
   // Trigger analysis whenever class identifiers change
   useEffect(() => {
-    if (!school || !gradeNumber || !section) {
+    if (!school || !gradeNumber) {
       return;
     }
 

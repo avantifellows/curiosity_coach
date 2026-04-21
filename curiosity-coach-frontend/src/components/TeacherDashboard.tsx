@@ -16,6 +16,7 @@ import {
   getClassTags,
   refreshClassMetrics,
 } from '../services/api';
+import { resolveTeacherClassContext, saveTeacherClassContext } from '../utils/teacherClassContext';
 
 interface LocationState {
   school: string;
@@ -539,10 +540,11 @@ const TeacherDashboard: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const state = location.state as LocationState | undefined;
+  const classContext = resolveTeacherClassContext(state);
 
-  const school = state?.school;
-  const grade = state?.grade;
-  const section = state?.section ?? null;
+  const school = classContext.school;
+  const grade = typeof classContext.grade === 'number' ? classContext.grade : Number(classContext.grade);
+  const section = classContext.section ?? null;
 
   const [data, setData] = useState<DashboardResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -562,6 +564,13 @@ const TeacherDashboard: React.FC = () => {
   const [tagSuggestions, setTagSuggestions] = useState<string[]>([]);
 
   const hasClassContext = Boolean(school && grade);
+
+  useEffect(() => {
+    if (!school || !grade) {
+      return;
+    }
+    saveTeacherClassContext({ school, grade, section });
+  }, [school, grade, section]);
 
   const handleComparisonBarClick = useCallback(
     (series: StudentDailySeries, record: StudentDailyRecord, metric: StudentMetricKey) => {

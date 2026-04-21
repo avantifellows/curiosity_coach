@@ -11,6 +11,7 @@ import {
   updateStudentConversationTags,
   updateStudentTags
 } from '../services/api';
+import { resolveTeacherClassContext, saveTeacherClassContext } from '../utils/teacherClassContext';
 
 interface ConversationLocationState {
   student?: Student;
@@ -120,7 +121,10 @@ const isAfterSchoolHours = (createdAt: string): boolean => {
 const TeacherConversationView: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const state = useMemo(() => (location.state as ConversationLocationState) || {}, [location.state]);
+  const state = useMemo(
+    () => resolveTeacherClassContext((location.state as ConversationLocationState) || {}),
+    [location.state]
+  );
   const searchParams = useMemo(() => new URLSearchParams(location.search), [location.search]);
   const dayParam = searchParams.get('day') || null;
   const studentId = parseIdParam(searchParams.get('student_id'));
@@ -137,6 +141,13 @@ const TeacherConversationView: React.FC = () => {
     const section = state.section ?? searchParams.get('section') ?? student?.section ?? undefined;
     return { school, grade, section };
   }, [state.grade, state.school, state.section, searchParams, student]);
+
+  useEffect(() => {
+    if (!classInfo.school || !classInfo.grade) {
+      return;
+    }
+    saveTeacherClassContext(classInfo);
+  }, [classInfo]);
   const [conversations, setConversations] = useState<ConversationWithMessages[]>([]);
   const [nextOffset, setNextOffset] = useState<number | null>(null);
   const [isInitialLoading, setIsInitialLoading] = useState(false);

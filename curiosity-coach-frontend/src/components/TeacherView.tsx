@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { AutoAwesomeRounded } from '@mui/icons-material';
 import { StudentOptions } from '../types';
 import { getStudentOptions } from '../services/api';
+import { saveTeacherClassContext } from '../utils/teacherClassContext';
 
 const TeacherView: React.FC = () => {
   const [school, setSchool] = useState('');
@@ -76,6 +77,11 @@ const TeacherView: React.FC = () => {
     }
 
     setIsSubmitting(true);
+    saveTeacherClassContext({
+      school: trimmedSchool,
+      grade: gradeNumber,
+      section: normalizedSection,
+    });
     navigate('/teacher-dashboard', {
       state: { school: trimmedSchool, grade: gradeNumber, section: normalizedSection ?? undefined },
     });

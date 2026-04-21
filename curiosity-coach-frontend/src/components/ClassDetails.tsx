@@ -2,11 +2,12 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { StudentWithConversation } from '../types';
 import { getClassTags, getStudentsForClass, updateStudentTags } from '../services/api';
+import { resolveTeacherClassContext, saveTeacherClassContext } from '../utils/teacherClassContext';
 
 interface ClassDetailsState {
   school?: string;
   grade?: number | string;
-  section?: string;
+  section?: string | null;
 }
 
 const formatDateTime = (isoString?: string) => {
@@ -53,7 +54,7 @@ const formatStudentRequest = (value?: string | null) => {
 const ClassDetails: React.FC = () => {
   const location = useLocation();
   const navigate = useNavigate();
-  const state = (location.state as ClassDetailsState) || {};
+  const state = resolveTeacherClassContext((location.state as ClassDetailsState) || {});
 
   const { school, grade, section } = state;
   const [students, setStudents] = useState<StudentWithConversation[] | null>(null);
@@ -79,7 +80,14 @@ const ClassDetails: React.FC = () => {
   }, [grade]);
 
   useEffect(() => {
-    if (!school || !gradeNumber || !section) {
+    if (!school || !gradeNumber) {
+      return;
+    }
+    saveTeacherClassContext({ school, grade: gradeNumber, section });
+  }, [school, gradeNumber, section]);
+
+  useEffect(() => {
+    if (!school || !gradeNumber) {
       navigate('/teacher-view', { replace: true });
       return;
     }
@@ -113,7 +121,7 @@ const ClassDetails: React.FC = () => {
   }, [school, gradeNumber, section, tagFilters, tagMode, navigate]);
 
   useEffect(() => {
-    if (!school || !gradeNumber || !section) {
+    if (!school || !gradeNumber) {
       return;
     }
 
