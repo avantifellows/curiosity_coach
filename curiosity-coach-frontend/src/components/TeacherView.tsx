@@ -56,8 +56,8 @@ const TeacherView: React.FC = () => {
       return;
     }
 
-    if (!school || !grade || !section) {
-      setError('Please fill in all the fields.');
+    if (!school || !grade) {
+      setError('Please select a school and grade.');
       return;
     }
 
@@ -67,11 +67,7 @@ const TeacherView: React.FC = () => {
       return;
     }
 
-    const normalizedSection = section.trim().toUpperCase();
-    if (!normalizedSection) {
-      setError('Section cannot be empty.');
-      return;
-    }
+    const normalizedSection = section.trim().toUpperCase() || null;
 
     const trimmedSchool = school.trim();
     if (!trimmedSchool) {
@@ -81,7 +77,7 @@ const TeacherView: React.FC = () => {
 
     setIsSubmitting(true);
     navigate('/teacher-dashboard', {
-      state: { school: trimmedSchool, grade: gradeNumber, section: normalizedSection },
+      state: { school: trimmedSchool, grade: gradeNumber, section: normalizedSection ?? undefined },
     });
     setIsSubmitting(false);
   };
@@ -158,7 +154,7 @@ const TeacherView: React.FC = () => {
           </div>
           <div>
             <label htmlFor="section" className={labelClass}>
-              Section
+              Section (Optional)
             </label>
             <select
               id="section"
@@ -168,13 +164,16 @@ const TeacherView: React.FC = () => {
               onChange={(e) => setSection(e.target.value)}
               disabled={!studentOptions}
             >
-              <option value="">Select a section</option>
+              <option value="">No section</option>
               {studentOptions?.sections.map((s) => (
                 <option key={s} value={s}>
                   Section {s}
                 </option>
               ))}
             </select>
+            <p className="mt-1 text-xs text-slate-500">
+              Leave this blank if the student logged in without a section.
+            </p>
           </div>
           {error && <p className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600">{error}</p>}
           <button

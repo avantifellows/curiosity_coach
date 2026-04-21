@@ -460,7 +460,9 @@ def get_class_transcript(
     
     # Fetch students for class
     query = db.query(Student).filter(Student.school == school_value, Student.grade == grade)
-    if section_value:
+    if section_value is None:
+        query = query.filter(Student.section.is_(None))
+    else:
         query = query.filter(Student.section == section_value)
     students = query.order_by(Student.roll_number.asc()).all()
     
