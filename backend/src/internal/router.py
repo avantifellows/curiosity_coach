@@ -11,7 +11,8 @@ from src.models import (
     Prompt, PromptVersion, get_conversation, save_message,
     save_message_pipeline_data, update_conversation_core_chat_theme,
     Message, MessagePipelineData, LMHomework,
-    ClassAnalysis, StudentAnalysis, AnalysisJob, Student, ConversationEvaluation,
+    ClassAnalysis, StudentAnalysis, AnalysisJob, Student, ConversationEvaluation, User,
+    DEFAULT_PIPELINE_KEY,
 )
 from src.onboarding.schemas import OpeningMessageCallbackPayload
 from pydantic import BaseModel
@@ -90,6 +91,24 @@ def get_student_by_user_id(user_id: int, db: Session = Depends(get_db)):
         "created_at": student.created_at.isoformat() if student.created_at else None
     }
 
+
+@router.get("/users/{user_id}")
+def get_user_by_id(user_id: int, db: Session = Depends(get_db)):
+    """
+    Get user record by user_id for internal Brain context building.
+    Returns 404 if user not found.
+    """
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    return {
+        "id": user.id,
+        "phone_number": user.phone_number,
+        "name": user.name,
+        "created_at": user.created_at.isoformat() if user.created_at else None,
+    }
+
 @router.get("/users/{user_id}/previous-memories")
 def get_user_previous_memories(
     user_id: int,
@@ -133,16 +152,11 @@ def get_conversation_prompt(
     Internal endpoint: Return prompt text for a conversation's assigned prompt version.
     Used by Brain for opening message generation.
     """
-    logger.info(f"🔍 get_conversation_prompt called for conversation_id={conversation_id}")
-    
     conversation = get_conversation(db, conversation_id)
     if not conversation:
         raise HTTPException(status_code=404, detail="Conversation not found")
-    
-    logger.info(f"📋 Conversation {conversation_id} has prompt_version_id={conversation.prompt_version_id}")
-    
+
     if not conversation.prompt_version_id:
-        logger.warning(f"⚠️ Conversation {conversation_id} has NO prompt_version_id assigned! Falling back to simplified_conversation")
         # Fallback to simplified_conversation if no prompt assigned
         prompt = db.query(Prompt).filter(Prompt.name == "simplified_conversation").first()
         if not prompt:
@@ -163,15 +177,14 @@ def get_conversation_prompt(
     prompt_purpose = prompt.prompt_purpose if prompt else None
     prompt_name = prompt.name if prompt else None
     
-    logger.info(f"🎯 Returning prompt: name={prompt_name}, purpose={prompt_purpose}, version={prompt_version.version_number}, prompt_id={prompt_version.prompt_id}, text_length={len(prompt_version.prompt_text)}")
-    
     return {
         "prompt_text": prompt_version.prompt_text,
         "version_number": prompt_version.version_number,
         "prompt_id": prompt_version.prompt_id,
-        "prompt_purpose": prompt_purpose  # Include the prompt purpose (visit_1, visit_2, etc.)
+        "prompt_purpose": prompt_purpose,
+        "prompt_name": prompt_name,
+        "pipeline_key": conversation.pipeline_key or DEFAULT_PIPELINE_KEY,
     }
-
 @router.get("/users/{user_id}/conversations")
 def get_user_conversations_internal(
     user_id: int,

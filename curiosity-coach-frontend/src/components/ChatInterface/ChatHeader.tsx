@@ -27,8 +27,7 @@ const ChatHeader: React.FC<ChatHeaderProps> = ({
   user,
   onLogout,
 }) => {
-  // Show logout button for visits 1-3 (when sidebar is hidden)
-  const shouldShowLogout = currentVisitNumber !== null && currentVisitNumber >= 1 && currentVisitNumber <= 3;
+  const shouldShowLogout = Boolean(user);
 
   // If there is no sidebar toggle, the header is the only persistent navigation surface.
   const headerClasses = !onToggleSidebar || shouldShowLogout

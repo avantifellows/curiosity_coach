@@ -18,18 +18,21 @@ import asyncio
 from concurrent.futures import ThreadPoolExecutor
 import threading
 from functools import partial
-from src.core.core_theme_extractor import extract_core_theme_from_conversation, update_conversation_theme
-from src.core.core_theme_config import CORE_THEME_EXTRACTION_ENABLED, CORE_THEME_TRIGGER_MESSAGE_COUNT, CORE_THEME_MAX_RETRIES, CORE_THEME_PROMPT_NAME
-# Add these imports at the top of main.py
-from src.core.chat_controller import control_chat_response
-from src.core.age_adapter import generate_response_for_13_year_old
+from src.core.core_theme_config import CORE_THEME_MAX_RETRIES, CORE_THEME_PROMPT_NAME
 from src.process_query_entrypoint import (
     process_query,
     process_follow_up,
     ProcessQueryResponse,
     resolve_prompt_execution_context,
 )
-from src.core.turn_context import TurnExecutionContext
+from src.pipelines import (
+    apply_pipeline_opening_prompt_override,
+    apply_pipeline_prompt_override,
+    prepare_turn_system,
+    execute_turn_system,
+)
+from src.core.prompt_renderer import RenderContext, render_prompt_template
+from src.core.turn_context import PromptExecutionContext, TurnExecutionContext
 from src.utils.logger import logger
 from src.config_models import FlowConfig
 from src.services.llm_service import LLMService
@@ -37,8 +40,6 @@ from src.services.api_service import api_service
 from src.schemas import ConversationMemoryData, OpeningMessageRequest, ClassAnalysisRequest, ClassAnalysisResponse, StudentAnalysisRequest, StudentAnalysisResponse
 from src.core.user_persona_generator import generate_persona_for_user
 from pydantic import ValidationError
-from src.utils.prompt_injection import inject_core_theme_placeholder
-from src.core.exploration_directions_config import EXPLORATION_DIRECTIONS_ENABLED
 from src.analytics_agent import runner as analytics_runner
 # Load environment variables from .env file
 load_dotenv()
@@ -47,6 +48,8 @@ BACKEND_CALLBACK_BASE_URL = os.getenv("BACKEND_CALLBACK_BASE_URL", "http://local
 
 BACKEND_CALLBACK_ROUTE = os.getenv("BACKEND_CALLBACK_ROUTE", "/api/internal/brain_response")
 BACKEND_CALLBACK_URL = f"{BACKEND_CALLBACK_BASE_URL}{BACKEND_CALLBACK_ROUTE}"
+ENABLE_STARTUP_PROMPT_SYNC = False
+STARTUP_PROMPT_SYNC_BEARER_TOKEN = ""
 
 
 EVALUATION_MAX_WORKERS = int(os.getenv("EVALUATION_MAX_WORKERS", "3"))
@@ -428,10 +431,22 @@ async def _build_turn_execution_context(
 ) -> TurnExecutionContext:
     conversation_id = int(message.conversation_id) if message.conversation_id else None
     user_id = int(message.user_id) if message.user_id else None
+    prompt_response: Optional[Dict[str, Any]] = None
+    user_record: Optional[Dict[str, Any]] = None
+
+    if conversation_id:
+        prompt_response = await api_service.get_conversation_prompt(conversation_id)
+    if user_id:
+        user_record = await api_service.get_user_by_id(user_id)
 
     prompt_context = await resolve_prompt_execution_context(
         purpose=purpose,
         conversation_id=conversation_id,
+        prompt_response=prompt_response,
+    )
+    prompt_context = await apply_pipeline_prompt_override(
+        pipeline_key=(prompt_response or {}).get("pipeline_key"),
+        prompt_context=prompt_context,
     )
 
     context = TurnExecutionContext(
@@ -439,6 +454,9 @@ async def _build_turn_execution_context(
         purpose=purpose,
         conversation_id=conversation_id,
         user_id=user_id,
+        user_created_at=(user_record or {}).get("created_at"),
+        user_name=(user_record or {}).get("name"),
+        pipeline_key=(prompt_response or {}).get("pipeline_key", "legacy"),
         conversation_history=conversation_history,
         prefetched_history=list(prefetched_history or []),
         user_persona=user_persona,
@@ -533,6 +551,17 @@ app.add_middleware(
 # Setup templates
 templates = Jinja2Templates(directory="src/templates")
 
+
+def _build_startup_prompt_sync_headers() -> Dict[str, str]:
+    if not STARTUP_PROMPT_SYNC_BEARER_TOKEN:
+        return {}
+
+    token = STARTUP_PROMPT_SYNC_BEARER_TOKEN
+    if not token.startswith("Bearer "):
+        token = f"Bearer {token}"
+    return {"Authorization": token}
+
+
 # Initialize prompts at startup
 async def init_prompts():
     """Initialize prompts from text files during application startup"""
@@ -561,6 +590,7 @@ async def init_prompts():
     # Get the backend URL
     backend_url = os.getenv("BACKEND_CALLBACK_BASE_URL", "http://localhost:5000")
     api_url = f"{backend_url}/api/prompts"
+    auth_headers = _build_startup_prompt_sync_headers()
     
     # Add each prompt to the database
     async with httpx.AsyncClient() as client:
@@ -581,7 +611,7 @@ async def init_prompts():
                     # Prompt exists
                     if prompt_response.status_code == 200:
                         # Now check if it has an active version
-                        check_active_url = f"{api_url}/{prompt_name}/versions/active/"
+                        check_active_url = f"{api_url}/{prompt_name}/versions/active"
                         active_response = await client.get(check_active_url)
                         
                         if active_response.status_code == 200:
@@ -601,7 +631,7 @@ async def init_prompts():
                 if not prompt_exists:
                     try:
                         logger.info(f"Creating prompt {prompt_name}")
-                        prompt_create_url = f"{api_url}/"  # Ensure trailing slash
+                        prompt_create_url = api_url
                         prompt_create_response = await client.post(
                             prompt_create_url,
                             json={
@@ -626,10 +656,17 @@ async def init_prompts():
                 # Try to create a version with set_active=true query param
                 if prompt_exists:
                     try:
+                        if not auth_headers:
+                            logger.info(
+                                "Skipping startup prompt version sync because no startup auth token is configured",
+                                extra={"prompt_name": prompt_name},
+                            )
+                            continue
                         create_version_url = f"{api_url}/{prompt_name}/versions?set_active=true"
                         logger.info(f"Creating prompt version with POST to {create_version_url}")
                         version_response = await client.post(
                             create_version_url,
+                            headers=auth_headers,
                             json={
                                 "prompt_text": prompt_text
                             }
@@ -650,6 +687,12 @@ async def init_prompts():
 async def startup_event():
     """Run initialization tasks on application startup"""
     try:
+        if not ENABLE_STARTUP_PROMPT_SYNC:
+            logger.info(
+                "Startup prompt sync disabled in code."
+            )
+            return
+
         # Initialize prompts from text files
         await init_prompts()
     except Exception as e:
@@ -825,6 +868,11 @@ async def dequeue(message: MessagePayload, background_tasks: Optional[Background
                 user_persona=user_persona,
                 current_curiosity_score=current_curiosity_score,
             )
+            turn_context = await prepare_turn_system(
+                message=message,
+                turn_context=turn_context,
+                user_input=user_input,
+            )
 
             if message.is_follow_up_response:
                 # This is a response to a follow-up question
@@ -843,6 +891,8 @@ async def dequeue(message: MessagePayload, background_tasks: Optional[Background
                     conversation_memory=turn_context.conversation_memory,
                     conversation_id=turn_context.conversation_id,
                     user_id=turn_context.user_id,
+                    user_created_at=turn_context.user_created_at,
+                    user_name=turn_context.user_name,
                     current_curiosity_score=current_curiosity_score,
                     prompt_context=turn_context.prompt_context,
                     core_theme=turn_context.core_theme,
@@ -860,6 +910,8 @@ async def dequeue(message: MessagePayload, background_tasks: Optional[Background
                     conversation_memory=turn_context.conversation_memory,
                     conversation_id=turn_context.conversation_id,
                     user_id=turn_context.user_id,
+                    user_created_at=turn_context.user_created_at,
+                    user_name=turn_context.user_name,
                     current_curiosity_score=current_curiosity_score,
                     prompt_context=turn_context.prompt_context,
                     core_theme=turn_context.core_theme,
@@ -867,202 +919,13 @@ async def dequeue(message: MessagePayload, background_tasks: Optional[Background
                 )
 
             _apply_curiosity_signal_to_response(response_data)
-
-            # Extract core theme from conversation
-            if message.conversation_id and message.purpose in ["chat", "test-prompt"] and CORE_THEME_EXTRACTION_ENABLED:
-                try:
-                    # Use prefetched history when available to count user messages
-                    conversation_history = turn_context.prefetched_history or []
-                    if not conversation_history and message.conversation_id:
-                        conversation_history = await api_service.get_conversation_history(int(message.conversation_id)) or []
-
-                    if conversation_history:
-                        user_message_count = len([
-                            msg for msg in conversation_history if msg.get('is_user', False)
-                        ])
-                        
-                        if user_message_count == CORE_THEME_TRIGGER_MESSAGE_COUNT:
-                            logger.info(f"{CORE_THEME_TRIGGER_MESSAGE_COUNT}th user message detected for conversation {message.conversation_id}. Triggering core theme extraction.")
-                            
-                            # Extract core theme
-                            core_theme, core_theme_prompt = await extract_core_theme_from_conversation(
-                                int(message.conversation_id),
-                                conversation_history=turn_context.prefetched_history,
-                            )
-                            
-                            # Create core theme extraction step
-                            core_theme_step = {
-                                'name': 'core_theme_extraction',
-                                'enabled': True,
-                                'prompt': core_theme_prompt if core_theme_prompt else 'Core theme extraction prompt not available',
-                                'result': core_theme if core_theme else 'No core theme extracted',
-                                'core_theme': core_theme,
-                                'extraction_successful': core_theme is not None
-                            }
-                            _append_pipeline_step(response_data, core_theme_step)
-
-                            if core_theme:
-                                # Update conversation with extracted theme
-                                success = await update_conversation_theme(int(message.conversation_id), core_theme)
-                                if success:
-                                    turn_context.core_theme = core_theme
-                                    logger.info(f"Successfully updated conversation {message.conversation_id} with core theme: '{core_theme}'")
-                                else:
-                                    logger.error(f"Failed to update conversation {message.conversation_id} with core theme")
-                            else:
-                                logger.warning(f"Core theme extraction failed for conversation {message.conversation_id}")
-                except Exception as e:
-                    logger.error(f"Error in core theme extraction for conversation {message.conversation_id}: {e}", exc_info=True)
-                    # Don't fail the main message processing if theme extraction fails
-                        
-            
-            # Apply chat controller if core theme exis
-            if message.conversation_id and response_data:
-                try:
-                    chat_controller_result = await control_chat_response(
-                        conversation_id=int(message.conversation_id),
-                        original_response=response_data.final_response,
-                        user_query=user_input,
-                        current_conversation=turn_context.conversation_history,
-                        exploration_directions=turn_context.previous_exploration_directions,
-                        core_theme=turn_context.core_theme,
-                    )
-                    # Update the response with the controlled version
-                    response_data.final_response = chat_controller_result["controlled_response"]
-                    chat_controller_step = {
-                        'name': 'chat_controller',
-                        'enabled': True,
-                        'prompt': chat_controller_result.get("chat_controller_prompt", ""),
-                        'result': chat_controller_result.get("controlled_response", ""),
-                        'original_response': chat_controller_result.get("original_response", ""),
-                        'controlled_response': chat_controller_result.get("controlled_response", ""),
-                        'core_theme': chat_controller_result.get("core_theme", ""),
-                        'chat_controller_applied': chat_controller_result.get("chat_controller_applied", False)
-                    }
-                    _append_pipeline_step(
-                        response_data,
-                        chat_controller_step,
-                        pipeline_key="chat_controller",
-                        pipeline_payload=chat_controller_result,
-                    )
-                                        
-                    logger.info(f"Applied chat controller to conversation {message.conversation_id}. Applied: {chat_controller_result['chat_controller_applied']}")
-                    
-                except Exception as e:
-                    logger.error(f"Error applying chat controller for conversation {message.conversation_id}: {e}", exc_info=True)
-                    # Continue with original response if chat controller fails
-            
-            skip_13yo_adapter = message.experience_mode == "try"
-            if skip_13yo_adapter:
-                logger.info(
-                    "Skipping 13-year-old simplification for try mode",
-                    extra={"conversation_id": message.conversation_id, "message_id": message.message_id},
-                )
-            else:
-                try:
-                    simplify_result = await generate_response_for_13_year_old(response_data.final_response)
-                    response_data.final_response = simplify_result.get("simplified_response", response_data.final_response)
-
-                    step = {
-                        'name': 'response_for_13_year_old',
-                        'enabled': True,
-                        'prompt': simplify_result.get('prompt', ''),
-                        'result': simplify_result.get('simplified_response', ''),
-                        'original_response': simplify_result.get('original_response', ''),
-                        'applied': simplify_result.get('applied', False),
-                        'error': simplify_result.get('error', None)
-                    }
-                    _append_pipeline_step(
-                        response_data,
-                        step,
-                        pipeline_key='response_for_13_year_old',
-                        pipeline_payload=simplify_result,
-                    )
-
-                    logger.info(f"Applied 13-year-old simplification. Applied={simplify_result.get('applied', False)}")
-                except Exception as e:
-                    logger.error(f"Error applying 13-year-old simplification: {e}", exc_info=True)
-
-            # Now evaluate exploration directions with the latest assistant message included
-            exploration_data = None
-            exploration_directions_list = None
-            if message.conversation_id and message.purpose in ["chat", "test-prompt"] and EXPLORATION_DIRECTIONS_ENABLED:
-                try:
-                    from src.core.exploration_directions_evaluator import evaluate_exploration_directions
-                    conversation_history_with_latest = _build_history_with_latest_turn(
-                        turn_context.prefetched_history,
-                        user_input,
-                        response_data.final_response,
-                    )
-                    user_message_count = sum(1 for msg in conversation_history_with_latest if msg.get("is_user", False))
-
-                    if user_message_count < 2:
-                        logger.info(
-                            f"Skipping exploration directions for conversation {message.conversation_id}; {user_message_count} user message(s) so far"
-                        )
-                    else:
-                        exploration_data = await evaluate_exploration_directions(
-                            conversation_id=int(message.conversation_id),
-                            core_theme=turn_context.core_theme,
-                            conversation_history=conversation_history_with_latest,
-                            current_query=user_input,
-                            current_curiosity_score=current_curiosity_score
-                        )
-
-                        if exploration_data and (
-                            exploration_data.get('directions')
-                            or exploration_data.get('curiosity_score') is not None
-                        ):
-                            exploration_directions_list = exploration_data.get('directions', [])
-                            logger.info(f"Exploration directions: {exploration_directions_list}")
-
-                            exploration_step = {
-                                'name': 'exploration_directions_evaluation',
-                                'enabled': True,
-                                'prompt': exploration_data.get('prompt', ''),
-                                'result': ', '.join(exploration_directions_list or []),
-                                'directions': exploration_directions_list or [],
-                                'core_theme': exploration_data.get('core_theme', turn_context.core_theme or ''),
-                                'evaluation_successful': exploration_data.get('evaluation_successful', False),
-                                'curiosity_score': exploration_data.get('curiosity_score'),
-                                'curiosity_reason': exploration_data.get('curiosity_reason'),
-                                'curiosity_tip': exploration_data.get('curiosity_tip'),
-                                'curiosity_error': exploration_data.get('curiosity_error'),
-                            }
-                            curiosity_score_step = {
-                                'prompt': exploration_data.get('prompt'),
-                                'raw_response': exploration_data.get('raw_response'),
-                                'curiosity_score': exploration_data.get('curiosity_score'),
-                                'reason': exploration_data.get('curiosity_reason'),
-                                'applied': exploration_data.get('curiosity_score') is not None,
-                                'error': exploration_data.get('curiosity_error'),
-                            }
-                            _append_pipeline_step(
-                                response_data,
-                                exploration_step,
-                                pipeline_key='exploration_directions_evaluation',
-                                pipeline_payload=exploration_data,
-                            )
-                            _ensure_pipeline_metadata(response_data)['curiosity_score_evaluation'] = curiosity_score_step
-
-                            logger.info(
-                                f"Generated {len(exploration_directions_list or [])} exploration directions for conversation {message.conversation_id}"
-                            )
-
-                            curiosity_score = exploration_data.get('curiosity_score')
-                            if isinstance(curiosity_score, int):
-                                response_data.curiosity_score = curiosity_score
-                                current_curiosity_score = curiosity_score
-                            elif exploration_data.get('curiosity_error'):
-                                logger.warning(
-                                    f"Curiosity score missing or invalid for conversation {message.conversation_id}: {exploration_data.get('curiosity_error')}"
-                                )
-                        else:
-                            logger.debug(
-                                f"Exploration evaluation returned no actionable data for conversation {message.conversation_id}"
-                            )
-                except Exception as e:
-                    logger.error(f"Error in exploration directions evaluation for conversation {message.conversation_id}: {e}", exc_info=True)
+            current_curiosity_score = await execute_turn_system(
+                message=message,
+                response_data=response_data,
+                turn_context=turn_context,
+                user_input=user_input,
+                current_curiosity_score=current_curiosity_score,
+            )
                         
                     
             if isinstance(response_data.curiosity_score, int):
@@ -1233,8 +1096,6 @@ async def generate_opening_message(payload: OpeningMessageRequest):
         "callback_url": str
     }
     """
-    from src.utils.prompt_injection import inject_previous_memories_placeholder, inject_persona_placeholders
-    
     logger.info(f"Opening message generation requested for conversation {payload.conversation_id}, visit {payload.visit_number}")
     
     # 0. Check if opening message already exists (idempotency)
@@ -1251,8 +1112,20 @@ async def generate_opening_message(payload: OpeningMessageRequest):
         prompt_response = await api_service.get_conversation_prompt(payload.conversation_id)
         if not prompt_response:
             raise HTTPException(status_code=404, detail="Conversation prompt not found")
-        
-        prompt_template = prompt_response["prompt_text"]  # Save original template
+
+        user_record = await api_service.get_user_by_id(payload.user_id)
+
+        opening_prompt_context = await apply_pipeline_opening_prompt_override(
+            pipeline_key=prompt_response.get("pipeline_key"),
+            prompt_context=PromptExecutionContext(
+                prompt_template=prompt_response["prompt_text"],
+                prompt_name=prompt_response.get("prompt_name") or "conversation_prompt",
+                prompt_version=prompt_response.get("version_number"),
+                prompt_purpose=prompt_response.get("prompt_purpose"),
+                prompt_id=prompt_response.get("prompt_id"),
+            ),
+        )
+        prompt_template = opening_prompt_context.prompt_template
         logger.info(f"Fetched prompt for conversation {payload.conversation_id}, version {prompt_response.get('version_number')}")
         
         # 2. Fetch previous memories if visit > 1
@@ -1271,17 +1144,21 @@ async def generate_opening_message(payload: OpeningMessageRequest):
             if persona:
                 logger.info(f"Fetched persona for user {payload.user_id}")
         
-        # 4. Inject placeholders into prompt (create formatted version)
-        formatted_prompt = inject_previous_memories_placeholder(prompt_template, previous_memories)
-        formatted_prompt = inject_persona_placeholders(formatted_prompt, persona)
-        
-        # NEW: Fetch and inject core theme for current conversation
+        # 4. Build the formatted prompt using the shared renderer
         core_theme = await api_service.get_conversation_core_theme(payload.conversation_id)
-        formatted_prompt = inject_core_theme_placeholder(formatted_prompt, core_theme)
-                
-        # Replace CONVERSATION_HISTORY and QUERY placeholders (for opening message, both are empty/not applicable)
-        formatted_prompt = formatted_prompt.replace("{{CONVERSATION_HISTORY}}", "No previous conversation.")
-        formatted_prompt = formatted_prompt.replace("{{QUERY}}", "")
+        formatted_prompt = render_prompt_template(
+            prompt_template,
+            context=RenderContext(
+                query="",
+                conversation_history=None,
+                previous_memories=previous_memories,
+                user_persona=persona,
+                core_theme=core_theme,
+                user_id=payload.user_id,
+                user_created_at=(user_record or {}).get("created_at"),
+                user_name=(user_record or {}).get("name"),
+            ),
+        )
         
         # 5. Generate opening message with LLM
         # The visit-based prompt is designed to produce a welcoming opening message
@@ -1310,6 +1187,7 @@ async def generate_opening_message(payload: OpeningMessageRequest):
             "ai_message": opening_message,
             "is_opening_message": True,
             "pipeline_data": {
+                "pipeline_key": prompt_response.get("pipeline_key", "legacy"),
                 "steps": [
                     {
                         "name": "Opening Message Generation",
@@ -1319,9 +1197,9 @@ async def generate_opening_message(payload: OpeningMessageRequest):
                         "prompt": formatted_prompt,  # Keep for backwards compatibility
                         "raw_result": opening_message,  # The generated opening message
                         "result": opening_message,
-                        "prompt_name": f"visit_{payload.visit_number}" if payload.visit_number <= 3 else "steady_state",
-                        "prompt_version": prompt_response.get("version_number"),
-                        "prompt_id": prompt_response.get("prompt_id"),
+                        "prompt_name": opening_prompt_context.prompt_name,
+                        "prompt_version": opening_prompt_context.prompt_version,
+                        "prompt_id": opening_prompt_context.prompt_id,
                         "visit_number": payload.visit_number,
                         "had_previous_memories": previous_memories is not None and len(previous_memories) > 0,
                         "previous_memories_count": len(previous_memories) if previous_memories else 0,

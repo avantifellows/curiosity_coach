@@ -8,6 +8,8 @@ import random
 import time
 from src.config.settings import settings
 
+DEFAULT_PIPELINE_KEY = "legacy"
+
 # SQLAlchemy Models
 class User(Base):
     __tablename__ = "users"
@@ -15,6 +17,7 @@ class User(Base):
     id = Column(Integer, primary_key=True, index=True)
     phone_number = Column(String(20), unique=True, index=True, nullable=True)
     name = Column(String(50), unique=True, index=True, nullable=True)
+    default_pipeline_key = Column(String(50), nullable=False, default=DEFAULT_PIPELINE_KEY, server_default=DEFAULT_PIPELINE_KEY)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     conversations = relationship("Conversation", back_populates="user", cascade="all, delete-orphan")
@@ -115,6 +118,7 @@ class Conversation(Base):
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     title = Column(String, nullable=True, default="New Chat")
     prompt_version_id = Column(Integer, ForeignKey("prompt_versions.id", ondelete="SET NULL"), nullable=True)
+    pipeline_key = Column(String(50), nullable=False, default=DEFAULT_PIPELINE_KEY, server_default=DEFAULT_PIPELINE_KEY)
     core_chat_theme = Column(String, nullable=True, default=None)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
@@ -575,9 +579,31 @@ def get_or_create_user(db: Session, phone_number: str) -> User:
     """Get a user by phone number or create if not exists. (Backward compatibility)"""
     return get_or_create_user_by_phone(db, phone_number)
 
-def create_conversation(db: Session, user_id: int, title: Optional[str] = "New Chat", prompt_version_id: Optional[int] = None, core_chat_theme: Optional[str] = None) -> Conversation:
+def normalize_pipeline_key(pipeline_key: Optional[str]) -> str:
+    """Normalize a developer-supplied pipeline key."""
+    if not pipeline_key:
+        return DEFAULT_PIPELINE_KEY
+
+    normalized = pipeline_key.strip().lower().replace("-", "_").replace(" ", "_")
+    return normalized or DEFAULT_PIPELINE_KEY
+
+
+def create_conversation(
+    db: Session,
+    user_id: int,
+    title: Optional[str] = "New Chat",
+    prompt_version_id: Optional[int] = None,
+    core_chat_theme: Optional[str] = None,
+    pipeline_key: Optional[str] = None,
+) -> Conversation:
     """Creates a new conversation for a user."""
-    conversation = Conversation(user_id=user_id, title=title, prompt_version_id=prompt_version_id, core_chat_theme=core_chat_theme)
+    conversation = Conversation(
+        user_id=user_id,
+        title=title,
+        prompt_version_id=prompt_version_id,
+        core_chat_theme=core_chat_theme,
+        pipeline_key=normalize_pipeline_key(pipeline_key),
+    )
     db.add(conversation)
     db.commit()
     db.refresh(conversation)
