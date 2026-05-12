@@ -51,6 +51,7 @@ export interface ConversationSummary {
   updated_at: string; // ISO date string
   visit_number?: number; // Visit number at creation time (1, 2, 3, 4+)
   tags?: string[];
+  core_chat_theme?: string | null;
 }
 
 /**
@@ -77,6 +78,13 @@ export interface ConversationCreateResponse {
 export interface ConversationTagsResponse {
   id: number;
   tags: string[];
+}
+
+export interface FUCompletionCheckResponse {
+  conversation_id: number;
+  progress_id: number;
+  status: string;
+  updated: boolean;
 }
 
 // --- End Conversation Types ---
@@ -173,6 +181,19 @@ export interface ProjectSubscriptionResponse {
 export interface SubscribedProject {
   kb_source_id: number;
   file_name: string;
+}
+
+export type ChapterChatIntentOutcome =
+  | 'active'
+  | 'chapter_complete'
+  | 'not_subscribed'
+  | 'no_units';
+
+export interface ChapterChatIntentResponse {
+  outcome: ChapterChatIntentOutcome;
+  kb_source_id: number;
+  foundational_unit_id?: number | null;
+  core_chat_theme?: string | null;
 }
 
 export interface DashboardClassSummary {

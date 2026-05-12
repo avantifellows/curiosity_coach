@@ -31,6 +31,16 @@
                 "verbosity": "low"
             }
         },
+        "fu_completion_checker": {
+            "provider": "openai",
+            "model": "gpt-5.4-mini",
+            "reasoning": {
+                "effort": "low"
+            },
+            "text": {
+                "verbosity": "low"
+            }
+        },
         "exploration_directions_evaluation": {
             "provider": "openai",
             "model": "gpt-5.4-mini",

@@ -1,5 +1,5 @@
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 from typing import List, Optional
 
@@ -12,6 +12,7 @@ from src.models import (
     FoundationalUnit,
     Progress,
 )
+from src.projects.progress_selection import ChapterIntentKind, resolve_chapter_chat_intent
 
 
 router = APIRouter(
@@ -40,6 +41,48 @@ class SubscribeProjectResponse(BaseModel):
 class SubscribedProjectResponse(BaseModel):
     kb_source_id: int
     file_name: str
+
+
+class ChapterChatIntentResponse(BaseModel):
+    outcome: str
+    kb_source_id: int
+    foundational_unit_id: Optional[int] = None
+    core_chat_theme: Optional[str] = Field(
+        default=None,
+        description="Prompt-oriented text when outcome is active",
+    )
+
+
+@router.get("/chapter-chat-intent", response_model=ChapterChatIntentResponse)
+def get_chapter_chat_intent(
+    kb_source_id: int = Query(..., ge=1),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Resolve which foundational unit should anchor the next chat for this kb source,
+    or whether the chapter is already complete / user is not set up.
+    """
+    intent = resolve_chapter_chat_intent(db, current_user.id, kb_source_id)
+    if intent.kind == ChapterIntentKind.SOURCE_NOT_FOUND:
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "source_not_found", "message": "Project source not found"},
+        )
+
+    outcome_map = {
+        ChapterIntentKind.ACTIVE: "active",
+        ChapterIntentKind.CHAPTER_COMPLETE: "chapter_complete",
+        ChapterIntentKind.NOT_SUBSCRIBED: "not_subscribed",
+        ChapterIntentKind.NO_UNITS: "no_units",
+    }
+    outcome = outcome_map[intent.kind]
+    return ChapterChatIntentResponse(
+        outcome=outcome,
+        kb_source_id=kb_source_id,
+        foundational_unit_id=intent.foundational_unit_id,
+        core_chat_theme=intent.core_chat_theme,
+    )
 
 
 @router.get("/sources", response_model=List[ProjectSourceResponse])

@@ -1453,6 +1453,42 @@ async def generate_opening_message(payload: OpeningMessageRequest):
         logger.error(f"Error generating opening message: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Internal error: {str(e)}")
 
+
+def _parse_fu_completion_status(raw: str) -> str:
+    text = (raw or "").strip().lower()
+    matches = list(re.finditer(r"\b(done|ongoing)\b", text))
+    if not matches:
+        return "ongoing"
+    return "done" if matches[-1].group(1) == "done" else "ongoing"
+
+
+class FUCompletionClassifyPayload(BaseModel):
+    prompt: str
+
+
+@app.post("/fu-completion-classify")
+async def fu_completion_classify(payload: FUCompletionClassifyPayload):
+    """
+    Run the rendered fu_completion_checker prompt and return ongoing vs done.
+    Used by the backend after a chapter-scoped conversation session ends.
+    """
+    if not (payload.prompt or "").strip():
+        raise HTTPException(status_code=400, detail="prompt is required")
+    llm_service = LLMService()
+    try:
+        llm_response = llm_service.generate_response(
+            final_prompt=payload.prompt,
+            call_type="fu_completion_checker",
+            json_mode=False,
+        )
+    except Exception as e:
+        logger.error("fu_completion_checker LLM failed: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"LLM classification failed: {e}") from e
+    raw = (llm_response or {}).get("raw_response", "") or ""
+    status = _parse_fu_completion_status(raw)
+    return {"status": status, "raw_response": raw}
+
+
 @app.post("/query")
 async def handle_query(message: MessagePayload, background_tasks: BackgroundTasks):
     # The /query endpoint now directly accepts the full message payload

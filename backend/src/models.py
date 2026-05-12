@@ -648,9 +648,20 @@ def get_or_create_user(db: Session, phone_number: str) -> User:
     """Get a user by phone number or create if not exists. (Backward compatibility)"""
     return get_or_create_user_by_phone(db, phone_number)
 
-def create_conversation(db: Session, user_id: int, title: Optional[str] = "New Chat", prompt_version_id: Optional[int] = None, core_chat_theme: Optional[str] = None) -> Conversation:
+def create_conversation(
+    db: Session,
+    user_id: int,
+    title: Optional[str] = "New Chat",
+    prompt_version_id: Optional[int] = None,
+    core_chat_theme: Optional[str] = None,
+) -> Conversation:
     """Creates a new conversation for a user."""
-    conversation = Conversation(user_id=user_id, title=title, prompt_version_id=prompt_version_id, core_chat_theme=core_chat_theme)
+    conversation = Conversation(
+        user_id=user_id,
+        title=title,
+        prompt_version_id=prompt_version_id,
+        core_chat_theme=core_chat_theme,
+    )
     db.add(conversation)
     db.commit()
     db.refresh(conversation)

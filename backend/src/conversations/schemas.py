@@ -7,6 +7,11 @@ from typing import List, Optional
 class ConversationBase(BaseModel):
     title: Optional[str] = "New Chat"
     core_chat_theme: Optional[str] = None
+    kb_source_id: Optional[int] = Field(
+        default=None,
+        ge=1,
+        description="When set, server resolves CORE_THEME and foundational unit from progress for this project.",
+    )
 
 class ConversationTitleUpdate(BaseModel):
     title: str
@@ -72,6 +77,13 @@ class ConversationSummary(BaseModel):
         return v
         
         
+class FUCompletionCheckResponse(BaseModel):
+    conversation_id: int
+    progress_id: int
+    status: str
+    updated: bool = True
+
+
 class ConversationCoreChatThemeUpdate(BaseModel):
     core_chat_theme: Optional[str] = None
 

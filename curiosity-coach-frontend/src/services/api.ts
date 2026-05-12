@@ -8,6 +8,7 @@ import {
   Conversation,
   ConversationCreateResponse,
   ConversationTagsResponse,
+  FUCompletionCheckResponse,
   User,
   StudentLoginResponse,
   StudentLoginRequest,
@@ -15,6 +16,7 @@ import {
   ProjectSource,
   ProjectSubscriptionResponse,
   SubscribedProject,
+  ChapterChatIntentResponse,
   StudentWithConversation,
   PaginatedStudentConversations,
   ConversationWithMessages,
@@ -94,6 +96,25 @@ export const subscribeToProject = async (kbSourceId: number): Promise<ProjectSub
   } catch (error: any) {
     console.error("Error subscribing to project:", error.response?.data || error.message);
     throw new Error(error.response?.data?.detail || 'Failed to subscribe to project');
+  }
+};
+
+export const getChapterChatIntent = async (
+  kbSourceId: number
+): Promise<ChapterChatIntentResponse> => {
+  try {
+    const response = await API.get<ChapterChatIntentResponse>(
+      '/projects/chapter-chat-intent',
+      { params: { kb_source_id: kbSourceId } }
+    );
+    return response.data;
+  } catch (error: any) {
+    console.error('Error fetching chapter chat intent:', error.response?.data || error.message);
+    throw new Error(
+      error.response?.data?.detail?.message ||
+        error.response?.data?.detail ||
+        'Failed to resolve chapter chat'
+    );
   }
 };
 
@@ -275,6 +296,26 @@ export const updateConversationTags = async (
   } catch (error: any) {
     console.error(`Error updating tags for conversation ${conversationId}:`, error.response?.data || error.message);
     throw new Error(error.response?.data?.detail || 'Failed to update conversation tags');
+  }
+};
+
+/**
+ * Best-effort FU completion check (chapter-scoped progress). Swallows errors so tab hide does not disturb UX.
+ */
+export const requestFuCompletionCheck = async (
+  conversationId: number
+): Promise<FUCompletionCheckResponse | null> => {
+  try {
+    const response = await API.post<FUCompletionCheckResponse>(
+      `/conversations/${conversationId}/fu-completion-check`
+    );
+    return response.data;
+  } catch (error: any) {
+    const status = error.response?.status;
+    if (status === 401) {
+      return null;
+    }
+    return null;
   }
 };
 
@@ -563,16 +604,42 @@ export const listConversations = async (
   }
 };
 
-export const createConversation = async (title?: string): Promise<ConversationCreateResponse> => {
+export type CreateConversationPayload = {
+  title?: string;
+  kb_source_id?: number;
+};
+
+function formatConversationCreateError(detail: unknown): string {
+  if (typeof detail === 'string') return detail;
+  if (detail && typeof detail === 'object' && 'message' in detail) {
+    return String((detail as { message: string }).message);
+  }
+  return 'Failed to create conversation';
+}
+
+export const createConversation = async (
+  payload?: string | CreateConversationPayload
+): Promise<ConversationCreateResponse> => {
   try {
-    const payload = title ? { title } : {};
-    const response = await API.post<ConversationCreateResponse>('/conversations', payload);
+    const body: Record<string, unknown> =
+      typeof payload === 'string'
+        ? { title: payload }
+        : {
+            title: payload?.title ?? 'New Chat',
+            ...(payload?.kb_source_id != null
+              ? { kb_source_id: payload.kb_source_id }
+              : {}),
+          };
+    const response = await API.post<ConversationCreateResponse>('/conversations', body);
     return response.data;
   } catch (error: any) {
     console.error("Error creating conversation:", error.response?.data || error.message);
-    // Preserve status code for 503 errors (preparation timeout)
-    const err: any = new Error(error.response?.data?.detail || 'Failed to create conversation');
+    const detail = error.response?.data?.detail;
+    const err: any = new Error(formatConversationCreateError(detail));
     err.status = error.response?.status;
+    if (detail && typeof detail === 'object' && 'code' in detail) {
+      err.code = (detail as { code: string }).code;
+    }
     throw err;
   }
 };
