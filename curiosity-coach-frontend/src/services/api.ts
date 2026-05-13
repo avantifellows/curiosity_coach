@@ -8,7 +8,6 @@ import {
   Conversation,
   ConversationCreateResponse,
   ConversationTagsResponse,
-  FUCompletionCheckResponse,
   User,
   StudentLoginResponse,
   StudentLoginRequest,
@@ -77,13 +76,22 @@ export const getStudentOptions = async (): Promise<StudentOptions> => {
   }
 };
 
-export const getProjectSources = async (): Promise<ProjectSource[]> => {
+export const getProjectSources = async (options?: {
+  availableOnly?: boolean;
+}): Promise<ProjectSource[]> => {
   try {
-    const response = await API.get<ProjectSource[]>('/projects/sources');
+    const params =
+      options?.availableOnly === true ? { available_only: true } : undefined;
+    const response = await API.get<ProjectSource[]>('/projects/sources', { params });
     return response.data;
   } catch (error: any) {
     console.error("Error fetching project sources:", error.response?.data || error.message);
-    throw new Error(error.response?.data?.detail || 'Failed to fetch project sources');
+    const detail = error.response?.data?.detail;
+    const msg =
+      typeof detail === 'string'
+        ? detail
+        : detail?.message || 'Failed to fetch project sources';
+    throw new Error(msg);
   }
 };
 
@@ -95,7 +103,12 @@ export const subscribeToProject = async (kbSourceId: number): Promise<ProjectSub
     return response.data;
   } catch (error: any) {
     console.error("Error subscribing to project:", error.response?.data || error.message);
-    throw new Error(error.response?.data?.detail || 'Failed to subscribe to project');
+    const detail = error.response?.data?.detail;
+    const msg =
+      typeof detail === 'string'
+        ? detail
+        : detail?.message || 'Failed to subscribe to project';
+    throw new Error(msg);
   }
 };
 
@@ -124,7 +137,12 @@ export const getSubscribedProjects = async (): Promise<SubscribedProject[]> => {
     return response.data;
   } catch (error: any) {
     console.error("Error fetching subscribed projects:", error.response?.data || error.message);
-    throw new Error(error.response?.data?.detail || 'Failed to fetch subscribed projects');
+    const detail = error.response?.data?.detail;
+    const msg =
+      typeof detail === 'string'
+        ? detail
+        : detail?.message || 'Failed to fetch subscribed projects';
+    throw new Error(msg);
   }
 };
 
@@ -296,26 +314,6 @@ export const updateConversationTags = async (
   } catch (error: any) {
     console.error(`Error updating tags for conversation ${conversationId}:`, error.response?.data || error.message);
     throw new Error(error.response?.data?.detail || 'Failed to update conversation tags');
-  }
-};
-
-/**
- * Best-effort FU completion check (chapter-scoped progress). Swallows errors so tab hide does not disturb UX.
- */
-export const requestFuCompletionCheck = async (
-  conversationId: number
-): Promise<FUCompletionCheckResponse | null> => {
-  try {
-    const response = await API.post<FUCompletionCheckResponse>(
-      `/conversations/${conversationId}/fu-completion-check`
-    );
-    return response.data;
-  } catch (error: any) {
-    const status = error.response?.status;
-    if (status === 401) {
-      return null;
-    }
-    return null;
   }
 };
 

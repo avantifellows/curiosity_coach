@@ -77,13 +77,6 @@ class ConversationSummary(BaseModel):
         return v
         
         
-class FUCompletionCheckResponse(BaseModel):
-    conversation_id: int
-    progress_id: int
-    status: str
-    updated: bool = True
-
-
 class ConversationCoreChatThemeUpdate(BaseModel):
     core_chat_theme: Optional[str] = None
 

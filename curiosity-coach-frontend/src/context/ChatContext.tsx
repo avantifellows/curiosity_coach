@@ -9,7 +9,6 @@ import {
   updateConversationTitleApi,
   updateConversationTags,
   getChapterChatIntent,
-  requestFuCompletionCheck,
 } from '../services/api';
 import { ConversationSummary, Message, ChatHistory, ConversationCreateResponse } from '../types';
 import { useAuth } from './AuthContext'; // Assuming AuthContext provides user info
@@ -113,9 +112,6 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   }, [location.search]);
   const cleanupPollingRef = useRef<(() => void) | null>(null); // Ref to hold the cleanup function
   const hasAutoCreatedConversationRef = useRef<boolean>(false); // Track if we've auto-created a conversation in this session
-  const currentConversationIdRef = useRef<number | null>(null);
-  const lastFuCheckConversationIdsRef = useRef<Set<number>>(new Set());
-  const fuCompletionDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (selectedProjectSourceId === null) {
@@ -125,99 +121,6 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       `[ProjectSelection] project_source_id=${selectedProjectSourceId}, project_selection=${projectSelection ?? 'selected'}`
     );
   }, [selectedProjectSourceId, projectSelection]);
-
-  useEffect(() => {
-    currentConversationIdRef.current = currentConversationId;
-  }, [currentConversationId]);
-
-  // --- FU completion check on tab hide / unload (debounced, once per conversation per page load) ---
-  useEffect(() => {
-    if (!user) {
-      return;
-    }
-
-    const DEBOUNCE_MS = 4000;
-    const backendBase = (process.env.REACT_APP_BACKEND_BASE_URL || '').replace(/\/$/, '');
-
-    const scheduleDebouncedCheck = (convId: number) => {
-      if (lastFuCheckConversationIdsRef.current.has(convId)) {
-        return;
-      }
-      if (fuCompletionDebounceRef.current) {
-        clearTimeout(fuCompletionDebounceRef.current);
-      }
-      fuCompletionDebounceRef.current = setTimeout(() => {
-        fuCompletionDebounceRef.current = null;
-        if (document.visibilityState !== 'hidden') {
-          return;
-        }
-        const id = currentConversationIdRef.current;
-        if (id !== convId || lastFuCheckConversationIdsRef.current.has(convId)) {
-          return;
-        }
-        lastFuCheckConversationIdsRef.current.add(convId);
-        requestFuCompletionCheck(convId).catch(() => {});
-      }, DEBOUNCE_MS);
-    };
-
-    const onVisibilityChange = () => {
-      if (document.visibilityState === 'hidden') {
-        const convId = currentConversationIdRef.current;
-        if (convId != null) {
-          scheduleDebouncedCheck(convId);
-        }
-      } else if (fuCompletionDebounceRef.current) {
-        clearTimeout(fuCompletionDebounceRef.current);
-        fuCompletionDebounceRef.current = null;
-      }
-    };
-
-    const onPageHide = () => {
-      const convId = currentConversationIdRef.current;
-      if (convId == null || lastFuCheckConversationIdsRef.current.has(convId)) {
-        return;
-      }
-      const userJson = localStorage.getItem('user');
-      if (!userJson || !backendBase) {
-        return;
-      }
-      let authHeader = '';
-      try {
-        const u = JSON.parse(userJson);
-        authHeader = `Bearer ${u.id}`;
-      } catch {
-        return;
-      }
-
-      lastFuCheckConversationIdsRef.current.add(convId);
-      if (fuCompletionDebounceRef.current) {
-        clearTimeout(fuCompletionDebounceRef.current);
-        fuCompletionDebounceRef.current = null;
-      }
-
-      const url = `${backendBase}/api/conversations/${convId}/fu-completion-check`;
-      fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: authHeader,
-        },
-        keepalive: true,
-      }).catch(() => {});
-    };
-
-    document.addEventListener('visibilitychange', onVisibilityChange);
-    window.addEventListener('pagehide', onPageHide);
-
-    return () => {
-      document.removeEventListener('visibilitychange', onVisibilityChange);
-      window.removeEventListener('pagehide', onPageHide);
-      if (fuCompletionDebounceRef.current) {
-        clearTimeout(fuCompletionDebounceRef.current);
-        fuCompletionDebounceRef.current = null;
-      }
-    };
-  }, [user]);
 
   // --- Function to update title based on first message ---
   const updateTitleFromFirstMessage = useCallback((conversationId: number, content: string, currentMessagesLength: number) => {

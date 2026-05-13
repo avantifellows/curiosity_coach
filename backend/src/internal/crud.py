@@ -1,6 +1,7 @@
 from sqlalchemy.orm import Session
-from src.models import Conversation, ConversationMemory, User, KBSource, Question, FoundationalUnit
+from src.models import Conversation, ConversationMemory, User, KBSource, Section
 from typing import List, Dict, Any
+
 
 def get_conversation_memories_by_user_id(db: Session, user_id: int) -> List[ConversationMemory]:
     """
@@ -11,7 +12,7 @@ def get_conversation_memories_by_user_id(db: Session, user_id: int) -> List[Conv
         .join(Conversation, ConversationMemory.conversation_id == Conversation.id)
         .filter(Conversation.user_id == user_id)
         .all()
-    ) 
+    )
 
 
 def save_extracted_topics_payload(
@@ -20,43 +21,34 @@ def save_extracted_topics_payload(
     file_name: str,
     details: str | None,
     created_by: int | None,
-    questions_payload: List[Dict[str, Any]],
+    sections_payload: List[Dict[str, Any]],
 ) -> Dict[str, Any]:
     """
-    Persist extracted topic payload into kb_source/questions/foundational_unit.
-    Sequence numbering is deterministic and follows payload array order.
+    Persist extracted PDF payload into kb_source + sections.
     """
     kb_source = KBSource(file_name=file_name, details=details, created_by=created_by)
     db.add(kb_source)
     db.flush()
 
-    question_ids: List[int] = []
-    fu_count = 0
-
-    for q_index, q_item in enumerate(questions_payload, start=1):
-        question_row = Question(
+    section_ids: List[int] = []
+    for item in sections_payload:
+        row = Section(
             kb_source_id=kb_source.id,
-            q_seq_number=q_index,
-            content=q_item["question"],
+            section_id=item["section_id"],
+            section_name=item.get("section_name") or "",
+            section_description=item.get("section_description") or "",
+            section_content=item.get("section_content") or "",
+            section_question_list=item.get("section_question_list") or [],
+            section_order=int(item.get("section_order") or 0),
         )
-        db.add(question_row)
+        db.add(row)
         db.flush()
-        question_ids.append(question_row.id)
-
-        for fu_index, fu_content in enumerate(q_item["foundational_units"], start=1):
-            fu_row = FoundationalUnit(
-                question_id=question_row.id,
-                fu_seq_number=fu_index,
-                content=fu_content,
-            )
-            db.add(fu_row)
-            fu_count += 1
+        section_ids.append(row.id)
 
     return {
         "kb_source_id": kb_source.id,
-        "question_ids": question_ids,
-        "question_count": len(question_ids),
-        "foundational_unit_count": fu_count,
+        "section_ids": section_ids,
+        "section_count": len(section_ids),
     }
 
 

@@ -80,12 +80,6 @@ export interface ConversationTagsResponse {
   tags: string[];
 }
 
-export interface FUCompletionCheckResponse {
-  conversation_id: number;
-  progress_id: number;
-  status: string;
-  updated: boolean;
-}
 
 // --- End Conversation Types ---
 

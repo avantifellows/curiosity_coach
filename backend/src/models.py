@@ -21,6 +21,11 @@ class User(Base):
     persona = relationship("UserPersona", back_populates="user", uselist=False, cascade="all, delete-orphan")
     feedbacks = relationship("UserFeedback", back_populates="user", cascade="all, delete-orphan")
     student_profile = relationship("Student", back_populates="user", uselist=False, cascade="all, delete-orphan")
+    kb_source_subscriptions = relationship(
+        "UserKbSourceSubscription",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
 
 
 student_tags = Table(
@@ -508,7 +513,7 @@ class PromptVersion(Base):
     def __repr__(self):
         return f"<PromptVersion(id={self.id}, prompt_id={self.prompt_id}, version={self.version_number}, active={self.is_active}, production={self.is_production}, user_id={self.user_id})>"
 
-# --- Ingestion and Progress Models ---
+# --- Ingestion (KB + sections) ---
 
 class KBSource(Base):
     __tablename__ = "kb_source"
@@ -519,58 +524,47 @@ class KBSource(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     created_by = Column(Integer, nullable=True)
 
-    questions = relationship("Question", back_populates="kb_source", cascade="all, delete-orphan")
+    sections = relationship("Section", back_populates="kb_source", cascade="all, delete-orphan")
+    user_subscriptions = relationship(
+        "UserKbSourceSubscription",
+        back_populates="kb_source",
+        cascade="all, delete-orphan",
+    )
 
 
-class Question(Base):
-    __tablename__ = "questions"
+class UserKbSourceSubscription(Base):
+    __tablename__ = "user_kb_source_subscription"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    kb_source_id = Column(Integer, ForeignKey("kb_source.id", ondelete="CASCADE"), nullable=False, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    user = relationship("User", back_populates="kb_source_subscriptions")
+    kb_source = relationship("KBSource", back_populates="user_subscriptions")
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "kb_source_id", name="uq_user_kb_source_subscription"),
+    )
+
+
+class Section(Base):
+    __tablename__ = "sections"
 
     id = Column(Integer, primary_key=True, index=True)
     kb_source_id = Column(Integer, ForeignKey("kb_source.id", ondelete="CASCADE"), nullable=False, index=True)
-    q_seq_number = Column(Integer, nullable=False)
-    content = Column(Text, nullable=False)
+    section_id = Column(String(255), nullable=False)
+    section_name = Column(Text, nullable=False, default="")
+    section_description = Column(Text, nullable=False, default="")
+    section_content = Column(Text, nullable=False, default="")
+    section_question_list = Column(JSON, nullable=False)
+    section_order = Column(Integer, nullable=False, default=0, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
-    kb_source = relationship("KBSource", back_populates="questions")
-    foundational_units = relationship("FoundationalUnit", back_populates="question", cascade="all, delete-orphan")
-
-    __table_args__ = (
-        UniqueConstraint("kb_source_id", "q_seq_number", name="uq_questions_seq_per_source"),
-    )
-
-
-class FoundationalUnit(Base):
-    __tablename__ = "foundational_unit"
-
-    id = Column(Integer, primary_key=True, index=True)
-    question_id = Column(Integer, ForeignKey("questions.id", ondelete="CASCADE"), nullable=False, index=True)
-    fu_seq_number = Column(Integer, nullable=False)
-    content = Column(Text, nullable=False)
-
-    question = relationship("Question", back_populates="foundational_units")
-    progress_entries = relationship("Progress", back_populates="foundational_unit", cascade="all, delete-orphan")
+    kb_source = relationship("KBSource", back_populates="sections")
 
     __table_args__ = (
-        UniqueConstraint("question_id", "fu_seq_number", name="uq_fu_seq_per_question"),
-    )
-
-
-class Progress(Base):
-    __tablename__ = "progress"
-
-    id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, nullable=False, index=True)
-    foundational_unit_id = Column(Integer, ForeignKey("foundational_unit.id", ondelete="CASCADE"), nullable=False, index=True)
-    conversation_id = Column(Text, nullable=False, index=True)
-    status = Column(String(20), nullable=False, index=True)
-    remarks = Column(Text, nullable=True)
-    action_point_given = Column(Text, nullable=True)
-    context = Column(Text, nullable=True)
-
-    foundational_unit = relationship("FoundationalUnit", back_populates="progress_entries")
-
-    __table_args__ = (
-        UniqueConstraint("user_id", "foundational_unit_id", name="uq_progress_user_fu"),
-        CheckConstraint("status IN ('not_started','ongoing','done')", name="ck_progress_status_valid"),
+        UniqueConstraint("kb_source_id", "section_id", name="uq_sections_kb_section_id"),
     )
 
 

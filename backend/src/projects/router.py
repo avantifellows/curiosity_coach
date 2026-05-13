@@ -1,17 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from typing import List, Optional
 
 from src.auth.dependencies import get_current_user
 from src.database import get_db
-from src.models import (
-    User,
-    KBSource,
-    Question,
-    FoundationalUnit,
-    Progress,
-)
+from src.models import User, KBSource, Section, UserKbSourceSubscription
 from src.projects.progress_selection import ChapterIntentKind, resolve_chapter_chat_intent
 
 
@@ -49,7 +44,7 @@ class ChapterChatIntentResponse(BaseModel):
     foundational_unit_id: Optional[int] = None
     core_chat_theme: Optional[str] = Field(
         default=None,
-        description="Prompt-oriented text when outcome is active",
+        description="Prompt-oriented text when outcome is active (section-based curriculum).",
     )
 
 
@@ -60,8 +55,8 @@ def get_chapter_chat_intent(
     current_user: User = Depends(get_current_user),
 ):
     """
-    Resolve which foundational unit should anchor the next chat for this kb source,
-    or whether the chapter is already complete / user is not set up.
+    Resolve which section anchors the next chat for this kb source.
+    foundational_unit_id is the section row id (legacy field name for API compatibility).
     """
     intent = resolve_chapter_chat_intent(db, current_user.id, kb_source_id)
     if intent.kind == ChapterIntentKind.SOURCE_NOT_FOUND:
@@ -87,14 +82,24 @@ def get_chapter_chat_intent(
 
 @router.get("/sources", response_model=List[ProjectSourceResponse])
 def list_project_sources(
+    available_only: bool = Query(
+        False,
+        description="If true, exclude kb sources the current user is already subscribed to.",
+    ),
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
-    sources = (
-        db.query(KBSource)
-        .order_by(KBSource.created_at.desc())
-        .all()
-    )
+    q = db.query(KBSource).order_by(KBSource.created_at.desc())
+    if available_only:
+        subscribed_ids = (
+            db.query(UserKbSourceSubscription.kb_source_id)
+            .filter(UserKbSourceSubscription.user_id == current_user.id)
+            .all()
+        )
+        ids = [row[0] for row in subscribed_ids]
+        if ids:
+            q = q.filter(~KBSource.id.in_(ids))
+    sources = q.all()
     return [
         ProjectSourceResponse(
             id=source.id,
@@ -110,17 +115,15 @@ def list_subscribed_projects(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    """KB sources the current user has subscribed to."""
     rows = (
-        db.query(
-            KBSource.id.label("kb_source_id"),
-            KBSource.file_name.label("file_name"),
+        db.query(KBSource.id.label("kb_source_id"), KBSource.file_name.label("file_name"))
+        .join(
+            UserKbSourceSubscription,
+            UserKbSourceSubscription.kb_source_id == KBSource.id,
         )
-        .join(Question, Question.kb_source_id == KBSource.id)
-        .join(FoundationalUnit, FoundationalUnit.question_id == Question.id)
-        .join(Progress, Progress.foundational_unit_id == FoundationalUnit.id)
-        .filter(Progress.user_id == current_user.id)
-        .distinct()
-        .order_by(KBSource.file_name.asc())
+        .filter(UserKbSourceSubscription.user_id == current_user.id)
+        .order_by(UserKbSourceSubscription.created_at.asc(), KBSource.file_name.asc())
         .all()
     )
 
@@ -143,57 +146,56 @@ def subscribe_to_project(
     if not source:
         raise HTTPException(status_code=404, detail="Project source not found")
 
-    fu_rows = (
-        db.query(FoundationalUnit.id)
-        .join(Question, Question.id == FoundationalUnit.question_id)
-        .filter(Question.kb_source_id == payload.kb_source_id)
-        .all()
+    total_units = (
+        db.query(Section)
+        .filter(Section.kb_source_id == payload.kb_source_id)
+        .count()
     )
-    foundational_unit_ids = [row[0] for row in fu_rows]
-    total_units = len(foundational_unit_ids)
-
     if total_units == 0:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "no_units",
+                "message": "This project has no sections yet. Subscribe after curriculum is loaded.",
+            },
+        )
+
+    existing = (
+        db.query(UserKbSourceSubscription)
+        .filter(
+            UserKbSourceSubscription.user_id == current_user.id,
+            UserKbSourceSubscription.kb_source_id == payload.kb_source_id,
+        )
+        .first()
+    )
+    if existing:
         return SubscribeProjectResponse(
             kb_source_id=payload.kb_source_id,
-            total_units=0,
+            total_units=total_units,
             created_count=0,
-            existing_count=0,
+            existing_count=1,
         )
 
-    existing_rows = (
-        db.query(Progress.foundational_unit_id)
-        .filter(
-            Progress.user_id == current_user.id,
-            Progress.foundational_unit_id.in_(foundational_unit_ids),
-        )
-        .all()
-    )
-    existing_fu_ids = {row[0] for row in existing_rows}
-
-    new_progress_rows = [
-        Progress(
+    db.add(
+        UserKbSourceSubscription(
             user_id=current_user.id,
-            foundational_unit_id=fu_id,
-            conversation_id="not started",
-            status="not_started",
-            remarks=None,
-            action_point_given=None,
-            context=None,
+            kb_source_id=payload.kb_source_id,
         )
-        for fu_id in foundational_unit_ids
-        if fu_id not in existing_fu_ids
-    ]
-
-    if new_progress_rows:
-        db.add_all(new_progress_rows)
+    )
+    try:
         db.commit()
-
-    created_count = len(new_progress_rows)
-    existing_count = total_units - created_count
+    except IntegrityError:
+        db.rollback()
+        return SubscribeProjectResponse(
+            kb_source_id=payload.kb_source_id,
+            total_units=total_units,
+            created_count=0,
+            existing_count=1,
+        )
 
     return SubscribeProjectResponse(
         kb_source_id=payload.kb_source_id,
         total_units=total_units,
-        created_count=created_count,
-        existing_count=existing_count,
+        created_count=1,
+        existing_count=0,
     )

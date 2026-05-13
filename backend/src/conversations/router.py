@@ -1,4 +1,3 @@
-import httpx
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session, selectinload
 from typing import List, Optional
@@ -11,11 +10,9 @@ from src.models import User, Conversation, Tag # Assuming User model is needed f
 from src.auth.dependencies import get_current_user # Use the new dependency that returns the User object
 from src.conversations import schemas # Use the schemas we just created
 from src import models  # Import CRUD functions from models.py
-from src.progress.fu_completion_service import run_fu_completion_check
 from src.projects.progress_selection import (
     ChapterIntentKind,
     resolve_chapter_chat_intent,
-    update_progress_ongoing_for_unit,
 )
 
 # Set up logger for this module
@@ -181,7 +178,6 @@ async def create_new_conversation(
     start_time = time.time()
     title = conversation_data.title if conversation_data else "New Chat"
     core_chat_theme = conversation_data.core_chat_theme if conversation_data else None
-    selected_fu_id: Optional[int] = None
 
     if conversation_data and conversation_data.kb_source_id is not None:
         intent = resolve_chapter_chat_intent(db, current_user.id, conversation_data.kb_source_id)
@@ -211,7 +207,7 @@ async def create_new_conversation(
                 status_code=409,
                 detail={
                     "code": "no_units",
-                    "message": "This project has no lesson units yet.",
+                    "message": "This project has no sections yet.",
                 },
             )
         if intent.kind != ChapterIntentKind.ACTIVE or intent.foundational_unit_id is None:
@@ -219,7 +215,6 @@ async def create_new_conversation(
                 status_code=500,
                 detail={"code": "intent_error", "message": "Unable to resolve chapter chat intent."},
             )
-        selected_fu_id = intent.foundational_unit_id
         core_chat_theme = intent.core_chat_theme
 
     preparation_status = "ready"
@@ -346,16 +341,6 @@ async def create_new_conversation(
             visit_number=visit_number,
             db=db
         )
-
-        if selected_fu_id is not None:
-            try:
-                update_progress_ongoing_for_unit(
-                    db, current_user.id, selected_fu_id, conversation.id
-                )
-            except Exception as progress_err:
-                logger.exception(
-                    "Failed to update progress for chapter-scoped chat: %s", progress_err
-                )
 
         logger.info(f"Opening message generated successfully")
         
@@ -682,60 +667,6 @@ async def get_conversation_memory_endpoint(
         f"conversation_id: {conversation_id}"
     )
     return memory.memory_data
-
-
-@router.post(
-    "/{conversation_id}/fu-completion-check",
-    response_model=schemas.FUCompletionCheckResponse,
-)
-async def fu_completion_check(
-    conversation_id: int,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """
-    Run fu_completion_checker (DB + Brain) and update progress.status for this chapter-scoped chat.
-    Intended when the learner ends a session (e.g. tab hidden); idempotent per conversation is OK.
-    """
-    conversation = models.get_conversation(db, conversation_id)
-    if not conversation:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found")
-    if conversation.user_id != current_user.id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not authorized to access this conversation",
-        )
-
-    try:
-        new_status, progress_id = run_fu_completion_check(db, conversation_id)
-        return schemas.FUCompletionCheckResponse(
-            conversation_id=conversation_id,
-            progress_id=progress_id,
-            status=new_status,
-            updated=True,
-        )
-    except ValueError as e:
-        msg = str(e)
-        if msg == "Conversation not found":
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=msg) from e
-        if "No progress record" in msg or "chapter-scoped" in msg:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=msg) from e
-        if "no messages" in msg.lower():
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=msg) from e
-        if "Prompt" in msg or "production" in msg or "database" in msg:
-            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=msg) from e
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=msg) from e
-    except httpx.HTTPError as e:
-        logger.error(
-            "fu_completion_check Brain HTTP error conversation_id=%s: %s",
-            conversation_id,
-            e,
-            exc_info=True,
-        )
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Brain classification failed: {e}",
-        ) from e
 
 
 @router.put("/{conversation_id}/core-chat-theme", response_model=schemas.Conversation)

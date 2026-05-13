@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from src.database import get_db
-from typing import List, Optional
+from typing import List, Optional, Any
 from src.internal import crud
 from src.memories.schemas import MemoryInDB
 from src.memories import crud as memories_crud
@@ -14,7 +14,7 @@ from src.models import (
     ClassAnalysis, StudentAnalysis, AnalysisJob, Student, ConversationEvaluation,
 )
 from src.onboarding.schemas import OpeningMessageCallbackPayload
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from datetime import datetime, timezone
 import logging
 from src.analytics_agent.schemas import HomeworkItemsPayload, AnalyticsTriggerPayload
@@ -33,9 +33,13 @@ router = APIRouter(
 )
 
 
-class ExtractedQuestionItem(BaseModel):
-    question: str
-    foundational_units: List[str]
+class ExtractedSectionItem(BaseModel):
+    section_id: str
+    section_order: int = 0
+    section_name: str = ""
+    section_description: str = ""
+    section_content: str = ""
+    section_question_list: List[Any] = Field(default_factory=list)
 
 
 class SaveExtractedTopicsPayload(BaseModel):
@@ -43,7 +47,7 @@ class SaveExtractedTopicsPayload(BaseModel):
     details: Optional[str] = None
     created_by: Optional[int] = None
     force_proceed: bool = False
-    questions: List[ExtractedQuestionItem]
+    sections: List[ExtractedSectionItem]
 
 
 def _normalize_extracted_topics_payload(payload: SaveExtractedTopicsPayload) -> dict:
@@ -53,54 +57,49 @@ def _normalize_extracted_topics_payload(payload: SaveExtractedTopicsPayload) -> 
 
     details = payload.details.strip() if payload.details else None
 
-    normalized_questions = []
-    for idx, q_item in enumerate(payload.questions):
-        question_text = (q_item.question or "").strip()
-        if not question_text:
+    normalized_sections: List[dict] = []
+    for idx, s in enumerate(payload.sections):
+        sid = (s.section_id or "").strip()
+        if not sid:
             raise HTTPException(
                 status_code=422,
-                detail=f"questions[{idx}].question must be a non-empty string",
+                detail=f"sections[{idx}].section_id must be a non-empty string",
             )
-
-        if not isinstance(q_item.foundational_units, list):
+        if not isinstance(s.section_question_list, list):
             raise HTTPException(
                 status_code=422,
-                detail=f"questions[{idx}].foundational_units must be a list of strings",
+                detail=f"sections[{idx}].section_question_list must be a list",
             )
-
-        clean_units: List[str] = []
-        for unit in q_item.foundational_units:
-            if not isinstance(unit, str):
-                raise HTTPException(
-                    status_code=422,
-                    detail=f"questions[{idx}].foundational_units must contain only strings",
-                )
-            cleaned = unit.strip()
-            if cleaned:
-                clean_units.append(cleaned)
-
-        if not clean_units:
+        try:
+            order = int(s.section_order)
+        except (TypeError, ValueError):
             raise HTTPException(
                 status_code=422,
-                detail=f"questions[{idx}].foundational_units must contain at least one non-empty string",
-            )
+                detail=f"sections[{idx}].section_order must be an integer",
+            ) from None
 
-        normalized_questions.append(
+        normalized_sections.append(
             {
-                "question": question_text,
-                "foundational_units": clean_units,
+                "section_id": sid,
+                "section_order": order,
+                "section_name": (s.section_name or "").strip(),
+                "section_description": (s.section_description or "").strip(),
+                "section_content": (s.section_content or "").strip(),
+                "section_question_list": s.section_question_list,
             }
         )
 
-    if not normalized_questions:
-        raise HTTPException(status_code=422, detail="questions must contain at least one item")
+    if not normalized_sections:
+        raise HTTPException(status_code=422, detail="sections must contain at least one item")
+
+    normalized_sections.sort(key=lambda x: (x["section_order"], x["section_id"]))
 
     return {
         "file_name": file_name,
         "details": details,
         "created_by": payload.created_by,
         "force_proceed": payload.force_proceed,
-        "questions": normalized_questions,
+        "sections": normalized_sections,
     }
 
 
@@ -486,15 +485,14 @@ def ingest_pdf_topics(
     db: Session = Depends(get_db),
 ):
     """
-    Internal endpoint to persist extracted PDF topics into:
-    kb_source -> questions -> foundational_unit
+    Internal endpoint to persist extracted PDF topics into kb_source + sections.
     """
     normalized = _normalize_extracted_topics_payload(payload)
     logger.info(
         "Ingesting extracted PDF topics",
         extra={
             "file_name": normalized["file_name"],
-            "question_count": len(normalized["questions"]),
+            "section_count": len(normalized["sections"]),
             "has_details": bool(normalized["details"]),
             "created_by": normalized["created_by"],
             "force_proceed": normalized["force_proceed"],
@@ -519,7 +517,7 @@ def ingest_pdf_topics(
             file_name=normalized["file_name"],
             details=normalized["details"],
             created_by=normalized["created_by"],
-            questions_payload=normalized["questions"],
+            sections_payload=normalized["sections"],
         )
         db.commit()
         return {"status": "success", **result}

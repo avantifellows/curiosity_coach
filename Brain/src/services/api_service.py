@@ -502,7 +502,7 @@ class APIService:
         details: Optional[str],
         created_by: Optional[int],
         force_proceed: bool,
-        questions: List[Dict[str, Any]],
+        sections: List[Dict[str, Any]],
     ) -> Dict[str, Any]:
         """
         Persist extracted PDF topics via backend internal endpoint.
@@ -513,7 +513,7 @@ class APIService:
             "details": details,
             "created_by": created_by,
             "force_proceed": force_proceed,
-            "questions": questions,
+            "sections": sections,
         }
         timeout = httpx.Timeout(30.0, connect=10.0)
         try:
@@ -526,8 +526,7 @@ class APIService:
                     "Successfully ingested PDF topics",
                     extra={
                         "kb_source_id": data.get("kb_source_id"),
-                        "question_count": data.get("question_count"),
-                        "foundational_unit_count": data.get("foundational_unit_count"),
+                        "section_count": data.get("section_count"),
                     },
                 )
                 return data

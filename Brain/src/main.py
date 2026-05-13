@@ -2,7 +2,7 @@ from fastapi import FastAPI, Request, HTTPException, BackgroundTasks, Depends, U
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 import uvicorn
 import httpx # Added for callback
 from typing import Optional, List, Dict, Any, Tuple
@@ -189,67 +189,59 @@ def _parse_evaluation_metrics(raw_response: str) -> Dict[str, Any]:
     return metrics
 
 
-def _validate_and_normalize_pdf_questions_payload(parsed: Any) -> List[Dict[str, Any]]:
-    """Validate and normalize extracted questions with foundational units."""
+def _validate_and_normalize_pdf_sections_payload(parsed: Any) -> List[Dict[str, Any]]:
+    """Validate and normalize LLM JSON with top-level 'sections' array."""
     if not isinstance(parsed, dict):
         raise ValueError("LLM response schema error: expected a JSON object")
 
-    # Temporary compatibility while prompt key naming is being standardized.
-    raw_questions = parsed.get("questions")
-    if raw_questions is None:
-        raw_questions = parsed.get("Questions")
+    raw_sections = parsed.get("sections")
+    if raw_sections is None:
+        raw_sections = parsed.get("Sections")
 
-    if not isinstance(raw_questions, list) or not raw_questions:
-        raise ValueError("LLM response schema error: 'questions' must be a non-empty list")
+    if not isinstance(raw_sections, list) or not raw_sections:
+        raise ValueError("LLM response schema error: 'sections' must be a non-empty list")
 
-    normalized_questions: List[Dict[str, Any]] = []
-    for idx, item in enumerate(raw_questions):
+    normalized: List[Dict[str, Any]] = []
+    for idx, item in enumerate(raw_sections):
         if not isinstance(item, dict):
             raise ValueError(
-                f"LLM response schema error: questions[{idx}] must be an object with "
-                "'question' and 'foundational_units'"
+                f"LLM response schema error: sections[{idx}] must be an object"
             )
 
-        question = item.get("question")
-        foundational_units = item.get("foundational_units")
-
-        if not isinstance(question, str) or not question.strip():
+        sid = item.get("section_id")
+        if not isinstance(sid, str) or not sid.strip():
             raise ValueError(
-                f"LLM response schema error: questions[{idx}].question must be a non-empty string"
+                f"LLM response schema error: sections[{idx}].section_id must be a non-empty string"
             )
-        if not isinstance(foundational_units, list):
+
+        sq = item.get("section_question_list")
+        if sq is None:
+            sq = []
+        if not isinstance(sq, list):
             raise ValueError(
-                f"LLM response schema error: questions[{idx}].foundational_units must be a list"
+                f"LLM response schema error: sections[{idx}].section_question_list must be a list"
             )
 
-        clean_units: List[str] = []
-        for unit in foundational_units:
-            if not isinstance(unit, str):
-                raise ValueError(
-                    f"LLM response schema error: questions[{idx}].foundational_units "
-                    "must contain only strings"
-                )
-            normalized_unit = unit.strip()
-            if normalized_unit:
-                clean_units.append(normalized_unit)
-
-        if not clean_units:
+        try:
+            order = int(item.get("section_order", 0))
+        except (TypeError, ValueError) as exc:
             raise ValueError(
-                f"LLM response schema error: questions[{idx}].foundational_units "
-                "must contain at least one non-empty string"
-            )
+                f"LLM response schema error: sections[{idx}].section_order must be an integer"
+            ) from exc
 
-        normalized_questions.append(
+        normalized.append(
             {
-                "question": question.strip(),
-                "foundational_units": clean_units,
+                "section_id": sid.strip(),
+                "section_order": order,
+                "section_name": str(item.get("section_name") or "").strip(),
+                "section_description": str(item.get("section_description") or "").strip(),
+                "section_content": str(item.get("section_content") or "").strip(),
+                "section_question_list": sq,
             }
         )
 
-    if not normalized_questions:
-        raise ValueError("LLM response schema error: no valid questions found")
-
-    return normalized_questions
+    normalized.sort(key=lambda x: (x["section_order"], x["section_id"]))
+    return normalized
 
 
 async def get_current_curiosity_score(
@@ -752,9 +744,13 @@ class BatchTaskRequest(BaseModel):
     student_id: Optional[int] = None
 
 
-class ExtractedTopicItem(BaseModel):
-    question: str
-    foundational_units: List[str]
+class ExtractedSectionItem(BaseModel):
+    section_id: str
+    section_order: int = 0
+    section_name: str = ""
+    section_description: str = ""
+    section_content: str = ""
+    section_question_list: List[Any] = Field(default_factory=list)
 
 
 class SaveExtractedTopicsRequest(BaseModel):
@@ -762,7 +758,7 @@ class SaveExtractedTopicsRequest(BaseModel):
     details: Optional[str] = None
     created_by: Optional[int] = None
     force_proceed: bool = False
-    questions: List[ExtractedTopicItem]
+    sections: List[ExtractedSectionItem]
 
 
 class CheckExtractedTopicsFileNameRequest(BaseModel):
@@ -2067,7 +2063,7 @@ async def pdf_topics_page(request: Request):
 
 @app.post("/extract-topics-from-pdf")
 async def extract_topics_from_pdf(file: UploadFile = File(...)):
-    """Extract questions and foundational units from uploaded PDF."""
+    """Extract sections from uploaded PDF (preview only; DB write via save-extracted-topics)."""
     try:
         if not file.filename:
             raise HTTPException(status_code=400, detail="Uploaded file is missing a filename")
@@ -2102,7 +2098,7 @@ async def extract_topics_from_pdf(file: UploadFile = File(...)):
             raise HTTPException(status_code=500, detail="LLM returned invalid JSON") from exc
 
         try:
-            questions = _validate_and_normalize_pdf_questions_payload(parsed)
+            sections = _validate_and_normalize_pdf_sections_payload(parsed)
         except ValueError as exc:
             logger.warning("PDF extraction schema validation failed: %s", exc)
             raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -2110,7 +2106,7 @@ async def extract_topics_from_pdf(file: UploadFile = File(...)):
         return {
             "filename": file.filename,
             "page_count": len(reader.pages),
-            "questions": questions,
+            "sections": sections,
         }
 
     except HTTPException:
@@ -2124,16 +2120,8 @@ async def extract_topics_from_pdf(file: UploadFile = File(...)):
 async def save_extracted_topics(payload: SaveExtractedTopicsRequest):
     """Persist already-generated PDF extraction output to backend DB tables."""
     try:
-        normalized_questions = _validate_and_normalize_pdf_questions_payload(
-            {
-                "questions": [
-                    {
-                        "question": item.question,
-                        "foundational_units": item.foundational_units,
-                    }
-                    for item in payload.questions
-                ]
-            }
+        normalized_sections = _validate_and_normalize_pdf_sections_payload(
+            {"sections": [s.model_dump() for s in payload.sections]}
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -2150,7 +2138,7 @@ async def save_extracted_topics(payload: SaveExtractedTopicsRequest):
             details=details,
             created_by=payload.created_by,
             force_proceed=payload.force_proceed,
-            questions=normalized_questions,
+            sections=normalized_sections,
         )
     except httpx.TimeoutException as exc:
         raise HTTPException(status_code=504, detail="Timed out while saving extracted topics") from exc

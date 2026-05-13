@@ -190,9 +190,9 @@
         },
         "pdf_topic_extraction": {
             "provider": "openai",
-            "model": "gpt-5.4-mini",
+            "model": "gpt-5.5",
             "reasoning": {
-                "effort": "medium"
+                "effort": "high"
             },
             "text": {
                 "verbosity": "low"

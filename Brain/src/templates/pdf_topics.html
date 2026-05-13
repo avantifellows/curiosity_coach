@@ -3,12 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PDF Question Extractor</title>
+    <title>PDF Section Extractor</title>
     <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
 </head>
 <body class="bg-gray-100 min-h-screen">
-    <div class="container mx-auto px-4 py-8 max-w-2xl">
-        <h1 class="text-4xl font-bold text-center mb-8 text-indigo-600">PDF Question Extractor</h1>
+    <div class="container mx-auto px-4 py-8 max-w-3xl">
+        <h1 class="text-4xl font-bold text-center mb-8 text-indigo-600">PDF Section Extractor</h1>
 
         <div class="bg-white rounded-lg shadow-lg p-6">
             <label class="block mb-2 font-semibold text-gray-700">Upload a PDF</label>
@@ -22,7 +22,7 @@
                 id="extract-btn"
                 class="w-full bg-indigo-600 text-white py-2 px-4 rounded-lg hover:bg-indigo-700 disabled:opacity-50"
             >
-                Extract Questions
+                Extract sections
             </button>
             <button
                 id="save-btn"
@@ -36,10 +36,10 @@
 
             <div id="results" class="mt-6 hidden">
                 <div class="flex items-center justify-between mb-3">
-                    <h2 class="text-xl font-semibold text-gray-700">Questions Found</h2>
-                    <span id="question-count" class="text-sm text-gray-400"></span>
+                    <h2 class="text-xl font-semibold text-gray-700">Sections (preview)</h2>
+                    <span id="section-count" class="text-sm text-gray-400"></span>
                 </div>
-                <div id="question-list" class="space-y-4"></div>
+                <div id="section-list" class="space-y-4"></div>
             </div>
         </div>
     </div>
@@ -65,8 +65,8 @@
         const pdfFileInput = document.getElementById("pdf-file");
         const statusEl = document.getElementById("status");
         const resultsEl = document.getElementById("results");
-        const questionCountEl = document.getElementById("question-count");
-        const questionListEl = document.getElementById("question-list");
+        const sectionCountEl = document.getElementById("section-count");
+        const sectionListEl = document.getElementById("section-list");
         const saveBtn = document.getElementById("save-btn");
         const detailsModal = document.getElementById("details-modal");
         const detailsInput = document.getElementById("details-input");
@@ -75,6 +75,13 @@
         let lastExtraction = null;
         let saveInFlight = false;
 
+        function escapeHtml(s) {
+            if (s == null || s === "") return "";
+            const d = document.createElement("div");
+            d.textContent = String(s);
+            return d.innerHTML;
+        }
+
         function showStatus(message) {
             statusEl.textContent = message;
             statusEl.classList.remove("hidden");
@@ -82,8 +89,8 @@
 
         function resetResults() {
             resultsEl.classList.add("hidden");
-            questionCountEl.textContent = "";
-            questionListEl.innerHTML = "";
+            sectionCountEl.textContent = "";
+            sectionListEl.innerHTML = "";
             lastExtraction = null;
             saveBtn.disabled = true;
             saveBtn.classList.remove("hidden");
@@ -101,28 +108,46 @@
             detailsModal.classList.remove("flex");
         }
 
-        function renderQuestions(questions) {
-            questionListEl.innerHTML = "";
-            questions.forEach((item, index) => {
+        function renderSections(sections) {
+            sectionListEl.innerHTML = "";
+            sections.forEach((item) => {
                 const card = document.createElement("div");
-                card.className = "border border-gray-200 rounded-lg p-4";
+                card.className = "border border-gray-200 rounded-lg p-4 bg-gray-50";
 
-                const questionText = document.createElement("h3");
-                questionText.className = "text-gray-900 font-semibold";
-                questionText.textContent = `${index + 1}. ${item.question}`;
-                card.appendChild(questionText);
+                const meta = document.createElement("div");
+                meta.className = "text-xs text-gray-500 mb-2";
+                meta.innerHTML = `Order <strong>${escapeHtml(item.section_order)}</strong> · id <code class="bg-gray-200 px-1 rounded">${escapeHtml(item.section_id)}</code>`;
+                card.appendChild(meta);
 
-                const units = Array.isArray(item.foundational_units) ? item.foundational_units : [];
-                const unitsList = document.createElement("ul");
-                unitsList.className = "list-disc pl-5 mt-2 text-gray-700 space-y-1";
-                units.forEach((unit) => {
-                    const unitItem = document.createElement("li");
-                    unitItem.textContent = unit;
-                    unitsList.appendChild(unitItem);
-                });
+                const title = document.createElement("h3");
+                title.className = "text-gray-900 font-semibold text-lg";
+                title.textContent = item.section_name || "(no name)";
+                card.appendChild(title);
 
-                card.appendChild(unitsList);
-                questionListEl.appendChild(card);
+                if (item.section_description) {
+                    const desc = document.createElement("p");
+                    desc.className = "text-gray-700 text-sm mt-2 whitespace-pre-wrap";
+                    desc.textContent = item.section_description;
+                    card.appendChild(desc);
+                }
+
+                const content = document.createElement("div");
+                content.className = "text-gray-800 text-sm mt-2 max-h-32 overflow-y-auto whitespace-pre-wrap border-t border-gray-200 pt-2";
+                const c = item.section_content || "";
+                content.textContent = c.length > 800 ? c.slice(0, 800) + "…" : c;
+                card.appendChild(content);
+
+                const ql = Array.isArray(item.section_question_list) ? item.section_question_list : [];
+                const qlLabel = document.createElement("p");
+                qlLabel.className = "text-xs font-semibold text-gray-600 mt-3";
+                qlLabel.textContent = `section_question_list (${ql.length} items, metadata)`;
+                card.appendChild(qlLabel);
+                const pre = document.createElement("pre");
+                pre.className = "text-xs bg-white border rounded p-2 mt-1 overflow-x-auto max-h-24 overflow-y-auto";
+                pre.textContent = JSON.stringify(ql, null, 2);
+                card.appendChild(pre);
+
+                sectionListEl.appendChild(card);
             });
         }
 
@@ -134,9 +159,9 @@
             }
 
             extractBtn.disabled = true;
-            extractBtn.textContent = "Extracting...";
+            extractBtn.textContent = "Extracting…";
             resetResults();
-            showStatus(`Processing "${file.name}"...`);
+            showStatus(`Processing "${file.name}"…`);
 
             try {
                 const formData = new FormData();
@@ -149,27 +174,26 @@
 
                 const data = await response.json();
                 if (!response.ok) {
-                    throw new Error(data.detail || "Failed to extract questions");
+                    throw new Error(data.detail || "Failed to extract sections");
                 }
 
-                // Keep short-term compatibility with alternate key naming.
-                const questions = Array.isArray(data.questions)
-                    ? data.questions
-                    : (Array.isArray(data.Questions) ? data.Questions : []);
+                const sections = Array.isArray(data.sections)
+                    ? data.sections
+                    : (Array.isArray(data.Sections) ? data.Sections : []);
                 lastExtraction = {
                     filename: data.filename,
-                    questions
+                    sections
                 };
-                renderQuestions(questions);
-                questionCountEl.textContent = `${questions.length} questions · ${data.page_count} pages`;
+                renderSections(sections);
+                sectionCountEl.textContent = `${sections.length} sections · ${data.page_count} pages`;
                 resultsEl.classList.remove("hidden");
-                saveBtn.disabled = questions.length === 0;
-                showStatus(`Done: ${data.filename}`);
+                saveBtn.disabled = sections.length === 0;
+                showStatus(`Done: ${data.filename} (preview only — not saved to DB)`);
             } catch (error) {
                 showStatus(`Error: ${error.message}`);
             } finally {
                 extractBtn.disabled = false;
-                extractBtn.textContent = "Extract Questions";
+                extractBtn.textContent = "Extract sections";
             }
         });
 
@@ -179,8 +203,8 @@
         });
 
         saveBtn.addEventListener("click", () => {
-            if (!lastExtraction || !Array.isArray(lastExtraction.questions) || lastExtraction.questions.length === 0) {
-                showStatus("Please extract questions before uploading to DB.");
+            if (!lastExtraction || !Array.isArray(lastExtraction.sections) || lastExtraction.sections.length === 0) {
+                showStatus("Please extract sections before uploading to DB.");
                 return;
             }
             openDetailsModal();
@@ -197,10 +221,10 @@
             try {
                 saveInFlight = true;
                 saveBtn.disabled = true;
-                saveBtn.textContent = "Uploading...";
+                saveBtn.textContent = "Uploading…";
                 detailsSubmitBtn.disabled = true;
-                detailsSubmitBtn.textContent = "Submitting...";
-                showStatus("Checking if file already exists...");
+                detailsSubmitBtn.textContent = "Submitting…";
+                showStatus("Checking if file already exists…");
 
                 const duplicateCheckResponse = await fetch("/check-extracted-topics-file-name", {
                     method: "POST",
@@ -224,7 +248,7 @@
                     forceProceed = true;
                 }
 
-                showStatus("Saving extracted schema to DB...");
+                showStatus("Saving sections to DB…");
                 const response = await fetch("/save-extracted-topics", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
@@ -232,18 +256,18 @@
                         file_name: lastExtraction.filename,
                         details: detailsInput.value || null,
                         force_proceed: forceProceed,
-                        questions: lastExtraction.questions
+                        sections: lastExtraction.sections
                     })
                 });
 
                 const data = await response.json();
                 if (!response.ok) {
-                    const detail = typeof data.detail === "string" ? data.detail : (data.detail?.message || "Failed to save extracted schema");
+                    const detail = typeof data.detail === "string" ? data.detail : (data.detail?.message || "Failed to save to DB");
                     throw new Error(detail);
                 }
 
                 showStatus(
-                    `Saved to DB: kb_source=${data.kb_source_id}, questions=${data.question_count}, foundational_units=${data.foundational_unit_count}`
+                    `Saved: kb_source_id=${data.kb_source_id}, sections=${data.section_count}`
                 );
                 saveBtn.classList.add("hidden");
                 closeDetailsModal();
