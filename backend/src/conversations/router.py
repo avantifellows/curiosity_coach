@@ -196,9 +196,17 @@ async def create_new_conversation(
         
         # 2. Select appropriate prompt by purpose
         prompt_purpose = models.select_prompt_purpose_for_visit(visit_number)
-        logger.info(f"🎯 BACKEND: Visit {visit_number} → prompt_purpose={prompt_purpose}")
+        pipeline_key = models.normalize_pipeline_key(current_user.default_pipeline_key)
+        logger.info(
+            f"🎯 BACKEND: Visit {visit_number} → prompt_purpose={prompt_purpose}, "
+            f"pipeline_key={pipeline_key}"
+        )
         
-        prompt_version = models.get_production_prompt_by_purpose(db, prompt_purpose)
+        prompt_version = models.get_prompt_for_pipeline_by_purpose(
+            db,
+            prompt_purpose,
+            pipeline_key,
+        )
         
         if prompt_version:
             prompt = db.query(models.Prompt).get(prompt_version.prompt_id)
@@ -212,10 +220,15 @@ async def create_new_conversation(
             user_id=current_user.id,
             title=title,
             core_chat_theme=core_chat_theme,
-            prompt_version_id=prompt_version.id if prompt_version else None
+            prompt_version_id=prompt_version.id if prompt_version else None,
+            pipeline_key=pipeline_key,
         )
-        
-        logger.info(f"📝 BACKEND: Created conversation id={conversation.id} with prompt_version_id={conversation.prompt_version_id}")
+
+        logger.info(
+            f"📝 BACKEND: Created conversation id={conversation.id} "
+            f"with prompt_version_id={conversation.prompt_version_id} "
+            f"and pipeline_key={conversation.pipeline_key}"
+        )
         
         # Record visit number with unique constraint protection
         try:

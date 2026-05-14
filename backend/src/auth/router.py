@@ -3,11 +3,11 @@ from sqlalchemy.orm import Session
 import logging
 from src.auth.schemas import (
     PhoneNumberRequest, LoginRequest, LoginResponse, UserResponse,
-    StudentLoginRequest, StudentLoginResponse, StudentResponse
+    StudentLoginRequest, StudentLoginResponse, StudentResponse, UserPipelineUpdateRequest, UserPipelineResponse
 )
 from src.auth.service import auth_service
 from src.database import get_db # Import the dependency
-from src.models import User # Import User model for potential type hinting if needed
+from src.models import User, normalize_pipeline_key # Import User model for potential type hinting if needed
 from src.auth.dependencies import get_current_user # Import the dependency
 
 router = APIRouter(
@@ -88,6 +88,21 @@ async def read_users_me(current_user: User = Depends(get_current_user), db: Sess
     }
 
     return user_data
+
+
+@router.patch("/me/default-pipeline", response_model=UserPipelineResponse)
+async def update_default_pipeline(
+    payload: UserPipelineUpdateRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Update the default pipeline key used for this user's new conversations."""
+    current_user.default_pipeline_key = normalize_pipeline_key(payload.default_pipeline_key)
+    db.add(current_user)
+    db.commit()
+    db.refresh(current_user)
+
+    return {"default_pipeline_key": current_user.default_pipeline_key}
 
 @router.post("/student/login", response_model=StudentLoginResponse)
 async def login_with_student(request: StudentLoginRequest, db: Session = Depends(get_db)):

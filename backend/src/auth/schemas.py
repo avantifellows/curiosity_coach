@@ -41,6 +41,14 @@ class UserResponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+
+class UserPipelineUpdateRequest(BaseModel):
+    default_pipeline_key: str
+
+
+class UserPipelineResponse(BaseModel):
+    default_pipeline_key: str
+
 class LoginResponse(BaseModel):
     success: bool
     message: str

@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from src.database import get_db
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 from src.internal import crud
 from src.memories.schemas import MemoryInDB
 from src.memories import crud as memories_crud
@@ -11,10 +11,11 @@ from src.models import (
     Prompt, PromptVersion, get_conversation, save_message,
     save_message_pipeline_data, update_conversation_core_chat_theme,
     Message, MessagePipelineData, LMHomework,
-    ClassAnalysis, StudentAnalysis, AnalysisJob, Student, ConversationEvaluation,
+    ClassAnalysis, StudentAnalysis, AnalysisJob, Student, ConversationEvaluation, User,
+    DEFAULT_PIPELINE_KEY,
 )
 from src.onboarding.schemas import OpeningMessageCallbackPayload
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from datetime import datetime, timezone
 import logging
 from src.analytics_agent.schemas import HomeworkItemsPayload, AnalyticsTriggerPayload
@@ -31,6 +32,12 @@ router = APIRouter(
     # These endpoints should not be exposed in public docs
     include_in_schema=False,
 )
+
+
+class PipelineDataPatchPayload(BaseModel):
+    pipeline_data: Optional[Dict[str, Any]] = None
+    append_steps: List[Dict[str, Any]] = Field(default_factory=list)
+    curiosity_score: Optional[int] = None
 
 @router.get("/users/{user_id}/memories", response_model=List[MemoryInDB])
 def get_user_conversation_memories(user_id: int, db: Session = Depends(get_db)):
@@ -90,6 +97,24 @@ def get_student_by_user_id(user_id: int, db: Session = Depends(get_db)):
         "created_at": student.created_at.isoformat() if student.created_at else None
     }
 
+
+@router.get("/users/{user_id}")
+def get_user_by_id(user_id: int, db: Session = Depends(get_db)):
+    """
+    Get user record by user_id for internal Brain context building.
+    Returns 404 if user not found.
+    """
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    return {
+        "id": user.id,
+        "phone_number": user.phone_number,
+        "name": user.name,
+        "created_at": user.created_at.isoformat() if user.created_at else None,
+    }
+
 @router.get("/users/{user_id}/previous-memories")
 def get_user_previous_memories(
     user_id: int,
@@ -133,16 +158,11 @@ def get_conversation_prompt(
     Internal endpoint: Return prompt text for a conversation's assigned prompt version.
     Used by Brain for opening message generation.
     """
-    logger.info(f"🔍 get_conversation_prompt called for conversation_id={conversation_id}")
-    
     conversation = get_conversation(db, conversation_id)
     if not conversation:
         raise HTTPException(status_code=404, detail="Conversation not found")
-    
-    logger.info(f"📋 Conversation {conversation_id} has prompt_version_id={conversation.prompt_version_id}")
-    
+
     if not conversation.prompt_version_id:
-        logger.warning(f"⚠️ Conversation {conversation_id} has NO prompt_version_id assigned! Falling back to simplified_conversation")
         # Fallback to simplified_conversation if no prompt assigned
         prompt = db.query(Prompt).filter(Prompt.name == "simplified_conversation").first()
         if not prompt:
@@ -163,15 +183,14 @@ def get_conversation_prompt(
     prompt_purpose = prompt.prompt_purpose if prompt else None
     prompt_name = prompt.name if prompt else None
     
-    logger.info(f"🎯 Returning prompt: name={prompt_name}, purpose={prompt_purpose}, version={prompt_version.version_number}, prompt_id={prompt_version.prompt_id}, text_length={len(prompt_version.prompt_text)}")
-    
     return {
         "prompt_text": prompt_version.prompt_text,
         "version_number": prompt_version.version_number,
         "prompt_id": prompt_version.prompt_id,
-        "prompt_purpose": prompt_purpose  # Include the prompt purpose (visit_1, visit_2, etc.)
+        "prompt_purpose": prompt_purpose,
+        "prompt_name": prompt_name,
+        "pipeline_key": conversation.pipeline_key or DEFAULT_PIPELINE_KEY,
     }
-
 @router.get("/users/{user_id}/conversations")
 def get_user_conversations_internal(
     user_id: int,
@@ -334,6 +353,62 @@ def get_conversation_messages_with_pipeline(
     
     logger.info(f"Retrieved {len(result)} messages with pipeline data for conversation {conversation_id}")
     return {"success": True, "messages": result}
+
+
+@router.patch("/messages/{message_id}/pipeline-data")
+def patch_message_pipeline_data(
+    message_id: int,
+    payload: PipelineDataPatchPayload,
+    db: Session = Depends(get_db),
+):
+    """
+    Merge async Brain pipeline data into an already-saved AI message.
+    Used by fast foreground pipelines that save the reply before analytics finish.
+    """
+    message = db.query(Message).filter(Message.id == message_id).first()
+    if not message:
+        raise HTTPException(status_code=404, detail="Message not found")
+
+    pipeline_entry = (
+        db.query(MessagePipelineData)
+        .filter(MessagePipelineData.message_id == message_id)
+        .first()
+    )
+    if not pipeline_entry:
+        pipeline_entry = MessagePipelineData(message_id=message_id, pipeline_data={})
+        db.add(pipeline_entry)
+
+    existing = dict(pipeline_entry.pipeline_data or {})
+
+    if payload.pipeline_data:
+        for key, value in payload.pipeline_data.items():
+            if key == "steps":
+                continue
+            existing[key] = value
+
+    if payload.append_steps:
+        existing_steps = existing.get("steps")
+        if not isinstance(existing_steps, list):
+            existing_steps = []
+        existing_steps.extend(payload.append_steps)
+        existing["steps"] = existing_steps
+
+    if payload.curiosity_score is not None:
+        message.curiosity_score = payload.curiosity_score
+        existing["curiosity_score"] = payload.curiosity_score
+
+    pipeline_entry.pipeline_data = existing
+    db.add(message)
+    db.add(pipeline_entry)
+    db.commit()
+    db.refresh(pipeline_entry)
+
+    return {
+        "success": True,
+        "message_id": message_id,
+        "steps_count": len(existing.get("steps") or []),
+        "curiosity_score": message.curiosity_score,
+    }
 
 
 @router.post("/analytics/homework/{conversation_id}", status_code=204)
