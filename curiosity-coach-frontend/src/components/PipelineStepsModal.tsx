@@ -10,6 +10,12 @@ export interface PipelineStep {
   prompt?: string | null;
   prompt_template?: string | null;  // Original template with placeholders
   formatted_prompt?: string | null;  // What actually went to the LLM
+  prompt_preview?: string | null;
+  prompt_length?: number | null;
+  prompt_template_preview?: string | null;
+  prompt_template_length?: number | null;
+  formatted_prompt_preview?: string | null;
+  formatted_prompt_length?: number | null;
   raw_result?: any; // Can be complex, so 'any' for now
   result?: string | null;
   main_topic?: string | null;
@@ -30,6 +36,17 @@ export interface PipelineStep {
   curiosity_reason?: string | null;
   curiosity_tip?: string | null;
   curiosity_error?: string | null;
+  interest_signal?: string | null;
+  interest_change?: string | null;
+  student_intent?: string | null;
+  depth_breadth?: string | null;
+  topic_action?: string | null;
+  question_policy?: string | null;
+  response_contract?: string | null;
+  coach_adjustment?: string | null;
+  reason_short?: string | null;
+  check_in_question?: string | null;
+  confidence?: number | null;
   // Add timing fields
   time_taken?: number | null; // Time taken in seconds
 }
@@ -54,6 +71,7 @@ const PipelineStepsModal: React.FC<PipelineStepsModalProps> = ({
   totalProcessingTime = null,
 }) => {
   const [collapsedSteps, setCollapsedSteps] = useState<{ [key: number]: boolean }>({});
+  const [showPromptDetails, setShowPromptDetails] = useState(false);
 
   useEffect(() => {
     if (showModal && steps) {
@@ -125,6 +143,16 @@ const PipelineStepsModal: React.FC<PipelineStepsModalProps> = ({
                   </p>
                 </div>
               )}
+              {isDebugMode && (
+                <div className="mb-4 flex justify-end">
+                  <button
+                    onClick={() => setShowPromptDetails(prev => !prev)}
+                    className="text-xs sm:text-sm px-3 py-1.5 rounded border border-gray-300 text-gray-700 hover:bg-gray-100"
+                  >
+                    {showPromptDetails ? 'Hide Prompt Details' : 'Show Prompt Details'}
+                  </button>
+                </div>
+              )}
               <ul className="space-y-3 sm:space-y-4">
                 {steps.map((step, idx) => (
                   <li key={idx} className="p-3 sm:p-4 bg-gray-50 rounded-md shadow-sm">
@@ -181,6 +209,54 @@ const PipelineStepsModal: React.FC<PipelineStepsModalProps> = ({
                             <strong className="text-gray-700">Related Topics:</strong> {step.related_topics.join(', ')}
                           </p>
                         )}
+
+                        {/* Interest Intent Router V2 Handling */}
+                        {step.name === 'interest_intent_router_v2' && (
+                          <div className="space-y-3">
+                            <div className="bg-indigo-50 p-3 rounded border-l-4 border-indigo-400">
+                              <p className="font-medium text-indigo-800">Interest + Intent Router</p>
+                              <p className="text-sm text-indigo-700">
+                                {step.interest_signal || 'unknown'} interest · {step.student_intent || 'unknown intent'} · {step.depth_breadth || 'unknown move'}
+                              </p>
+                            </div>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                              {step.interest_change && (
+                                <p className="bg-white p-2 rounded border text-sm"><strong>Interest change:</strong> {step.interest_change}</p>
+                              )}
+                              {step.question_policy && (
+                                <p className="bg-white p-2 rounded border text-sm"><strong>Question policy:</strong> {step.question_policy}</p>
+                              )}
+                              {step.topic_action && (
+                                <p className="bg-white p-2 rounded border text-sm"><strong>Topic action:</strong> {step.topic_action}</p>
+                              )}
+                              {(step.confidence !== null && step.confidence !== undefined) && (
+                                <p className="bg-white p-2 rounded border text-sm"><strong>Confidence:</strong> {step.confidence}</p>
+                              )}
+                            </div>
+
+                            {step.response_contract && (
+                              <p className="bg-green-50 p-2 rounded border border-green-200 text-sm">
+                                <strong>Response contract:</strong> {step.response_contract}
+                              </p>
+                            )}
+                            {step.coach_adjustment && (
+                              <p className="bg-blue-50 p-2 rounded border border-blue-200 text-sm">
+                                <strong>Coach adjustment:</strong> {step.coach_adjustment}
+                              </p>
+                            )}
+                            {step.reason_short && (
+                              <p className="text-sm text-gray-700">
+                                <strong>Reason:</strong> {step.reason_short}
+                              </p>
+                            )}
+                            {step.check_in_question && (
+                              <p className="text-sm text-gray-700">
+                                <strong>Check-in:</strong> {step.check_in_question}
+                              </p>
+                            )}
+                          </div>
+                        )}
                         
                         {/* Core Theme Extraction Handling */}
                         {step.name === 'core_theme_extraction' && (
@@ -195,7 +271,7 @@ const PipelineStepsModal: React.FC<PipelineStepsModalProps> = ({
                               </p>
                             </div>
                             
-                            {step.prompt && (
+                            {isDebugMode && showPromptDetails && step.prompt && (
                               <div>
                                 <p className="font-medium mt-1 text-sm sm:text-base">
                                   <strong className="text-gray-700">Prompt Used:</strong>
@@ -305,7 +381,7 @@ const PipelineStepsModal: React.FC<PipelineStepsModalProps> = ({
                               </div>
                             )}
                             
-                            {step.prompt && (
+                            {isDebugMode && showPromptDetails && step.prompt && (
                               <div>
                                 <p className="font-medium mt-1 text-sm sm:text-base">
                                   <strong className="text-gray-700">Prompt Used:</strong>
@@ -316,7 +392,7 @@ const PipelineStepsModal: React.FC<PipelineStepsModalProps> = ({
                           </div>
                         )}
                         
-                        {step.prompt_template && (
+                        {isDebugMode && showPromptDetails && step.prompt_template && (
                           <div>
                             <p className="font-medium mt-1 text-sm sm:text-base">
                               <strong className="text-gray-700">Prompt Template (with placeholders):</strong>
@@ -324,7 +400,16 @@ const PipelineStepsModal: React.FC<PipelineStepsModalProps> = ({
                             <pre className="bg-gray-200 p-2 sm:p-3 rounded text-xs sm:text-sm overflow-x-auto whitespace-pre-wrap border border-gray-300 max-w-full">{step.prompt_template}</pre>
                           </div>
                         )}
-                        {step.formatted_prompt && (
+                        {isDebugMode && showPromptDetails && !step.prompt_template && step.prompt_template_preview && (
+                          <div>
+                            <p className="font-medium mt-1 text-sm sm:text-base">
+                              <strong className="text-gray-700">Prompt Template Preview:</strong>
+                              {step.prompt_template_length ? <span className="ml-1 text-gray-500">({step.prompt_template_length} chars)</span> : null}
+                            </p>
+                            <pre className="bg-gray-200 p-2 sm:p-3 rounded text-xs sm:text-sm overflow-x-auto whitespace-pre-wrap border border-gray-300 max-w-full">{step.prompt_template_preview}</pre>
+                          </div>
+                        )}
+                        {isDebugMode && showPromptDetails && step.formatted_prompt && (
                           <div>
                             <p className="font-medium mt-1 text-sm sm:text-base">
                               <strong className="text-green-700">Formatted Prompt (sent to AI model):</strong>
@@ -332,12 +417,30 @@ const PipelineStepsModal: React.FC<PipelineStepsModalProps> = ({
                             <pre className="bg-green-50 p-2 sm:p-3 rounded text-xs sm:text-sm overflow-x-auto whitespace-pre-wrap border border-green-300 max-w-full">{step.formatted_prompt}</pre>
                           </div>
                         )}
-                        {step.prompt && !step.formatted_prompt && !step.name.startsWith('exploration') && (
+                        {isDebugMode && showPromptDetails && !step.formatted_prompt && step.formatted_prompt_preview && (
+                          <div>
+                            <p className="font-medium mt-1 text-sm sm:text-base">
+                              <strong className="text-green-700">Formatted Prompt Preview:</strong>
+                              {step.formatted_prompt_length ? <span className="ml-1 text-gray-500">({step.formatted_prompt_length} chars)</span> : null}
+                            </p>
+                            <pre className="bg-green-50 p-2 sm:p-3 rounded text-xs sm:text-sm overflow-x-auto whitespace-pre-wrap border border-green-300 max-w-full">{step.formatted_prompt_preview}</pre>
+                          </div>
+                        )}
+                        {isDebugMode && showPromptDetails && step.prompt && !step.formatted_prompt && !step.name.startsWith('exploration') && (
                           <div>
                             <p className="font-medium mt-1 text-sm sm:text-base">
                               <strong className="text-gray-700">Prompt:</strong>
                             </p>
                             <pre className="bg-gray-200 p-2 sm:p-3 rounded text-xs sm:text-sm overflow-x-auto whitespace-pre-wrap border border-gray-300 max-w-full">{step.prompt}</pre>
+                          </div>
+                        )}
+                        {isDebugMode && showPromptDetails && !step.prompt && step.prompt_preview && !step.name.startsWith('exploration') && (
+                          <div>
+                            <p className="font-medium mt-1 text-sm sm:text-base">
+                              <strong className="text-gray-700">Prompt Preview:</strong>
+                              {step.prompt_length ? <span className="ml-1 text-gray-500">({step.prompt_length} chars)</span> : null}
+                            </p>
+                            <pre className="bg-gray-200 p-2 sm:p-3 rounded text-xs sm:text-sm overflow-x-auto whitespace-pre-wrap border border-gray-300 max-w-full">{step.prompt_preview}</pre>
                           </div>
                         )}
                         {step.raw_result && (

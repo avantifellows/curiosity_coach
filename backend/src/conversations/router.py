@@ -196,9 +196,17 @@ async def create_new_conversation(
         
         # 2. Select appropriate prompt by purpose
         prompt_purpose = models.select_prompt_purpose_for_visit(visit_number)
-        logger.info(f"🎯 BACKEND: Visit {visit_number} → prompt_purpose={prompt_purpose}")
+        pipeline_key = models.normalize_pipeline_key(current_user.default_pipeline_key)
+        logger.info(
+            f"🎯 BACKEND: Visit {visit_number} → prompt_purpose={prompt_purpose}, "
+            f"pipeline_key={pipeline_key}"
+        )
         
-        prompt_version = models.get_production_prompt_by_purpose(db, prompt_purpose)
+        prompt_version = models.get_prompt_for_pipeline_by_purpose(
+            db,
+            prompt_purpose,
+            pipeline_key,
+        )
         
         if prompt_version:
             prompt = db.query(models.Prompt).get(prompt_version.prompt_id)
@@ -207,7 +215,6 @@ async def create_new_conversation(
             logger.warning(f"⚠️ BACKEND: NO prompt_version found for purpose={prompt_purpose}!")
         
         # 3. Create conversation and record visit (with race condition protection)
-        pipeline_key = models.normalize_pipeline_key(current_user.default_pipeline_key)
         conversation = models.create_conversation(
             db=db,
             user_id=current_user.id,

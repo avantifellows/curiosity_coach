@@ -9,6 +9,8 @@ class APIService:
         self.backend_url = os.getenv("BACKEND_CALLBACK_BASE_URL", "http://localhost:5000")
         self._prompt_cache: Dict[str, Dict[str, Any]] = {}
         self._prompt_cache_ttl = float(os.getenv("PROMPT_CACHE_TTL_SECONDS", "300"))
+        self._persona_cache: Dict[int, Dict[str, Any]] = {}
+        self._persona_cache_ttl = float(os.getenv("PERSONA_CACHE_TTL_SECONDS", "300"))
         logger.info(f"APIService initialized with backend_url: {self.backend_url}")
 
     async def save_memory(self, conversation_id: int, memory_data: Dict[str, Any]) -> bool:
@@ -123,6 +125,15 @@ class APIService:
         Fetches the user persona for a specific user from the backend.
         Also augments it with student metadata (name) for use in prompts.
         """
+        if self._persona_cache_ttl > 0:
+            cached = self._persona_cache.get(user_id)
+            if cached:
+                age = time.time() - cached["fetched_at"]
+                if age < self._persona_cache_ttl:
+                    logger.info(f"Using cached persona lookup for user {user_id}.")
+                    return cached["persona_data"]
+                self._persona_cache.pop(user_id, None)
+
         # Note: This endpoint is hypothetical and needs to be implemented in the backend.
         url = f"{self.backend_url}/api/internal/users/{user_id}/persona"
         try:
@@ -130,6 +141,11 @@ class APIService:
                 response = await client.get(url)
                 if response.status_code == 404:
                     logger.info(f"No persona found for user {user_id}.")
+                    if self._persona_cache_ttl > 0:
+                        self._persona_cache[user_id] = {
+                            "persona_data": None,
+                            "fetched_at": time.time(),
+                        }
                     return None
                 response.raise_for_status()
                 # Assuming the endpoint returns the persona data directly
@@ -142,6 +158,11 @@ class APIService:
                         persona_data["_student_name"] = student.get("first_name")
                         logger.info(f"Augmented persona with student name: {student.get('first_name')}")
                 
+                if self._persona_cache_ttl > 0:
+                    self._persona_cache[user_id] = {
+                        "persona_data": persona_data,
+                        "fetched_at": time.time(),
+                    }
                 return persona_data
         except httpx.RequestError as e:
             logger.error(f"Error fetching user persona for user {user_id}: {e}")

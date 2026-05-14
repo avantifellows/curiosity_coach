@@ -15,6 +15,7 @@ Examples already in this folder:
 - [double_prompt.py](/Users/surya/may2022/avanti_code/curiosity_coach/Brain/src/pipelines/double_prompt.py)
 - [intent_router.py](/Users/surya/may2022/avanti_code/curiosity_coach/Brain/src/pipelines/intent_router.py)
 - [intent_legacy.py](/Users/surya/may2022/avanti_code/curiosity_coach/Brain/src/pipelines/intent_legacy.py)
+- [intent_legacy_v2.py](/Users/surya/may2022/avanti_code/curiosity_coach/Brain/src/pipelines/intent_legacy_v2.py)
 
 ## The mental model
 
@@ -159,6 +160,73 @@ Relevant file:
 - otherwise the full legacy post-processing stack runs as usual
 
 This keeps the router focused on disinterest, while still letting it suggest lightweight recovery moves.
+
+### `intent_legacy_v2`
+
+- opening prompt stays on the assigned visit / steady-state prompt
+- turn prompt also stays on the assigned visit / steady-state prompt
+- `prepare_turn(...)` runs a compact interest + intent router before generation
+- the router output is structured around:
+  - interest signal
+  - interest change
+  - student intent
+  - depth / breadth move
+  - topic action
+  - question policy
+- the router guidance is injected into the assigned prompt before the main response is generated
+- `execute_turn(...)` only saves the compact router decision
+- it does not run the legacy foreground `chat_controller`, 13-year-old adapter, or exploration-directions evaluator
+
+The goal is to keep interest measurement visible and controllable while reducing normal foreground work to:
+
+```text
+interest_intent_router_v2 -> main response
+```
+
+### `intent_legacy_v3`
+
+- opening prompt stays on the assigned visit / steady-state prompt
+- turn prompt stays on the assigned visit / steady-state prompt
+- no interest router runs before generation
+- foreground response shaping preserves the old legacy idea but combines the two
+  post-processing rewrites into one prompt:
+  - main visit / steady-state response
+  - `chat_controller_13yo`
+- foreground core-theme extraction is skipped
+- foreground exploration directions / curiosity scoring is skipped
+- `main.py` patches core theme, exploration directions, and curiosity score after the backend callback
+
+The goal is to test whether the legacy prompt stack keeps the original Curiosity Coach feel while still getting the non-visible observer work out of the user-facing latency path. The foundational visit / steady-state prompt remains unchanged; the combined `chat_controller_13yo` prompt lives in the prompt DB.
+
+### `intent_legacy_v4`
+
+- opening prompt stays on the assigned visit / steady-state prompt
+- turn prompt stays on the assigned visit / steady-state prompt
+- no interest router runs before generation
+- foreground response shaping mirrors the legacy / prod split:
+  - main visit / steady-state response
+  - `chat_controller`
+  - `response_for_13_year_old`
+- foreground core-theme extraction is skipped
+- foreground exploration directions / curiosity scoring is skipped
+- `main.py` patches core theme, exploration directions, and curiosity score after the backend callback
+
+The goal is to preserve the prod-like prompt sequence while testing only the async observer improvement.
+
+### `intent_legacy_v5`
+
+- opening prompt stays on the assigned visit / steady-state prompt
+- `prepare_turn(...)` runs `interest_intent_router_light`
+- the light router only detects interest / intent / topic action and injects a small soft hint when useful
+- foreground response shaping mirrors v4:
+  - main visit / steady-state response
+  - `chat_controller`
+  - `response_for_13_year_old`
+- foreground core-theme extraction is skipped
+- foreground exploration directions / curiosity scoring is skipped
+- `main.py` patches core theme, exploration directions, and curiosity score after the backend callback
+
+The goal is to test intent awareness on top of the prod-like split stack without letting the router replace the chat controller's job.
 
 ## How previous state gets fed back in
 

@@ -9,6 +9,12 @@ import time
 from src.config.settings import settings
 
 DEFAULT_PIPELINE_KEY = "legacy"
+INTENT_LEGACY_V2_PROMPT_VERSION_IDS = {
+    "visit_1": 258,
+    "visit_2": 259,
+    "visit_3": 260,
+    "steady_state": 261,
+}
 
 # SQLAlchemy Models
 class User(Base):
@@ -903,6 +909,30 @@ def get_production_prompt_by_purpose(db: Session, prompt_purpose: str) -> Option
         ).order_by(PromptVersion.version_number.desc()).first()
     
     return production_version
+
+
+def get_prompt_for_pipeline_by_purpose(
+    db: Session,
+    prompt_purpose: str,
+    pipeline_key: Optional[str],
+) -> Optional['PromptVersion']:
+    """
+    Select the prompt version for a conversation's pipeline.
+    Default behavior remains production prompt selection. intent_legacy_v2 uses
+    explicit non-production prompt versions for local/pilot testing.
+    """
+    normalized_pipeline_key = normalize_pipeline_key(pipeline_key)
+
+    if normalized_pipeline_key == "intent_legacy_v2":
+        version_id = INTENT_LEGACY_V2_PROMPT_VERSION_IDS.get(prompt_purpose)
+        if version_id:
+            prompt_version = db.query(PromptVersion).filter(
+                PromptVersion.id == version_id
+            ).first()
+            if prompt_version:
+                return prompt_version
+
+    return get_production_prompt_by_purpose(db, prompt_purpose)
 
 def has_messages(db: Session, conversation_id: int) -> bool:
     """

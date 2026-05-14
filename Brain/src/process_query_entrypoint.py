@@ -1,5 +1,6 @@
 from src.utils.logger import logger
 import os
+import time
 from typing import Optional, Dict, Any, List, Tuple
 from src.config_models import FlowConfig
 from src.schemas import ProcessQueryResponse
@@ -97,6 +98,7 @@ async def generate_simplified_response(
     prompt_context: Optional[PromptExecutionContext] = None,
     core_theme: Optional[str] = None,
     previous_memories: Optional[List[Dict[str, Any]]] = None,
+    generation_call_type: str = "simplified_conversation",
 ) -> Tuple[str, str, str, Dict[str, Any], str, Optional[int]]:
     """
     Generate a simplified response using a single prompt approach.
@@ -168,7 +170,9 @@ async def generate_simplified_response(
             {"role": "user", "content": formatted_prompt}
         ]
         
-        response_text = llm_service.get_completion(messages, call_type="simplified_conversation")
+        generation_started = time.monotonic()
+        response_text = llm_service.get_completion(messages, call_type=generation_call_type)
+        generation_time = time.monotonic() - generation_started
         return (
             response_text,
             prompt_template,
@@ -177,6 +181,8 @@ async def generate_simplified_response(
                 "response": response_text,
                 "needs_clarification": False,
                 "follow_up_questions": [],
+                "generation_call_type": generation_call_type,
+                "time_taken": generation_time,
             },
             prompt_name_used,
             prompt_version_used,
@@ -285,6 +291,7 @@ async def process_query(
     prompt_context: Optional[PromptExecutionContext] = None,
     core_theme: Optional[str] = None,
     previous_memories: Optional[List[Dict[str, Any]]] = None,
+    generation_call_type: str = "simplified_conversation",
 ) -> ProcessQueryResponse:
     """
     Process a user query through the intent identification and response generation pipeline.
@@ -347,6 +354,7 @@ async def process_query(
                 prompt_context=prompt_context,
                 core_theme=core_theme,
                 previous_memories=previous_memories,
+                generation_call_type=generation_call_type,
             )
             
             # Check if we need clarification
@@ -370,7 +378,9 @@ async def process_query(
                 'response_data': response_data,
                 'needs_clarification': needs_clarification,
                 'prompt_name': prompt_name_used,  # Track actual prompt purpose (visit_1, visit_2, etc.)
-                'prompt_version': prompt_version_used  # Include version for debugging
+                'prompt_version': prompt_version_used,  # Include version for debugging
+                'generation_call_type': response_data.get("generation_call_type"),
+                'time_taken': response_data.get("time_taken"),
             }
             pipeline_data['steps'].append(simplified_step_data)
             pipeline_data['final_response'] = response
@@ -398,6 +408,7 @@ async def process_follow_up(
     prompt_context: Optional[PromptExecutionContext] = None,
     core_theme: Optional[str] = None,
     previous_memories: Optional[List[Dict[str, Any]]] = None,
+    generation_call_type: str = "simplified_conversation",
 ) -> ProcessQueryResponse:
     """
     Process a follow-up response from the student to determine intent and generate a final response.
@@ -466,6 +477,7 @@ async def process_follow_up(
                 prompt_context=prompt_context,
                 core_theme=core_theme,
                 previous_memories=previous_memories,
+                generation_call_type=generation_call_type,
             )
             
             # Check if we need clarification (again)
@@ -488,7 +500,9 @@ async def process_follow_up(
                 'response_data': response_data,
                 'needs_clarification': needs_clarification,
                 'prompt_name': prompt_name_used,  # Track actual prompt purpose (visit_1, visit_2, etc.)
-                'prompt_version': prompt_version_used  # Include version for debugging
+                'prompt_version': prompt_version_used,  # Include version for debugging
+                'generation_call_type': response_data.get("generation_call_type"),
+                'time_taken': response_data.get("time_taken"),
             }
             pipeline_data['steps'].append(simplified_step_data)
             pipeline_data['final_response'] = response

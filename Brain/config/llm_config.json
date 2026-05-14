@@ -51,6 +51,16 @@
                 "verbosity": "low"
             }
         },
+        "chat_controller_13yo": {
+            "provider": "openai",
+            "model": "gpt-5.4-mini",
+            "reasoning": {
+                "effort": "low"
+            },
+            "text": {
+                "verbosity": "low"
+            }
+        },
         "homework_updater": {
             "provider": "openai",
             "model": "gpt-5.4-mini",
@@ -88,6 +98,26 @@
                 "verbosity": "low"
             }
         },
+        "interest_intent_router_v2": {
+            "provider": "openai",
+            "model": "gpt-5.4-mini",
+            "reasoning": {
+                "effort": "low"
+            },
+            "text": {
+                "verbosity": "low"
+            }
+        },
+        "interest_intent_router_light": {
+            "provider": "openai",
+            "model": "gpt-5.4-mini",
+            "reasoning": {
+                "effort": "low"
+            },
+            "text": {
+                "verbosity": "low"
+            }
+        },
         "response_generation": {
             "provider": "openai",
             "model": "gpt-5.4",
@@ -99,6 +129,16 @@
             }
         },
         "simplified_conversation": {
+            "provider": "openai",
+            "model": "gpt-5.4-mini",
+            "reasoning": {
+                "effort": "medium"
+            },
+            "text": {
+                "verbosity": "low"
+            }
+        },
+        "simplified_conversation_intent_legacy_v2": {
             "provider": "openai",
             "model": "gpt-5.4-mini",
             "reasoning": {

@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from src.database import get_db
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 from src.internal import crud
 from src.memories.schemas import MemoryInDB
 from src.memories import crud as memories_crud
@@ -15,7 +15,7 @@ from src.models import (
     DEFAULT_PIPELINE_KEY,
 )
 from src.onboarding.schemas import OpeningMessageCallbackPayload
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from datetime import datetime, timezone
 import logging
 from src.analytics_agent.schemas import HomeworkItemsPayload, AnalyticsTriggerPayload
@@ -32,6 +32,12 @@ router = APIRouter(
     # These endpoints should not be exposed in public docs
     include_in_schema=False,
 )
+
+
+class PipelineDataPatchPayload(BaseModel):
+    pipeline_data: Optional[Dict[str, Any]] = None
+    append_steps: List[Dict[str, Any]] = Field(default_factory=list)
+    curiosity_score: Optional[int] = None
 
 @router.get("/users/{user_id}/memories", response_model=List[MemoryInDB])
 def get_user_conversation_memories(user_id: int, db: Session = Depends(get_db)):
@@ -347,6 +353,62 @@ def get_conversation_messages_with_pipeline(
     
     logger.info(f"Retrieved {len(result)} messages with pipeline data for conversation {conversation_id}")
     return {"success": True, "messages": result}
+
+
+@router.patch("/messages/{message_id}/pipeline-data")
+def patch_message_pipeline_data(
+    message_id: int,
+    payload: PipelineDataPatchPayload,
+    db: Session = Depends(get_db),
+):
+    """
+    Merge async Brain pipeline data into an already-saved AI message.
+    Used by fast foreground pipelines that save the reply before analytics finish.
+    """
+    message = db.query(Message).filter(Message.id == message_id).first()
+    if not message:
+        raise HTTPException(status_code=404, detail="Message not found")
+
+    pipeline_entry = (
+        db.query(MessagePipelineData)
+        .filter(MessagePipelineData.message_id == message_id)
+        .first()
+    )
+    if not pipeline_entry:
+        pipeline_entry = MessagePipelineData(message_id=message_id, pipeline_data={})
+        db.add(pipeline_entry)
+
+    existing = dict(pipeline_entry.pipeline_data or {})
+
+    if payload.pipeline_data:
+        for key, value in payload.pipeline_data.items():
+            if key == "steps":
+                continue
+            existing[key] = value
+
+    if payload.append_steps:
+        existing_steps = existing.get("steps")
+        if not isinstance(existing_steps, list):
+            existing_steps = []
+        existing_steps.extend(payload.append_steps)
+        existing["steps"] = existing_steps
+
+    if payload.curiosity_score is not None:
+        message.curiosity_score = payload.curiosity_score
+        existing["curiosity_score"] = payload.curiosity_score
+
+    pipeline_entry.pipeline_data = existing
+    db.add(message)
+    db.add(pipeline_entry)
+    db.commit()
+    db.refresh(pipeline_entry)
+
+    return {
+        "success": True,
+        "message_id": message_id,
+        "steps_count": len(existing.get("steps") or []),
+        "curiosity_score": message.curiosity_score,
+    }
 
 
 @router.post("/analytics/homework/{conversation_id}", status_code=204)

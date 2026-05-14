@@ -15,10 +15,21 @@ from botocore.exceptions import NoCredentialsError, PartialCredentialsError, Cli
 from mangum import Mangum
 from pathlib import Path
 import asyncio
+import time
 from concurrent.futures import ThreadPoolExecutor
 import threading
 from functools import partial
-from src.core.core_theme_config import CORE_THEME_MAX_RETRIES, CORE_THEME_PROMPT_NAME
+from src.core.core_theme_config import (
+    CORE_THEME_EXTRACTION_ENABLED,
+    CORE_THEME_MAX_RETRIES,
+    CORE_THEME_PROMPT_NAME,
+    CORE_THEME_TRIGGER_MESSAGE_COUNT,
+)
+from src.core.core_theme_extractor import (
+    extract_core_theme_from_conversation,
+    update_conversation_theme,
+)
+from src.core.exploration_directions_evaluator import evaluate_exploration_directions
 from src.process_query_entrypoint import (
     process_query,
     process_follow_up,
@@ -48,8 +59,29 @@ BACKEND_CALLBACK_BASE_URL = os.getenv("BACKEND_CALLBACK_BASE_URL", "http://local
 
 BACKEND_CALLBACK_ROUTE = os.getenv("BACKEND_CALLBACK_ROUTE", "/api/internal/brain_response")
 BACKEND_CALLBACK_URL = f"{BACKEND_CALLBACK_BASE_URL}{BACKEND_CALLBACK_ROUTE}"
+ASYNC_PIPELINE_PATCH_URL_TEMPLATE = (
+    f"{BACKEND_CALLBACK_BASE_URL.rstrip('/')}/api/internal/messages/{{message_id}}/pipeline-data"
+)
 ENABLE_STARTUP_PROMPT_SYNC = False
 STARTUP_PROMPT_SYNC_BEARER_TOKEN = ""
+INTENT_LEGACY_V2_HISTORY_WINDOW_MESSAGES = int(
+    os.getenv("INTENT_LEGACY_V2_HISTORY_WINDOW_MESSAGES", "8")
+)
+INTENT_LEGACY_V3_HISTORY_WINDOW_MESSAGES = int(
+    os.getenv("INTENT_LEGACY_V3_HISTORY_WINDOW_MESSAGES", "10")
+)
+ASYNC_OBSERVER_PIPELINES = {
+    "intent_legacy_v2",
+    "intent_legacy_v3",
+    "intent_legacy_v4",
+    "intent_legacy_v5",
+}
+STORE_FULL_PIPELINE_PROMPTS = os.getenv("STORE_FULL_PIPELINE_PROMPTS", "false").lower() in {
+    "1",
+    "true",
+    "yes",
+}
+PIPELINE_PROMPT_PREVIEW_CHARS = int(os.getenv("PIPELINE_PROMPT_PREVIEW_CHARS", "600"))
 
 
 EVALUATION_MAX_WORKERS = int(os.getenv("EVALUATION_MAX_WORKERS", "3"))
@@ -306,6 +338,51 @@ def _set_step_field(step: Any, field_name: str, value: Any) -> None:
         setattr(step, field_name, value)
 
 
+def _format_conversation_history_window(
+    messages: List[Dict[str, Any]],
+    *,
+    current_message_id: Optional[int],
+    max_messages: int,
+) -> Optional[str]:
+    relevant_messages: List[Dict[str, Any]] = []
+    for msg_data in messages:
+        if current_message_id is not None and msg_data.get("id") == current_message_id:
+            continue
+        if msg_data.get("content") is None:
+            continue
+        relevant_messages.append(msg_data)
+
+    if max_messages > 0 and len(relevant_messages) > max_messages:
+        relevant_messages = relevant_messages[-max_messages:]
+
+    formatted_messages = []
+    for msg_data in relevant_messages:
+        sender = "User" if msg_data.get("is_user") else "AI"
+        formatted_messages.append(f"{sender}: {msg_data.get('content')}")
+
+    return "\n".join(formatted_messages) if formatted_messages else None
+
+
+def _compact_prompt_fields(value: Any) -> Any:
+    if STORE_FULL_PIPELINE_PROMPTS:
+        return value
+
+    if isinstance(value, list):
+        return [_compact_prompt_fields(item) for item in value]
+
+    if isinstance(value, dict):
+        compacted: Dict[str, Any] = {}
+        for key, child in value.items():
+            if key in {"prompt", "formatted_prompt", "prompt_template"} and isinstance(child, str):
+                compacted[f"{key}_length"] = len(child)
+                compacted[f"{key}_preview"] = child[:PIPELINE_PROMPT_PREVIEW_CHARS]
+                continue
+            compacted[key] = _compact_prompt_fields(child)
+        return compacted
+
+    return value
+
+
 def _apply_curiosity_signal_to_response(response_data: ProcessQueryResponse) -> None:
     raw_final_response = response_data.final_response
     cleaned_response, curiosity_signal = strip_curiosity_signal(raw_final_response)
@@ -439,6 +516,35 @@ async def _build_turn_execution_context(
     if user_id:
         user_record = await api_service.get_user_by_id(user_id)
 
+    pipeline_key = (prompt_response or {}).get("pipeline_key", "legacy")
+    effective_conversation_history = conversation_history
+    history_window_messages = None
+    if pipeline_key == "intent_legacy_v2":
+        history_window_messages = INTENT_LEGACY_V2_HISTORY_WINDOW_MESSAGES
+    elif pipeline_key == "intent_legacy_v3":
+        history_window_messages = INTENT_LEGACY_V3_HISTORY_WINDOW_MESSAGES
+
+    if history_window_messages and prefetched_history:
+        current_message_id_int: Optional[int] = None
+        if message.message_id and message.message_id.isdigit():
+            current_message_id_int = int(message.message_id)
+
+        trimmed_history = _format_conversation_history_window(
+            list(prefetched_history),
+            current_message_id=current_message_id_int,
+            max_messages=history_window_messages,
+        )
+        if trimmed_history:
+            logger.info(
+                "Trimmed %s conversation history for prompt: "
+                "original_length=%s, trimmed_length=%s, max_messages=%s",
+                pipeline_key,
+                len(conversation_history or ""),
+                len(trimmed_history),
+                history_window_messages,
+            )
+            effective_conversation_history = trimmed_history
+
     prompt_context = await resolve_prompt_execution_context(
         purpose=purpose,
         conversation_id=conversation_id,
@@ -456,8 +562,8 @@ async def _build_turn_execution_context(
         user_id=user_id,
         user_created_at=(user_record or {}).get("created_at"),
         user_name=(user_record or {}).get("name"),
-        pipeline_key=(prompt_response or {}).get("pipeline_key", "legacy"),
-        conversation_history=conversation_history,
+        pipeline_key=pipeline_key,
+        conversation_history=effective_conversation_history,
         prefetched_history=list(prefetched_history or []),
         user_persona=user_persona,
         current_curiosity_score=current_curiosity_score,
@@ -514,24 +620,26 @@ def _build_callback_payload(
     user_input: str,
 ) -> Dict[str, Any]:
     if response_data.needs_clarification and response_data.follow_up_questions:
+        pipeline_data = _compact_prompt_fields(response_data.model_dump())
         return {
             "user_id": int(message.user_id),
             "conversation_id": message.conversation_id,
             "original_message_id": int(message.message_id) if message.message_id.isdigit() else None,
             "llm_response": response_data.final_response,
-            "pipeline_data": response_data.model_dump(),
+            "pipeline_data": pipeline_data,
             "needs_clarification": True,
             "follow_up_questions": response_data.follow_up_questions,
             "original_query": message.original_query if message.is_follow_up_response else user_input,
             "curiosity_score": curiosity_score,
         }
 
+    pipeline_data = _compact_prompt_fields(response_data.model_dump())
     return {
         "user_id": int(message.user_id),
         "conversation_id": message.conversation_id,
         "original_message_id": int(message.message_id) if message.message_id.isdigit() else None,
         "llm_response": response_data.final_response,
-        "pipeline_data": response_data.model_dump(),
+        "pipeline_data": pipeline_data,
         "needs_clarification": False,
         "curiosity_score": curiosity_score,
     }
@@ -897,6 +1005,11 @@ async def dequeue(message: MessagePayload, background_tasks: Optional[Background
                     prompt_context=turn_context.prompt_context,
                     core_theme=turn_context.core_theme,
                     previous_memories=turn_context.previous_memories,
+                    generation_call_type=(
+                        "simplified_conversation_intent_legacy_v2"
+                        if turn_context.pipeline_key == "intent_legacy_v2"
+                        else "simplified_conversation"
+                    ),
                 )
             else:
                 # This is a new query
@@ -916,6 +1029,11 @@ async def dequeue(message: MessagePayload, background_tasks: Optional[Background
                     prompt_context=turn_context.prompt_context,
                     core_theme=turn_context.core_theme,
                     previous_memories=turn_context.previous_memories,
+                    generation_call_type=(
+                        "simplified_conversation_intent_legacy_v2"
+                        if turn_context.pipeline_key == "intent_legacy_v2"
+                        else "simplified_conversation"
+                    ),
                 )
 
             _apply_curiosity_signal_to_response(response_data)
@@ -974,6 +1092,323 @@ async def dequeue(message: MessagePayload, background_tasks: Optional[Background
         # Note: If called outside FastAPI context (e.g., Lambda), this needs adjustment
         raise HTTPException(status_code=500, detail=f"Error processing message: {str(e)}")
 
+def _callback_pipeline_key(payload: Dict[str, Any]) -> Optional[str]:
+    pipeline_data = payload.get("pipeline_data")
+    if not isinstance(pipeline_data, dict):
+        return None
+
+    nested_pipeline_data = pipeline_data.get("pipeline_data")
+    if isinstance(nested_pipeline_data, dict):
+        nested_key = nested_pipeline_data.get("pipeline_key")
+        if nested_key:
+            return str(nested_key)
+
+    direct_key = pipeline_data.get("pipeline_key")
+    return str(direct_key) if direct_key else None
+
+
+def _callback_v2_router_state(payload: Dict[str, Any]) -> Dict[str, Any]:
+    pipeline_data = payload.get("pipeline_data")
+    if not isinstance(pipeline_data, dict):
+        return {}
+
+    nested_pipeline_data = pipeline_data.get("pipeline_data")
+    if isinstance(nested_pipeline_data, dict):
+        router_state = nested_pipeline_data.get("interest_intent_router_v2")
+        if isinstance(router_state, dict):
+            return router_state
+
+    for step in pipeline_data.get("steps") or []:
+        if isinstance(step, dict) and step.get("name") == "interest_intent_router_v2":
+            return step
+
+    return {}
+
+
+def _should_run_v2_exploration_refresh(
+    *,
+    user_message_count: int,
+    router_state: Dict[str, Any],
+    core_theme_was_missing: bool,
+) -> Tuple[bool, str]:
+    if user_message_count < 2:
+        return False, "skip_before_second_user_turn"
+
+    if core_theme_was_missing and user_message_count >= CORE_THEME_TRIGGER_MESSAGE_COUNT:
+        return True, "core_theme_missing"
+
+    topic_action = router_state.get("topic_action")
+    interest_change = router_state.get("interest_change")
+
+    if topic_action in {"branch", "switch"}:
+        return True, f"topic_action_{topic_action}"
+
+    if interest_change in {"rising", "strong_dip"}:
+        return True, f"interest_change_{interest_change}"
+
+    if user_message_count > 0 and user_message_count % 2 == 0:
+        return True, "even_user_turn"
+
+    return False, "cadence_skip_odd_stable_turn"
+
+
+def _apply_v2_router_curiosity_guardrail(
+    *,
+    exploration_data: Dict[str, Any],
+    router_state: Dict[str, Any],
+    current_score: int,
+) -> Dict[str, Any]:
+    """
+    The legacy curiosity prompt judges only relation to the last AI question.
+    V2 treats interest as the stronger control signal, so prevent obviously
+    positive engagement from being scored as "off topic".
+    """
+    adjusted = dict(exploration_data)
+    interest_signal = router_state.get("interest_signal")
+    interest_change = router_state.get("interest_change")
+    student_intent = router_state.get("student_intent")
+
+    positive_interest = (
+        interest_change == "rising"
+        or interest_signal == "high"
+        or student_intent in {"deepen_current", "playful_chat", "quiz_or_game"}
+    )
+    negative_interest = interest_change == "strong_dip" or interest_signal in {"low", "done"}
+
+    existing_score = adjusted.get("curiosity_score")
+    if not isinstance(existing_score, int):
+        existing_score = current_score
+
+    if positive_interest and not negative_interest and existing_score <= current_score:
+        adjusted["curiosity_score"] = min(100, current_score + 1)
+        adjusted["curiosity_tip"] = "Good Job! stay focused on the current topic"
+        adjusted["curiosity_reason"] = (
+            "Router guardrail: the student showed positive interest "
+            f"({interest_signal}/{interest_change}, intent={student_intent}), "
+            "so the score was nudged up despite the legacy scorer treating the reply narrowly."
+        )
+        adjusted["curiosity_score_adjusted_by_router"] = True
+    else:
+        adjusted["curiosity_score_adjusted_by_router"] = False
+
+    return adjusted
+
+
+async def _patch_async_pipeline_data(
+    *,
+    message_id: int,
+    append_steps: List[Dict[str, Any]],
+    pipeline_data: Dict[str, Any],
+    curiosity_score: Optional[int],
+) -> None:
+    patch_url = ASYNC_PIPELINE_PATCH_URL_TEMPLATE.format(message_id=message_id)
+    payload = {
+        "append_steps": append_steps,
+        "pipeline_data": _compact_prompt_fields(pipeline_data),
+        "curiosity_score": curiosity_score,
+    }
+    payload["append_steps"] = _compact_prompt_fields(payload["append_steps"])
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.patch(patch_url, json=payload)
+            response.raise_for_status()
+            logger.info(
+                "Patched async pipeline data for message_id=%s with %s step(s)",
+                message_id,
+                len(append_steps),
+            )
+    except Exception as exc:
+        logger.error(
+            "Failed to patch async pipeline data for message_id=%s: %s",
+            message_id,
+            exc,
+            exc_info=True,
+        )
+
+
+async def _run_async_observer_pipeline_steps(
+    *,
+    callback_payload: Dict[str, Any],
+    saved_message_id: int,
+) -> None:
+    conversation_id = callback_payload.get("conversation_id")
+    if not conversation_id:
+        return
+
+    pipeline_key = _callback_pipeline_key(callback_payload)
+    if pipeline_key not in ASYNC_OBSERVER_PIPELINES:
+        return
+
+    try:
+        conversation_id_int = int(conversation_id)
+    except (TypeError, ValueError):
+        logger.warning("Invalid conversation_id for async observer steps: %s", conversation_id)
+        return
+
+    try:
+        messages = await api_service.get_conversation_messages_with_pipeline(conversation_id_int)
+        if not messages:
+            logger.warning(
+                "No messages available for async observer exploration evaluation; conversation_id=%s",
+                conversation_id_int,
+            )
+            return
+
+        current_score = await get_current_curiosity_score(
+            conversation_id_int,
+            prefetched_messages=messages,
+        )
+
+        core_theme = await api_service.get_conversation_core_theme(conversation_id_int)
+        core_theme_was_missing = not bool(core_theme)
+        async_steps: List[Dict[str, Any]] = []
+
+        user_message_count = sum(1 for message in messages if message.get("is_user", False))
+        if (
+            CORE_THEME_EXTRACTION_ENABLED
+            and core_theme_was_missing
+            and user_message_count >= CORE_THEME_TRIGGER_MESSAGE_COUNT
+        ):
+            extracted_theme, core_theme_prompt = await extract_core_theme_from_conversation(
+                conversation_id_int,
+                conversation_history=messages,
+            )
+            core_theme_step = {
+                "name": "core_theme_extraction",
+                "enabled": True,
+                "result": extracted_theme if extracted_theme else "No core theme extracted",
+                "core_theme": extracted_theme,
+                "extraction_successful": extracted_theme is not None,
+                "async_step": True,
+            }
+            async_steps.append(core_theme_step)
+            if extracted_theme:
+                latest_core_theme = await api_service.get_conversation_core_theme(conversation_id_int)
+                if not latest_core_theme:
+                    await update_conversation_theme(conversation_id_int, extracted_theme)
+                    core_theme = extracted_theme
+                else:
+                    core_theme = latest_core_theme
+                    core_theme_step["update_skipped_reason"] = "core_theme_already_set"
+
+        user_input = ""
+        original_message_id = callback_payload.get("original_message_id")
+        for message in messages:
+            if original_message_id and message.get("id") == original_message_id:
+                user_input = message.get("content") or ""
+                break
+
+        conversation_history = [
+            {"is_user": message.get("is_user", False), "content": message.get("content")}
+            for message in messages
+            if message.get("content") is not None
+        ]
+
+        router_state = (
+            _callback_v2_router_state(callback_payload)
+            if pipeline_key == "intent_legacy_v2"
+            else {}
+        )
+        should_refresh, refresh_reason = _should_run_v2_exploration_refresh(
+            user_message_count=user_message_count,
+            router_state=router_state,
+            core_theme_was_missing=core_theme_was_missing,
+        )
+        async_metadata: Dict[str, Any] = {
+            "async_pipeline_updates_complete": True,
+            "async_pipeline_key": pipeline_key,
+            "async_refresh_policy": (
+                "core_theme_when_missing; exploration_score_every_2_user_turns"
+                + (
+                    "_or_on_branch_switch_rising_strong_dip"
+                    if pipeline_key == "intent_legacy_v2"
+                    else ""
+                )
+            ),
+            "async_refresh_reason": refresh_reason,
+            "async_user_message_count": user_message_count,
+        }
+
+        if not should_refresh:
+            await _patch_async_pipeline_data(
+                message_id=saved_message_id,
+                append_steps=async_steps,
+                pipeline_data={
+                    **async_metadata,
+                    "async_exploration_skipped": True,
+                },
+                curiosity_score=None,
+            )
+            return
+
+        exploration_data = await evaluate_exploration_directions(
+            conversation_id=conversation_id_int,
+            core_theme=core_theme,
+            conversation_history=conversation_history,
+            current_query=user_input,
+            current_curiosity_score=current_score,
+        )
+        if not exploration_data:
+            return
+
+        if pipeline_key == "intent_legacy_v2":
+            exploration_data = _apply_v2_router_curiosity_guardrail(
+                exploration_data=exploration_data,
+                router_state=router_state,
+                current_score=current_score,
+            )
+
+        directions = exploration_data.get("directions") or []
+        exploration_step = {
+            "name": "exploration_directions_evaluation",
+            "enabled": True,
+            "result": ", ".join(directions),
+            "directions": directions,
+            "core_theme": exploration_data.get("core_theme", core_theme or ""),
+            "evaluation_successful": exploration_data.get("evaluation_successful", False),
+            "curiosity_score": exploration_data.get("curiosity_score"),
+            "curiosity_reason": exploration_data.get("curiosity_reason"),
+            "curiosity_tip": exploration_data.get("curiosity_tip"),
+            "curiosity_error": exploration_data.get("curiosity_error"),
+            "curiosity_score_adjusted_by_router": exploration_data.get("curiosity_score_adjusted_by_router"),
+            "async_step": True,
+        }
+        async_steps.append(exploration_step)
+        curiosity_score_step = {
+            "prompt": exploration_data.get("prompt"),
+            "raw_response": exploration_data.get("raw_response"),
+            "curiosity_score": exploration_data.get("curiosity_score"),
+            "reason": exploration_data.get("curiosity_reason"),
+            "applied": exploration_data.get("curiosity_score") is not None,
+            "error": exploration_data.get("curiosity_error"),
+            "async_step": True,
+        }
+
+        curiosity_score = exploration_data.get("curiosity_score")
+        patched_curiosity_score = curiosity_score if isinstance(curiosity_score, int) else None
+
+        await _patch_async_pipeline_data(
+            message_id=saved_message_id,
+            append_steps=async_steps,
+            pipeline_data={
+                "exploration_directions_evaluation": exploration_data,
+                "curiosity_score_evaluation": curiosity_score_step,
+                **async_metadata,
+                "async_exploration_skipped": False,
+            },
+            curiosity_score=patched_curiosity_score,
+        )
+    except Exception as exc:
+        logger.error(
+            "Error running async observer pipeline steps for conversation_id=%s, message_id=%s: %s",
+            conversation_id,
+            saved_message_id,
+            exc,
+            exc_info=True,
+        )
+
+
 async def perform_backend_callback(payload: dict):
     """Sends the processing result back to the backend service."""
     logger.info(f"Performing callback to backend for user: {payload.get('user_id')}")
@@ -983,6 +1418,14 @@ async def perform_backend_callback(payload: dict):
             response = await client.post(BACKEND_CALLBACK_URL, json=payload)
             response.raise_for_status() # Raise exception for 4xx/5xx errors
             logger.info(f"Backend callback successful, status: {response.status_code}")
+            response_data = response.json()
+
+        saved_message_id = response_data.get("message_id")
+        if saved_message_id:
+            await _run_async_observer_pipeline_steps(
+                callback_payload=payload,
+                saved_message_id=int(saved_message_id),
+            )
     except httpx.RequestError as exc:
         logger.error(f"Callback request error to {BACKEND_CALLBACK_URL}: {exc}")
     except httpx.HTTPStatusError as exc:
@@ -1166,11 +1609,13 @@ async def generate_opening_message(payload: OpeningMessageRequest):
         llm_service = LLMService()
         
         # Use the formatted prompt (with all placeholders injected)
+        opening_generation_started = time.monotonic()
         llm_response = llm_service.generate_response(
             final_prompt=formatted_prompt,
             call_type="opening_message",  # Use opening_message configuration
             json_mode=False
         )
+        opening_generation_time = time.monotonic() - opening_generation_started
         opening_message = llm_response.get("raw_response", "")
         
         if not opening_message:
@@ -1186,7 +1631,7 @@ async def generate_opening_message(payload: OpeningMessageRequest):
             "conversation_id": payload.conversation_id,
             "ai_message": opening_message,
             "is_opening_message": True,
-            "pipeline_data": {
+            "pipeline_data": _compact_prompt_fields({
                 "pipeline_key": prompt_response.get("pipeline_key", "legacy"),
                 "steps": [
                     {
@@ -1205,10 +1650,11 @@ async def generate_opening_message(payload: OpeningMessageRequest):
                         "previous_memories_count": len(previous_memories) if previous_memories else 0,
                         "had_persona": persona is not None,
                         "llm_model": llm_response.get("model_used", "unknown"),
+                        "time_taken": opening_generation_time,
                         "opening_message_generation": True
                     }
                 ]
-            },
+            }),
             "curiosity_score": curiosity_score
         }
         
