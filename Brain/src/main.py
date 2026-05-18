@@ -1545,7 +1545,7 @@ async def health_check():
 
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
+    return templates.TemplateResponse(request, "index.html")
 
 @app.get("/get-config")
 async def get_config_schema():
@@ -2385,7 +2385,7 @@ async def analyze_student_conversations(request: StudentAnalysisRequest):
 @app.get("/pdf-topics", response_class=HTMLResponse)
 async def pdf_topics_page(request: Request):
     """Serve PDF topic extraction UI."""
-    return templates.TemplateResponse("pdf_topics.html", {"request": request})
+    return templates.TemplateResponse(request, "pdf_topics.html")
 
 
 @app.post("/extract-topics-from-pdf")

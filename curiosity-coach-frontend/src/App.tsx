@@ -37,6 +37,15 @@ const StudentProjectRedirect: React.FC = () => {
   return <Navigate to={`/projects/${kbSourceId || ''}`} replace />;
 };
 
+const PdfTopicsRedirect: React.FC = () => {
+  React.useEffect(() => {
+    const brainUrl = process.env.REACT_APP_BRAIN_API_URL;
+    window.location.replace(brainUrl ? `${brainUrl}/pdf-topics` : '/');
+  }, []);
+
+  return <div className="flex min-h-screen items-center justify-center">Opening PDF topics...</div>;
+};
+
 const App: React.FC = () => {
   return (
     <AuthProvider>
@@ -66,6 +75,7 @@ const App: React.FC = () => {
                 path="/student-project/:kbSourceId"
                 element={<StudentProjectRedirect />}
               />
+              <Route path="/pdf-topics" element={<PdfTopicsRedirect />} />
               <Route
                 path="/chat"
                 element={
