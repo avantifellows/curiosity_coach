@@ -84,7 +84,7 @@ const StudentProjectSectionsPage: React.FC = () => {
         </div>
       </header>
 
-      <div className="mx-auto flex max-w-6xl min-h-[calc(100vh-5rem)] flex-col lg:flex-row">
+      <div className="mx-auto flex max-w-6xl min-h-[calc(100vh-5rem)] flex-col pb-10 lg:flex-row lg:pb-12">
         <aside className="border-b border-violet-200/70 bg-white/35 backdrop-blur-sm lg:w-80 lg:shrink-0 lg:border-b-0 lg:border-r lg:py-6">
           <div className="custom-scrollbar p-4 lg:sticky lg:top-4 lg:max-h-[calc(100vh-6rem)] lg:overflow-y-auto lg:px-4">
             <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-violet-700">Sections</p>
@@ -126,7 +126,7 @@ const StudentProjectSectionsPage: React.FC = () => {
                             active ? 'text-violet-700' : 'text-slate-500'
                           }`}
                         >
-                          {active ? 'Selected' : `Section ${idx + 1}`}
+                          Section {idx + 1}
                         </span>
                         <span className="mt-0.5 line-clamp-2 text-sm font-semibold leading-snug">
                           {s.section_name || s.curriculum_section_key || 'Section'}
@@ -140,7 +140,7 @@ const StudentProjectSectionsPage: React.FC = () => {
           </div>
         </aside>
 
-        <main className="flex flex-1 flex-col px-4 py-8 sm:px-8">
+        <main className="flex flex-1 flex-col px-4 pb-12 pt-8 sm:px-8 lg:pb-16">
           {selected && (
             <>
               <div className="mb-6 flex items-start gap-3">
@@ -162,7 +162,7 @@ const StudentProjectSectionsPage: React.FC = () => {
                 </div>
               </div>
 
-              <div className="mt-auto flex flex-1 flex-col items-center justify-center pb-12 pt-4">
+              <div className="mt-auto flex flex-1 flex-col items-center justify-center pb-10 pt-4">
                 <div className="w-full max-w-md rounded-2xl border border-violet-200 bg-white/90 p-6 text-center shadow-sm backdrop-blur-sm sm:p-8">
                   <AutoAwesome className="mx-auto text-violet-600" sx={{ fontSize: 36 }} />
                   <p className="mt-4 text-base font-medium text-slate-900">
