@@ -26,6 +26,8 @@ interface ChatContextState {
   currentVisitNumber: number | null;
   currentPromptVersionId: number | undefined;
   selectedProjectSourceId: number | null;
+  /** `sections.id` from URL when opening chapter chat for a specific unit */
+  selectedCurriculumSectionId: number | null;
   projectSelection: 'selected' | 'random' | null;
   messages: Message[];
   isLoadingConversations: boolean;
@@ -103,6 +105,15 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const parsed = Number(rawProjectId);
     return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
   }, [location.search]);
+  const selectedCurriculumSectionId = React.useMemo(() => {
+    const queryParams = new URLSearchParams(location.search);
+    const raw = queryParams.get('section_id');
+    if (!raw) {
+      return null;
+    }
+    const parsed = Number(raw);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+  }, [location.search]);
   const projectSelection = React.useMemo(() => {
     const queryParams = new URLSearchParams(location.search);
     const rawSelection = queryParams.get('project_selection');
@@ -164,7 +175,9 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           setChapterCompleteInfo(null);
 
           if (selectedProjectSourceId != null) {
-            const intent = await getChapterChatIntent(selectedProjectSourceId);
+            const intent = await getChapterChatIntent(selectedProjectSourceId, {
+              sectionId: selectedCurriculumSectionId ?? undefined,
+            });
             if (intent.outcome === 'chapter_complete') {
               setChapterCompleteInfo({
                 kbSourceId: intent.kb_source_id,
@@ -187,6 +200,9 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
               ? await createConversation({
                   title: 'New Chat',
                   kb_source_id: selectedProjectSourceId,
+                  ...(selectedCurriculumSectionId != null
+                    ? { section_id: selectedCurriculumSectionId }
+                    : {}),
                 })
               : await createConversation('New Chat');
           const newConversation = response.conversation;
@@ -258,7 +274,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     } finally {
       setIsLoadingConversations(false);
     } 
-  }, [user, location.pathname, selectedProjectSourceId]); // project id drives kb-scoped create
+  }, [user, location.pathname, selectedProjectSourceId, selectedCurriculumSectionId]); // kb + optional section drive create
 
   // --- Fetch Messages for a Conversation --- 
   const fetchMessages = useCallback(async (conversationId: number) => {
@@ -358,6 +374,9 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           ? await createConversation({
               title: title || 'New Chat',
               kb_source_id: selectedProjectSourceId,
+              ...(selectedCurriculumSectionId != null
+                ? { section_id: selectedCurriculumSectionId }
+                : {}),
             })
           : await createConversation(title || 'New Chat');
       const newConversation = response.conversation;
@@ -412,7 +431,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     } finally {
       setIsPreparingConversation(false);
     }
-  }, [user, selectedProjectSourceId]);
+  }, [user, selectedProjectSourceId, selectedCurriculumSectionId]);
 
   // --- Poll for AI Response --- 
   const pollAiResponse = useCallback(async (userMessageId: number, currentConvId: number | null): Promise<(() => void) | undefined> => {
@@ -679,6 +698,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     currentVisitNumber,
     currentPromptVersionId,
     selectedProjectSourceId,
+    selectedCurriculumSectionId,
     projectSelection,
     messages,
     isLoadingConversations,

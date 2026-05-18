@@ -15,6 +15,7 @@ import {
   ProjectSource,
   ProjectSubscriptionResponse,
   SubscribedProject,
+  ProjectSection,
   ChapterChatIntentResponse,
   StudentWithConversation,
   PaginatedStudentConversations,
@@ -113,21 +114,41 @@ export const subscribeToProject = async (kbSourceId: number): Promise<ProjectSub
 };
 
 export const getChapterChatIntent = async (
-  kbSourceId: number
+  kbSourceId: number,
+  options?: { sectionId?: number }
 ): Promise<ChapterChatIntentResponse> => {
   try {
+    const params: Record<string, number> = { kb_source_id: kbSourceId };
+    if (options?.sectionId != null) {
+      params.section_id = options.sectionId;
+    }
     const response = await API.get<ChapterChatIntentResponse>(
       '/projects/chapter-chat-intent',
-      { params: { kb_source_id: kbSourceId } }
+      { params }
     );
     return response.data;
   } catch (error: any) {
     console.error('Error fetching chapter chat intent:', error.response?.data || error.message);
+    const d = error.response?.data?.detail;
     throw new Error(
-      error.response?.data?.detail?.message ||
-        error.response?.data?.detail ||
+      (typeof d === 'object' && d?.message) || (typeof d === 'string' ? d : null) ||
         'Failed to resolve chapter chat'
     );
+  }
+};
+
+export const getProjectSections = async (kbSourceId: number): Promise<ProjectSection[]> => {
+  try {
+    const response = await API.get<ProjectSection[]>(`/projects/${kbSourceId}/sections`);
+    return response.data;
+  } catch (error: any) {
+    console.error('Error fetching project sections:', error.response?.data || error.message);
+    const detail = error.response?.data?.detail;
+    const msg =
+      typeof detail === 'string'
+        ? detail
+        : detail?.message || 'Failed to fetch project sections';
+    throw new Error(msg);
   }
 };
 
@@ -605,6 +626,8 @@ export const listConversations = async (
 export type CreateConversationPayload = {
   title?: string;
   kb_source_id?: number;
+  /** DB primary key of rows in `sections` for this kb_source */
+  section_id?: number;
 };
 
 function formatConversationCreateError(detail: unknown): string {
@@ -627,6 +650,7 @@ export const createConversation = async (
             ...(payload?.kb_source_id != null
               ? { kb_source_id: payload.kb_source_id }
               : {}),
+            ...(payload?.section_id != null ? { section_id: payload.section_id } : {}),
           };
     const response = await API.post<ConversationCreateResponse>('/conversations', body);
     return response.data;

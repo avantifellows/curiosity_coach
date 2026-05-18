@@ -281,9 +281,11 @@ const StudentDashboard: React.FC = () => {
                     <button
                       type="button"
                       className="group flex min-h-[5.5rem] w-full items-center gap-3 rounded-2xl border border-slate-200/90 bg-white/85 px-4 py-3.5 text-left shadow-sm shadow-slate-900/5 transition hover:border-violet-300/90 hover:bg-white hover:shadow-md hover:shadow-violet-500/10 focus:outline-none focus:ring-2 focus:ring-violet-300/80 focus:ring-offset-2 focus:ring-offset-white/50"
-                      onClick={() => {
-                        /* Future: navigate(`/chat?project_source_id=${project.kb_source_id}`) */
-                      }}
+                      onClick={() =>
+                        navigate(`/student-project/${project.kb_source_id}`, {
+                          state: { fileName: project.file_name },
+                        })
+                      }
                     >
                       <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-violet-500/[0.08] text-violet-600 transition group-hover:bg-violet-500/15">
                         <MenuBook sx={{ fontSize: 22 }} />

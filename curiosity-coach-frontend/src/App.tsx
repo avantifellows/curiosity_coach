@@ -12,6 +12,7 @@ import TeacherDashboard from './components/TeacherDashboard';
 import TeacherConversationView from './components/TeacherConversationView';
 import StudentAnalysis from './components/StudentAnalysis';
 import StudentDashboard from './components/StudentDashboard';
+import StudentProjectSectionsPage from './components/StudentProjectSectionsPage';
 
 // Protected route component
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -45,6 +46,14 @@ const App: React.FC = () => {
                 element={
                   <ProtectedRoute>
                     <StudentDashboard />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/student-project/:kbSourceId"
+                element={
+                  <ProtectedRoute>
+                    <StudentProjectSectionsPage />
                   </ProtectedRoute>
                 }
               />

@@ -20,6 +20,7 @@ class ChapterIntentKind(str, Enum):
     NOT_SUBSCRIBED = "not_subscribed"
     NO_UNITS = "no_units"
     SOURCE_NOT_FOUND = "source_not_found"
+    SECTION_NOT_FOUND = "section_not_found"
 
 
 @dataclass
@@ -46,7 +47,12 @@ def build_core_chat_theme(section_title: str, section_focus: str) -> str:
     return _trim_theme("\n\n".join(parts))
 
 
-def resolve_chapter_chat_intent(db: Session, user_id: int, kb_source_id: int) -> ChapterChatIntent:
+def resolve_chapter_chat_intent(
+    db: Session,
+    user_id: int,
+    kb_source_id: int,
+    section_pk: Optional[int] = None,
+) -> ChapterChatIntent:
     source = db.query(KBSource).filter(KBSource.id == kb_source_id).first()
     if not source:
         return ChapterChatIntent(kind=ChapterIntentKind.SOURCE_NOT_FOUND)
@@ -77,13 +83,21 @@ def resolve_chapter_chat_intent(db: Session, user_id: int, kb_source_id: int) ->
             kb_source_id=kb_source_id,
         )
 
-    first = sections[0]
-    focus_parts = [p for p in [(first.section_description or "").strip(), (first.section_content or "").strip()] if p]
-    focus = "\n\n".join(focus_parts) if focus_parts else (first.section_name or "").strip()
+    chosen = None
+    if section_pk is not None:
+        chosen = next((s for s in sections if s.id == section_pk), None)
+        if chosen is None:
+            return ChapterChatIntent(
+                kind=ChapterIntentKind.SECTION_NOT_FOUND,
+                kb_source_id=kb_source_id,
+            )
+    anchor = chosen if chosen is not None else sections[0]
+    focus_parts = [p for p in [(anchor.section_description or "").strip(), (anchor.section_content or "").strip()] if p]
+    focus = "\n\n".join(focus_parts) if focus_parts else (anchor.section_name or "").strip()
 
     return ChapterChatIntent(
         kind=ChapterIntentKind.ACTIVE,
-        foundational_unit_id=first.id,
-        core_chat_theme=build_core_chat_theme(first.section_name or "", focus),
+        foundational_unit_id=anchor.id,
+        core_chat_theme=build_core_chat_theme(anchor.section_name or "", focus),
         kb_source_id=kb_source_id,
     )

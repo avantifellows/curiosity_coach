@@ -177,11 +177,20 @@ export interface SubscribedProject {
   file_name: string;
 }
 
+export interface ProjectSection {
+  id: number;
+  section_order: number;
+  section_name: string;
+  curriculum_section_key: string;
+  description_preview: string;
+}
+
 export type ChapterChatIntentOutcome =
   | 'active'
   | 'chapter_complete'
   | 'not_subscribed'
-  | 'no_units';
+  | 'no_units'
+  | 'section_not_found';
 
 export interface ChapterChatIntentResponse {
   outcome: ChapterChatIntentOutcome;

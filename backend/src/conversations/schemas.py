@@ -12,6 +12,11 @@ class ConversationBase(BaseModel):
         ge=1,
         description="When set, server resolves CORE_THEME and foundational unit from progress for this project.",
     )
+    section_id: Optional[int] = Field(
+        default=None,
+        ge=1,
+        description="When set with kb_source_id, anchors theme to this sections.id (DB PK).",
+    )
 
 class ConversationTitleUpdate(BaseModel):
     title: str

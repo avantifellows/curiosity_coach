@@ -38,6 +38,19 @@ class SubscribedProjectResponse(BaseModel):
     file_name: str
 
 
+class ProjectSectionResponse(BaseModel):
+    """One curriculum section row (sections.id is the DB primary key)."""
+
+    id: int
+    section_order: int
+    section_name: str
+    curriculum_section_key: str = Field(
+        ...,
+        description="Ingest-defined key (column sections.section_id).",
+    )
+    description_preview: str = ""
+
+
 class ChapterChatIntentResponse(BaseModel):
     outcome: str
     kb_source_id: int
@@ -51,6 +64,11 @@ class ChapterChatIntentResponse(BaseModel):
 @router.get("/chapter-chat-intent", response_model=ChapterChatIntentResponse)
 def get_chapter_chat_intent(
     kb_source_id: int = Query(..., ge=1),
+    section_id: Optional[int] = Query(
+        None,
+        ge=1,
+        description="Optional sections.id (DB PK) to anchor theme; defaults to first section.",
+    ),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -58,11 +76,18 @@ def get_chapter_chat_intent(
     Resolve which section anchors the next chat for this kb source.
     foundational_unit_id is the section row id (legacy field name for API compatibility).
     """
-    intent = resolve_chapter_chat_intent(db, current_user.id, kb_source_id)
+    intent = resolve_chapter_chat_intent(
+        db, current_user.id, kb_source_id, section_pk=section_id
+    )
     if intent.kind == ChapterIntentKind.SOURCE_NOT_FOUND:
         raise HTTPException(
             status_code=404,
             detail={"code": "source_not_found", "message": "Project source not found"},
+        )
+    if intent.kind == ChapterIntentKind.SECTION_NOT_FOUND:
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "section_not_found", "message": "That section was not found for this project."},
         )
 
     outcome_map = {
@@ -133,6 +158,64 @@ def list_subscribed_projects(
             file_name=row.file_name,
         )
         for row in rows
+    ]
+
+
+_SECTION_PREVIEW_MAX = 280
+
+
+def _preview_text(text: str, max_len: int = _SECTION_PREVIEW_MAX) -> str:
+    t = (text or "").strip().replace("\r\n", "\n").replace("\r", "\n")
+    if len(t) <= max_len:
+        return t
+    return t[: max_len - 1].rstrip() + "…"
+
+
+@router.get("/{kb_source_id}/sections", response_model=List[ProjectSectionResponse])
+def list_subscribed_project_sections(
+    kb_source_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Curriculum sections for a kb source the user is subscribed to."""
+    source = db.query(KBSource).filter(KBSource.id == kb_source_id).first()
+    if not source:
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "source_not_found", "message": "Project source not found"},
+        )
+    subscribed = (
+        db.query(UserKbSourceSubscription)
+        .filter(
+            UserKbSourceSubscription.user_id == current_user.id,
+            UserKbSourceSubscription.kb_source_id == kb_source_id,
+        )
+        .first()
+    )
+    if not subscribed:
+        raise HTTPException(
+            status_code=403,
+            detail={"code": "not_subscribed", "message": "Subscribe to this project to view its sections."},
+        )
+    rows = (
+        db.query(Section)
+        .filter(Section.kb_source_id == kb_source_id)
+        .order_by(Section.section_order.asc(), Section.id.asc())
+        .all()
+    )
+    return [
+        ProjectSectionResponse(
+            id=s.id,
+            section_order=s.section_order,
+            section_name=s.section_name or "",
+            curriculum_section_key=s.section_id or "",
+            description_preview=_preview_text(
+                (s.section_description or "").strip()
+                or (s.section_content or "").strip()
+                or (s.section_name or "")
+            ),
+        )
+        for s in rows
     ]
 
 
