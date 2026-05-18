@@ -1,5 +1,5 @@
 import React from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation, useParams } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { ChatProvider } from './context/ChatContext';
 import Login from './components/Login';
@@ -32,6 +32,11 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
   return <>{children}</>;
 };
 
+const StudentProjectRedirect: React.FC = () => {
+  const { kbSourceId } = useParams();
+  return <Navigate to={`/projects/${kbSourceId || ''}`} replace />;
+};
+
 const App: React.FC = () => {
   return (
     <AuthProvider>
@@ -50,12 +55,16 @@ const App: React.FC = () => {
                 }
               />
               <Route
-                path="/student-project/:kbSourceId"
+                path="/projects/:kbSourceId"
                 element={
                   <ProtectedRoute>
                     <StudentProjectSectionsPage />
                   </ProtectedRoute>
                 }
+              />
+              <Route
+                path="/student-project/:kbSourceId"
+                element={<StudentProjectRedirect />}
               />
               <Route
                 path="/chat"
