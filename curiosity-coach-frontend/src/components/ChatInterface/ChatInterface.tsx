@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useLocation } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { CircularProgress } from '@mui/material';
 import { AutoAwesomeRounded } from '@mui/icons-material';
 import { useAuth } from '../../context/AuthContext';
@@ -36,6 +36,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ mode }) => {
     preparationStatus,
     isPreparingConversation,
     isInitializingForNewUser,
+    chapterCompleteInfo,
   } = useChat();
 
   const [newMessage, setNewMessage] = useState('');
@@ -199,6 +200,27 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ mode }) => {
 
   // Sidebar disabled for all visits
   const shouldShowSidebar = false;
+
+  if (chapterCompleteInfo) {
+    return (
+      <div className="flex h-screen-mobile main-gradient-bg items-center justify-center px-6">
+        <div className="w-full max-w-md rounded-3xl border border-emerald-200 bg-white/95 p-8 text-center shadow-sm">
+          <h2 className="mb-3 text-2xl font-semibold text-slate-900">
+            {chapterCompleteInfo.message}
+          </h2>
+          <p className="mb-6 text-slate-600">
+            Great work on this chapter. You can pick another project from your dashboard when you are ready.
+          </p>
+          <Link
+            to="/student-dashboard"
+            className="inline-flex rounded-xl bg-violet-600 px-5 py-3 text-sm font-medium text-white hover:bg-violet-700"
+          >
+            Back to dashboard
+          </Link>
+        </div>
+      </div>
+    );
+  }
 
   // Show onboarding loading screen during conversation preparation (all visits)
   if (isInitializingForNewUser || isPreparingConversation) {

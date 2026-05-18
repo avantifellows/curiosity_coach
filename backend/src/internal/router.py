@@ -39,6 +39,97 @@ class PipelineDataPatchPayload(BaseModel):
     append_steps: List[Dict[str, Any]] = Field(default_factory=list)
     curiosity_score: Optional[int] = None
 
+
+class ExtractedSectionItem(BaseModel):
+    section_id: str
+    section_order: int = 0
+    section_name: str = ""
+    section_description: str = ""
+    section_content: str = ""
+    section_question_list: List[Any] = Field(default_factory=list)
+
+
+class SaveExtractedTopicsPayload(BaseModel):
+    file_name: str
+    details: Optional[str] = None
+    created_by: Optional[int] = None
+    force_proceed: bool = False
+    sections: List[ExtractedSectionItem]
+
+
+def _normalize_extracted_topics_payload(payload: SaveExtractedTopicsPayload) -> dict:
+    file_name = (payload.file_name or "").strip()
+    if not file_name:
+        raise HTTPException(status_code=422, detail="file_name must be a non-empty string")
+
+    details = payload.details.strip() if payload.details else None
+
+    normalized_sections: List[dict] = []
+    for idx, s in enumerate(payload.sections):
+        sid = (s.section_id or "").strip()
+        if not sid:
+            raise HTTPException(
+                status_code=422,
+                detail=f"sections[{idx}].section_id must be a non-empty string",
+            )
+        if not isinstance(s.section_question_list, list):
+            raise HTTPException(
+                status_code=422,
+                detail=f"sections[{idx}].section_question_list must be a list",
+            )
+        try:
+            order = int(s.section_order)
+        except (TypeError, ValueError):
+            raise HTTPException(
+                status_code=422,
+                detail=f"sections[{idx}].section_order must be an integer",
+            ) from None
+
+        normalized_sections.append(
+            {
+                "section_id": sid,
+                "section_order": order,
+                "section_name": (s.section_name or "").strip(),
+                "section_description": (s.section_description or "").strip(),
+                "section_content": (s.section_content or "").strip(),
+                "section_question_list": s.section_question_list,
+            }
+        )
+
+    if not normalized_sections:
+        raise HTTPException(status_code=422, detail="sections must contain at least one item")
+
+    normalized_sections.sort(key=lambda x: (x["section_order"], x["section_id"]))
+
+    return {
+        "file_name": file_name,
+        "details": details,
+        "created_by": payload.created_by,
+        "force_proceed": payload.force_proceed,
+        "sections": normalized_sections,
+    }
+
+
+class FileNameExistsPayload(BaseModel):
+    file_name: str
+
+
+@router.post("/pdf-topics/file-name-exists")
+def check_pdf_topics_file_name_exists(
+    payload: FileNameExistsPayload,
+    db: Session = Depends(get_db),
+):
+    file_name = (payload.file_name or "").strip()
+    if not file_name:
+        raise HTTPException(status_code=422, detail="file_name must be a non-empty string")
+
+    existing_count = crud.get_kb_source_count_by_file_name(db, file_name)
+    return {
+        "file_name": file_name,
+        "exists": existing_count > 0,
+        "existing_count": existing_count,
+    }
+
 @router.get("/users/{user_id}/memories", response_model=List[MemoryInDB])
 def get_user_conversation_memories(user_id: int, db: Session = Depends(get_db)):
     """
@@ -461,6 +552,57 @@ def save_knowledge_updates(conversation_id: int, payload: KnowledgeItemsPayload,
     except Exception as e:
         logger.error(f"Error saving knowledge updates for conversation {conversation_id}: {e}")
         raise HTTPException(status_code=500, detail=f"Error saving knowledge updates: {str(e)}")
+
+
+@router.post("/pdf-topics/ingest")
+def ingest_pdf_topics(
+    payload: SaveExtractedTopicsPayload,
+    db: Session = Depends(get_db),
+):
+    """
+    Internal endpoint to persist extracted PDF topics into kb_source + sections.
+    """
+    normalized = _normalize_extracted_topics_payload(payload)
+    logger.info(
+        "Ingesting extracted PDF topics",
+        extra={
+            "file_name": normalized["file_name"],
+            "section_count": len(normalized["sections"]),
+            "has_details": bool(normalized["details"]),
+            "created_by": normalized["created_by"],
+            "force_proceed": normalized["force_proceed"],
+        },
+    )
+
+    try:
+        existing_count = crud.get_kb_source_count_by_file_name(db, normalized["file_name"])
+        if existing_count > 0 and not normalized["force_proceed"]:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "file_name_exists",
+                    "message": "File name already exists. Confirm if you want to proceed.",
+                    "file_name": normalized["file_name"],
+                    "existing_count": existing_count,
+                },
+            )
+
+        result = crud.save_extracted_topics_payload(
+            db=db,
+            file_name=normalized["file_name"],
+            details=normalized["details"],
+            created_by=normalized["created_by"],
+            sections_payload=normalized["sections"],
+        )
+        db.commit()
+        return {"status": "success", **result}
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error("Error ingesting extracted PDF topics: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error ingesting extracted PDF topics: {str(e)}")
 
 
 # --- Analysis Data Endpoints for Brain ---

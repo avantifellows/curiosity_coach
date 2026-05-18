@@ -9,7 +9,11 @@ from src.models import User, Conversation, Tag # Assuming User model is needed f
 # TODO: Verify the correct import path and function name for auth dependency
 from src.auth.dependencies import get_current_user # Use the new dependency that returns the User object
 from src.conversations import schemas # Use the schemas we just created
-from src import models # Import CRUD functions from models.py
+from src import models  # Import CRUD functions from models.py
+from src.projects.progress_selection import (
+    ChapterIntentKind,
+    resolve_chapter_chat_intent,
+)
 
 # Set up logger for this module
 logger = logging.getLogger(__name__)
@@ -174,6 +178,65 @@ async def create_new_conversation(
     start_time = time.time()
     title = conversation_data.title if conversation_data else "New Chat"
     core_chat_theme = conversation_data.core_chat_theme if conversation_data else None
+
+    if conversation_data and conversation_data.section_id is not None:
+        if conversation_data.kb_source_id is None:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "code": "invalid_request",
+                    "message": "section_id must be sent together with kb_source_id.",
+                },
+            )
+
+    if conversation_data and conversation_data.kb_source_id is not None:
+        intent = resolve_chapter_chat_intent(
+            db,
+            current_user.id,
+            conversation_data.kb_source_id,
+            section_pk=conversation_data.section_id,
+        )
+        if intent.kind == ChapterIntentKind.SOURCE_NOT_FOUND:
+            raise HTTPException(
+                status_code=404,
+                detail={"code": "source_not_found", "message": "Project source not found"},
+            )
+        if intent.kind == ChapterIntentKind.SECTION_NOT_FOUND:
+            raise HTTPException(
+                status_code=404,
+                detail={"code": "section_not_found", "message": "That section was not found for this project."},
+            )
+        if intent.kind == ChapterIntentKind.CHAPTER_COMPLETE:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "code": "chapter_complete",
+                    "message": "You have finished this chapter.",
+                },
+            )
+        if intent.kind == ChapterIntentKind.NOT_SUBSCRIBED:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "not_subscribed",
+                    "message": "Subscribe to this project before starting chat.",
+                },
+            )
+        if intent.kind == ChapterIntentKind.NO_UNITS:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "no_units",
+                    "message": "This project has no sections yet.",
+                },
+            )
+        if intent.kind != ChapterIntentKind.ACTIVE or intent.foundational_unit_id is None:
+            raise HTTPException(
+                status_code=500,
+                detail={"code": "intent_error", "message": "Unable to resolve chapter chat intent."},
+            )
+        core_chat_theme = intent.core_chat_theme
+
     preparation_status = "ready"
     ai_opening_message = None
     conversation = None
@@ -311,7 +374,7 @@ async def create_new_conversation(
             visit_number=visit_number,
             db=db
         )
-        
+
         logger.info(f"Opening message generated successfully")
         
         # 7. Return conversation with visit info
@@ -331,12 +394,13 @@ async def create_new_conversation(
         conversation_with_visit = ConversationWithVisit(
             id=conversation.id,
             user_id=conversation.user_id,
-            title=conversation.title,
+            title=conversation.title or "New Chat",
             visit_number=visit_number,
             prompt_version_id=conversation.prompt_version_id,
+            core_chat_theme=conversation.core_chat_theme,
             tags=[],
             created_at=conversation.created_at,
-            updated_at=conversation.updated_at
+            updated_at=conversation.updated_at,
         )
         
         response = ConversationCreateResponse(
@@ -635,7 +699,7 @@ async def get_conversation_memory_endpoint(
         f"get_conversation_memory_endpoint completed successfully - "
         f"conversation_id: {conversation_id}"
     )
-    return memory.memory_data 
+    return memory.memory_data
 
 
 @router.put("/{conversation_id}/core-chat-theme", response_model=schemas.Conversation)

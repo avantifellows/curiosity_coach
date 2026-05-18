@@ -1,8 +1,8 @@
-from fastapi import FastAPI, Request, HTTPException, BackgroundTasks, Depends
+from fastapi import FastAPI, Request, HTTPException, BackgroundTasks, Depends, UploadFile, File
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 import uvicorn
 import httpx # Added for callback
 from typing import Optional, List, Dict, Any, Tuple
@@ -10,6 +10,7 @@ import os
 from dotenv import load_dotenv # Added import
 import json # Added for S3 config parsing
 import re
+import io
 import boto3 # Added for S3 interaction
 from botocore.exceptions import NoCredentialsError, PartialCredentialsError, ClientError # Added for S3 error handling
 from mangum import Mangum
@@ -19,6 +20,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 import threading
 from functools import partial
+from pypdf import PdfReader
 from src.core.core_theme_config import (
     CORE_THEME_EXTRACTION_ENABLED,
     CORE_THEME_MAX_RETRIES,
@@ -30,6 +32,8 @@ from src.core.core_theme_extractor import (
     update_conversation_theme,
 )
 from src.core.exploration_directions_evaluator import evaluate_exploration_directions
+from src.core.chat_controller import control_chat_response
+from src.core.age_adapter import generate_response_for_13_year_old
 from src.process_query_entrypoint import (
     process_query,
     process_follow_up,
@@ -220,6 +224,61 @@ def _parse_evaluation_metrics(raw_response: str) -> Dict[str, Any]:
     metrics["topics"] = normalized_topics[:5]
 
     return metrics
+
+
+def _validate_and_normalize_pdf_sections_payload(parsed: Any) -> List[Dict[str, Any]]:
+    """Validate and normalize LLM JSON with top-level 'sections' array."""
+    if not isinstance(parsed, dict):
+        raise ValueError("LLM response schema error: expected a JSON object")
+
+    raw_sections = parsed.get("sections")
+    if raw_sections is None:
+        raw_sections = parsed.get("Sections")
+
+    if not isinstance(raw_sections, list) or not raw_sections:
+        raise ValueError("LLM response schema error: 'sections' must be a non-empty list")
+
+    normalized: List[Dict[str, Any]] = []
+    for idx, item in enumerate(raw_sections):
+        if not isinstance(item, dict):
+            raise ValueError(
+                f"LLM response schema error: sections[{idx}] must be an object"
+            )
+
+        sid = item.get("section_id")
+        if not isinstance(sid, str) or not sid.strip():
+            raise ValueError(
+                f"LLM response schema error: sections[{idx}].section_id must be a non-empty string"
+            )
+
+        sq = item.get("section_question_list")
+        if sq is None:
+            sq = []
+        if not isinstance(sq, list):
+            raise ValueError(
+                f"LLM response schema error: sections[{idx}].section_question_list must be a list"
+            )
+
+        try:
+            order = int(item.get("section_order", 0))
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"LLM response schema error: sections[{idx}].section_order must be an integer"
+            ) from exc
+
+        normalized.append(
+            {
+                "section_id": sid.strip(),
+                "section_order": order,
+                "section_name": str(item.get("section_name") or "").strip(),
+                "section_description": str(item.get("section_description") or "").strip(),
+                "section_content": str(item.get("section_content") or "").strip(),
+                "section_question_list": sq,
+            }
+        )
+
+    normalized.sort(key=lambda x: (x["section_order"], x["section_id"]))
+    return normalized
 
 
 async def get_current_curiosity_score(
@@ -836,6 +895,27 @@ class BatchTaskRequest(BaseModel):
     section: Optional[str] = None
     # Student analysis fields
     student_id: Optional[int] = None
+
+
+class ExtractedSectionItem(BaseModel):
+    section_id: str
+    section_order: int = 0
+    section_name: str = ""
+    section_description: str = ""
+    section_content: str = ""
+    section_question_list: List[Any] = Field(default_factory=list)
+
+
+class SaveExtractedTopicsRequest(BaseModel):
+    file_name: str
+    details: Optional[str] = None
+    created_by: Optional[int] = None
+    force_proceed: bool = False
+    sections: List[ExtractedSectionItem]
+
+
+class CheckExtractedTopicsFileNameRequest(BaseModel):
+    file_name: str
 
 # Updated dequeue function containing the core logic
 async def dequeue(message: MessagePayload, background_tasks: Optional[BackgroundTasks] = None):
@@ -1695,6 +1775,42 @@ async def generate_opening_message(payload: OpeningMessageRequest):
         logger.error(f"Error generating opening message: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Internal error: {str(e)}")
 
+
+def _parse_fu_completion_status(raw: str) -> str:
+    text = (raw or "").strip().lower()
+    matches = list(re.finditer(r"\b(done|ongoing)\b", text))
+    if not matches:
+        return "ongoing"
+    return "done" if matches[-1].group(1) == "done" else "ongoing"
+
+
+class FUCompletionClassifyPayload(BaseModel):
+    prompt: str
+
+
+@app.post("/fu-completion-classify")
+async def fu_completion_classify(payload: FUCompletionClassifyPayload):
+    """
+    Run the rendered fu_completion_checker prompt and return ongoing vs done.
+    Used by the backend after a chapter-scoped conversation session ends.
+    """
+    if not (payload.prompt or "").strip():
+        raise HTTPException(status_code=400, detail="prompt is required")
+    llm_service = LLMService()
+    try:
+        llm_response = llm_service.generate_response(
+            final_prompt=payload.prompt,
+            call_type="fu_completion_checker",
+            json_mode=False,
+        )
+    except Exception as e:
+        logger.error("fu_completion_checker LLM failed: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"LLM classification failed: {e}") from e
+    raw = (llm_response or {}).get("raw_response", "") or ""
+    status = _parse_fu_completion_status(raw)
+    return {"status": status, "raw_response": raw}
+
+
 @app.post("/query")
 async def handle_query(message: MessagePayload, background_tasks: BackgroundTasks):
     # The /query endpoint now directly accepts the full message payload
@@ -2263,6 +2379,132 @@ async def analyze_student_conversations(request: StudentAnalysisRequest):
     except Exception as e:
         logger.error(f"Error generating student analysis: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to generate analysis: {str(e)}")
+
+
+@app.get("/pdf-topics", response_class=HTMLResponse)
+async def pdf_topics_page(request: Request):
+    """Serve PDF topic extraction UI."""
+    return templates.TemplateResponse("pdf_topics.html", {"request": request})
+
+
+@app.post("/extract-topics-from-pdf")
+async def extract_topics_from_pdf(file: UploadFile = File(...)):
+    """Extract sections from uploaded PDF (preview only; DB write via save-extracted-topics)."""
+    try:
+        if not file.filename:
+            raise HTTPException(status_code=400, detail="Uploaded file is missing a filename")
+
+        contents = await file.read()
+        if not contents:
+            raise HTTPException(status_code=400, detail="Uploaded file is empty")
+
+        reader = PdfReader(io.BytesIO(contents))
+        pdf_text = "\n".join((page.extract_text() or "").strip() for page in reader.pages).strip()
+        if not pdf_text:
+            raise HTTPException(status_code=400, detail="Could not extract text from PDF")
+
+        prompt_name = "pdf_topic_extraction"
+        prompt_template = await api_service.get_prompt_template(prompt_name, prefer_production=True)
+        if not prompt_template:
+            raise HTTPException(status_code=404, detail=f"Prompt '{prompt_name}' not found in database")
+
+        final_prompt = prompt_template.replace("{{PDF_CONTENT}}", pdf_text)
+
+        llm_service = LLMService()
+        raw_response = llm_service.get_completion(
+            messages=[{"role": "user", "content": final_prompt}],
+            call_type="pdf_topic_extraction",
+            json_mode=True,
+        )
+
+        try:
+            parsed = json.loads(raw_response)
+        except json.JSONDecodeError as exc:
+            logger.error("LLM returned invalid JSON for PDF topic extraction: %s", raw_response)
+            raise HTTPException(status_code=500, detail="LLM returned invalid JSON") from exc
+
+        try:
+            sections = _validate_and_normalize_pdf_sections_payload(parsed)
+        except ValueError as exc:
+            logger.warning("PDF extraction schema validation failed: %s", exc)
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+        return {
+            "filename": file.filename,
+            "page_count": len(reader.pages),
+            "sections": sections,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Error extracting topics from PDF: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to extract topics: {str(e)}")
+
+
+@app.post("/save-extracted-topics")
+async def save_extracted_topics(payload: SaveExtractedTopicsRequest):
+    """Persist already-generated PDF extraction output to backend DB tables."""
+    try:
+        normalized_sections = _validate_and_normalize_pdf_sections_payload(
+            {"sections": [s.model_dump() for s in payload.sections]}
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    file_name = (payload.file_name or "").strip()
+    if not file_name:
+        raise HTTPException(status_code=422, detail="file_name is required")
+
+    details = payload.details.strip() if isinstance(payload.details, str) and payload.details.strip() else None
+
+    try:
+        ingestion_result = await api_service.ingest_pdf_topics(
+            file_name=file_name,
+            details=details,
+            created_by=payload.created_by,
+            force_proceed=payload.force_proceed,
+            sections=normalized_sections,
+        )
+    except httpx.TimeoutException as exc:
+        raise HTTPException(status_code=504, detail="Timed out while saving extracted topics") from exc
+    except httpx.HTTPStatusError as exc:
+        detail = "Backend ingestion request failed"
+        if exc.response is not None:
+            try:
+                detail = exc.response.json().get("detail", exc.response.text)
+            except Exception:
+                detail = exc.response.text
+        raise HTTPException(status_code=exc.response.status_code, detail=detail) from exc
+    except httpx.RequestError as exc:
+        raise HTTPException(status_code=503, detail=f"Could not reach backend ingestion endpoint: {str(exc)}") from exc
+    except Exception as exc:
+        logger.error("Unexpected error while saving extracted topics: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to save extracted topics: {str(exc)}") from exc
+
+    return ingestion_result
+
+
+@app.post("/check-extracted-topics-file-name")
+async def check_extracted_topics_file_name(payload: CheckExtractedTopicsFileNameRequest):
+    file_name = (payload.file_name or "").strip()
+    if not file_name:
+        raise HTTPException(status_code=422, detail="file_name is required")
+
+    try:
+        return await api_service.check_pdf_topics_file_name_exists(file_name)
+    except httpx.TimeoutException as exc:
+        raise HTTPException(status_code=504, detail="Timed out while checking file name") from exc
+    except httpx.HTTPStatusError as exc:
+        detail = "Backend file-name-check request failed"
+        if exc.response is not None:
+            try:
+                detail = exc.response.json().get("detail", exc.response.text)
+            except Exception:
+                detail = exc.response.text
+        raise HTTPException(status_code=exc.response.status_code, detail=detail) from exc
+    except httpx.RequestError as exc:
+        raise HTTPException(status_code=503, detail=f"Could not reach backend file-name-check endpoint: {str(exc)}") from exc
 
 
 if __name__ == '__main__':

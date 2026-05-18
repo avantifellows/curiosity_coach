@@ -30,6 +30,11 @@ class User(Base):
     persona = relationship("UserPersona", back_populates="user", uselist=False, cascade="all, delete-orphan")
     feedbacks = relationship("UserFeedback", back_populates="user", cascade="all, delete-orphan")
     student_profile = relationship("Student", back_populates="user", uselist=False, cascade="all, delete-orphan")
+    kb_source_subscriptions = relationship(
+        "UserKbSourceSubscription",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
 
 
 student_tags = Table(
@@ -517,6 +522,68 @@ class PromptVersion(Base):
 
     def __repr__(self):
         return f"<PromptVersion(id={self.id}, prompt_id={self.prompt_id}, version={self.version_number}, active={self.is_active}, production={self.is_production}, user_id={self.user_id})>"
+
+# --- Ingestion (KB + sections) ---
+
+class KBSource(Base):
+    __tablename__ = "kb_source"
+
+    id = Column(Integer, primary_key=True, index=True)
+    file_name = Column(String(255), nullable=False, index=True)
+    details = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    created_by = Column(Integer, nullable=True)
+
+    sections = relationship("Section", back_populates="kb_source", cascade="all, delete-orphan")
+    user_subscriptions = relationship(
+        "UserKbSourceSubscription",
+        back_populates="kb_source",
+        cascade="all, delete-orphan",
+    )
+
+
+class UserKbSourceSubscription(Base):
+    __tablename__ = "user_kb_source_subscription"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    kb_source_id = Column(Integer, ForeignKey("kb_source.id", ondelete="CASCADE"), nullable=False, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    user = relationship("User", back_populates="kb_source_subscriptions")
+    kb_source = relationship("KBSource", back_populates="user_subscriptions")
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "kb_source_id", name="uq_user_kb_source_subscription"),
+    )
+
+
+class Section(Base):
+    __tablename__ = "sections"
+
+    id = Column(Integer, primary_key=True, index=True)
+    kb_source_id = Column(Integer, ForeignKey("kb_source.id", ondelete="CASCADE"), nullable=False, index=True)
+    section_id = Column(String(255), nullable=False)
+    section_name = Column(Text, nullable=False, default="")
+    section_description = Column(Text, nullable=False, default="")
+    section_content = Column(Text, nullable=False, default="")
+    section_question_list = Column(JSON, nullable=False)
+    section_order = Column(Integer, nullable=False, default=0, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    kb_source = relationship("KBSource", back_populates="sections")
+
+    __table_args__ = (
+        UniqueConstraint("kb_source_id", "section_id", name="uq_sections_kb_section_id"),
+    )
+
+
+class StudentProgressTracker(Base):
+    __tablename__ = "student_progress_tracker"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, nullable=False, unique=True, index=True)
+    context = Column(Text, nullable=False)
 
 # --- CRUD Helper Functions ---
 

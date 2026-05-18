@@ -9,3 +9,5 @@ mangum
 httpx
 boto3
 pydantic
+pypdf
+python-multipart
