@@ -18,6 +18,7 @@ if project_root not in sys.path:
 from src.main import (
     app, dequeue, MessagePayload, process_memory_generation_batch,
     process_class_analysis_task, process_student_analysis_task,
+    process_pdf_topic_extraction_task,
 )
 from src.core.user_persona_generator import generate_persona_for_user
 from pydantic import ValidationError
@@ -111,6 +112,17 @@ def lambda_handler(event, context):
                         processed_messages += 1
                     else:
                         logger.warning("STUDENT_ANALYSIS task received with missing job_id or student_id.")
+                        failed_messages += 1
+                    continue
+
+                elif task_type == "PDF_TOPIC_EXTRACTION":
+                    job_id = message_body.get("job_id")
+                    if job_id:
+                        logger.info(f"Detected PDF_TOPIC_EXTRACTION task for job_id: {job_id}")
+                        asyncio.run(process_pdf_topic_extraction_task(job_id))
+                        processed_messages += 1
+                    else:
+                        logger.warning("PDF_TOPIC_EXTRACTION task received with missing job_id.")
                         failed_messages += 1
                     continue
 

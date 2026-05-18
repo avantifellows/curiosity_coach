@@ -282,6 +282,29 @@ def _validate_and_normalize_pdf_sections_payload(parsed: Any) -> List[Dict[str, 
     return normalized
 
 
+async def _generate_pdf_topic_sections(pdf_text: str) -> List[Dict[str, Any]]:
+    prompt_name = "pdf_topic_extraction"
+    prompt_template = await api_service.get_prompt_template(prompt_name, prefer_production=True)
+    if not prompt_template:
+        raise ValueError(f"Prompt '{prompt_name}' not found in database")
+
+    final_prompt = prompt_template.replace("{{PDF_CONTENT}}", pdf_text)
+    llm_service = LLMService()
+    raw_response = llm_service.get_completion(
+        messages=[{"role": "user", "content": final_prompt}],
+        call_type="pdf_topic_extraction",
+        json_mode=True,
+    )
+
+    try:
+        parsed = json.loads(raw_response)
+    except json.JSONDecodeError as exc:
+        logger.error("LLM returned invalid JSON for PDF topic extraction: %s", raw_response)
+        raise ValueError("LLM returned invalid JSON") from exc
+
+    return _validate_and_normalize_pdf_sections_payload(parsed)
+
+
 async def get_current_curiosity_score(
     conversation_id: Optional[int],
     prefetched_messages: Optional[List[Dict[str, Any]]] = None,
@@ -917,6 +940,15 @@ class SaveExtractedTopicsRequest(BaseModel):
 
 class CheckExtractedTopicsFileNameRequest(BaseModel):
     file_name: str
+
+
+class PdfTopicExtractionJobResponse(BaseModel):
+    job_id: str
+    file_name: str
+    status: str
+    page_count: Optional[int] = None
+    sections: Optional[List[Dict[str, Any]]] = None
+    error_message: Optional[str] = None
 
 # Updated dequeue function containing the core logic
 async def dequeue(message: MessagePayload, background_tasks: Optional[BackgroundTasks] = None):
@@ -2239,6 +2271,13 @@ async def handle_batch_tasks(task_request: BatchTaskRequest, background_tasks: B
         logger.info(f"Queued STUDENT_ANALYSIS task for job_id: {task_request.job_id}")
         return {"message": f"Accepted STUDENT_ANALYSIS task for job_id: {task_request.job_id}"}
 
+    elif task_request.task_type == "PDF_TOPIC_EXTRACTION":
+        if not task_request.job_id:
+            raise HTTPException(status_code=400, detail="job_id is required for PDF_TOPIC_EXTRACTION")
+        background_tasks.add_task(process_pdf_topic_extraction_task, task_request.job_id)
+        logger.info(f"Queued PDF_TOPIC_EXTRACTION task for job_id: {task_request.job_id}")
+        return {"message": f"Accepted PDF_TOPIC_EXTRACTION task for job_id: {task_request.job_id}"}
+
     else:
         logger.warning(f"Received unknown task type: {task_request.task_type}")
         raise HTTPException(status_code=400, detail=f"Unknown task type: {task_request.task_type}")
@@ -2390,7 +2429,7 @@ async def pdf_topics_page(request: Request):
 
 @app.post("/extract-topics-from-pdf")
 async def extract_topics_from_pdf(file: UploadFile = File(...)):
-    """Extract sections from uploaded PDF (preview only; DB write via save-extracted-topics)."""
+    """Create an async PDF topic extraction job."""
     try:
         if not file.filename:
             raise HTTPException(status_code=400, detail="Uploaded file is missing a filename")
@@ -2404,43 +2443,72 @@ async def extract_topics_from_pdf(file: UploadFile = File(...)):
         if not pdf_text:
             raise HTTPException(status_code=400, detail="Could not extract text from PDF")
 
-        prompt_name = "pdf_topic_extraction"
-        prompt_template = await api_service.get_prompt_template(prompt_name, prefer_production=True)
-        if not prompt_template:
-            raise HTTPException(status_code=404, detail=f"Prompt '{prompt_name}' not found in database")
-
-        final_prompt = prompt_template.replace("{{PDF_CONTENT}}", pdf_text)
-
-        llm_service = LLMService()
-        raw_response = llm_service.get_completion(
-            messages=[{"role": "user", "content": final_prompt}],
-            call_type="pdf_topic_extraction",
-            json_mode=True,
+        job = await api_service.create_pdf_topic_extraction_job(
+            file_name=file.filename,
+            page_count=len(reader.pages),
+            source_text=pdf_text,
         )
 
-        try:
-            parsed = json.loads(raw_response)
-        except json.JSONDecodeError as exc:
-            logger.error("LLM returned invalid JSON for PDF topic extraction: %s", raw_response)
-            raise HTTPException(status_code=500, detail="LLM returned invalid JSON") from exc
-
-        try:
-            sections = _validate_and_normalize_pdf_sections_payload(parsed)
-        except ValueError as exc:
-            logger.warning("PDF extraction schema validation failed: %s", exc)
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
-
-        return {
-            "filename": file.filename,
-            "page_count": len(reader.pages),
-            "sections": sections,
-        }
+        return JSONResponse(
+            status_code=202,
+            content={
+                "job_id": job["job_id"],
+                "filename": file.filename,
+                "page_count": len(reader.pages),
+                "status": job["status"],
+            },
+        )
 
     except HTTPException:
         raise
+    except httpx.HTTPStatusError as e:
+        detail = e.response.text if e.response is not None else str(e)
+        logger.error("Backend failed to create PDF extraction job: %s", detail, exc_info=True)
+        raise HTTPException(status_code=502, detail="Failed to queue PDF extraction job") from e
     except Exception as e:
-        logger.error("Error extracting topics from PDF: %s", e, exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to extract topics: {str(e)}")
+        logger.error("Error queueing PDF topic extraction: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to queue PDF topic extraction: {str(e)}")
+
+
+@app.get("/pdf-topic-extraction-jobs/{job_id}", response_model=PdfTopicExtractionJobResponse)
+async def get_pdf_topic_extraction_job(job_id: str):
+    try:
+        return await api_service.get_pdf_topic_extraction_job(job_id)
+    except httpx.HTTPStatusError as e:
+        if e.response is not None and e.response.status_code == 404:
+            raise HTTPException(status_code=404, detail="PDF topic extraction job not found") from e
+        raise HTTPException(status_code=502, detail="Failed to fetch PDF extraction job") from e
+    except Exception as e:
+        logger.error("Error fetching PDF topic extraction job %s: %s", job_id, e, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to fetch PDF topic extraction job: {str(e)}")
+
+
+async def process_pdf_topic_extraction_task(job_id: str):
+    logger.info("Processing PDF_TOPIC_EXTRACTION task for job_id=%s", job_id)
+    try:
+        await api_service.update_pdf_topic_extraction_job(job_id, status="running")
+        job = await api_service.get_pdf_topic_extraction_job(job_id, include_source_text=True)
+        source_text = (job.get("source_text") or "").strip()
+        if not source_text:
+            raise ValueError("PDF extraction job has no source text")
+
+        sections = await _generate_pdf_topic_sections(source_text)
+        await api_service.update_pdf_topic_extraction_job(
+            job_id,
+            status="completed",
+            sections=sections,
+        )
+        logger.info("Completed PDF_TOPIC_EXTRACTION task for job_id=%s sections=%s", job_id, len(sections))
+    except Exception as e:
+        logger.error("Error processing PDF_TOPIC_EXTRACTION job %s: %s", job_id, e, exc_info=True)
+        try:
+            await api_service.update_pdf_topic_extraction_job(
+                job_id,
+                status="failed",
+                error_message=str(e),
+            )
+        except Exception:
+            logger.error("Failed to mark PDF_TOPIC_EXTRACTION job failed: %s", job_id, exc_info=True)
 
 
 @app.post("/save-extracted-topics")

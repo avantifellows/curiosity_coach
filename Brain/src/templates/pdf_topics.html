@@ -151,6 +151,42 @@
             });
         }
 
+        async function pollExtractionJob(jobId, filename, pageCount) {
+            const startedAt = Date.now();
+            const timeoutMs = 12 * 60 * 1000;
+
+            while (Date.now() - startedAt < timeoutMs) {
+                const response = await fetch(`/pdf-topic-extraction-jobs/${encodeURIComponent(jobId)}`);
+                const data = await response.json();
+                if (!response.ok) {
+                    throw new Error(data.detail || "Failed to fetch extraction status");
+                }
+
+                if (data.status === "completed") {
+                    const sections = Array.isArray(data.sections) ? data.sections : [];
+                    lastExtraction = {
+                        filename,
+                        sections
+                    };
+                    renderSections(sections);
+                    sectionCountEl.textContent = `${sections.length} sections · ${pageCount} pages`;
+                    resultsEl.classList.remove("hidden");
+                    saveBtn.disabled = sections.length === 0;
+                    showStatus(`Done: ${filename} (preview only — not saved to DB)`);
+                    return;
+                }
+
+                if (data.status === "failed") {
+                    throw new Error(data.error_message || "Extraction job failed");
+                }
+
+                showStatus(`Extracting "${filename}"… status: ${data.status}`);
+                await new Promise((resolve) => setTimeout(resolve, 3000));
+            }
+
+            throw new Error("Extraction is still running. Refresh this page and try again in a minute.");
+        }
+
         extractBtn.addEventListener("click", async () => {
             const file = pdfFileInput.files[0];
             if (!file) {
@@ -177,18 +213,12 @@
                     throw new Error(data.detail || "Failed to extract sections");
                 }
 
-                const sections = Array.isArray(data.sections)
-                    ? data.sections
-                    : (Array.isArray(data.Sections) ? data.Sections : []);
-                lastExtraction = {
-                    filename: data.filename,
-                    sections
-                };
-                renderSections(sections);
-                sectionCountEl.textContent = `${sections.length} sections · ${data.page_count} pages`;
-                resultsEl.classList.remove("hidden");
-                saveBtn.disabled = sections.length === 0;
-                showStatus(`Done: ${data.filename} (preview only — not saved to DB)`);
+                if (!data.job_id) {
+                    throw new Error("Extraction job was not created");
+                }
+
+                showStatus(`Queued "${data.filename}" for extraction…`);
+                await pollExtractionJob(data.job_id, data.filename, data.page_count);
             } catch (error) {
                 showStatus(`Error: ${error.message}`);
             } finally {

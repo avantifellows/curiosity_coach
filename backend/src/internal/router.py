@@ -12,12 +12,14 @@ from src.models import (
     save_message_pipeline_data, update_conversation_core_chat_theme,
     Message, MessagePipelineData, LMHomework,
     ClassAnalysis, StudentAnalysis, AnalysisJob, Student, ConversationEvaluation, User,
-    DEFAULT_PIPELINE_KEY,
+    PdfTopicExtractionJob, DEFAULT_PIPELINE_KEY,
 )
 from src.onboarding.schemas import OpeningMessageCallbackPayload
 from pydantic import BaseModel, Field
 from datetime import datetime, timezone
+import uuid
 import logging
+from src.queue.service import QueueService, get_queue_service
 from src.analytics_agent.schemas import HomeworkItemsPayload, AnalyticsTriggerPayload
 from src.analytics_agent.registry import MEMORY_GENERATION_EVENT, flows_for_event
 from src.analytics_agent.scheduler import enqueue_flows
@@ -55,6 +57,39 @@ class SaveExtractedTopicsPayload(BaseModel):
     created_by: Optional[int] = None
     force_proceed: bool = False
     sections: List[ExtractedSectionItem]
+
+
+class CreatePdfTopicExtractionJobPayload(BaseModel):
+    file_name: str
+    page_count: int
+    source_text: str
+    created_by: Optional[int] = None
+
+
+class UpdatePdfTopicExtractionJobPayload(BaseModel):
+    status: str
+    sections: Optional[List[Dict[str, Any]]] = None
+    error_message: Optional[str] = None
+
+
+def _serialize_pdf_topic_extraction_job(
+    job: PdfTopicExtractionJob,
+    include_source_text: bool = False,
+) -> Dict[str, Any]:
+    payload = {
+        "job_id": job.job_id,
+        "file_name": job.file_name,
+        "status": job.status,
+        "page_count": job.page_count,
+        "sections": job.sections,
+        "error_message": job.error_message,
+        "created_at": job.created_at,
+        "updated_at": job.updated_at,
+        "completed_at": job.completed_at,
+    }
+    if include_source_text:
+        payload["source_text"] = job.source_text
+    return payload
 
 
 def _normalize_extracted_topics_payload(payload: SaveExtractedTopicsPayload) -> dict:
@@ -603,6 +638,87 @@ def ingest_pdf_topics(
         db.rollback()
         logger.error("Error ingesting extracted PDF topics: %s", e, exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error ingesting extracted PDF topics: {str(e)}")
+
+
+@router.post("/pdf-topic-extraction-jobs", status_code=status.HTTP_202_ACCEPTED)
+async def create_pdf_topic_extraction_job(
+    payload: CreatePdfTopicExtractionJobPayload,
+    db: Session = Depends(get_db),
+    queue_service: QueueService = Depends(get_queue_service),
+):
+    file_name = (payload.file_name or "").strip()
+    source_text = (payload.source_text or "").strip()
+    if not file_name:
+        raise HTTPException(status_code=422, detail="file_name is required")
+    if not source_text:
+        raise HTTPException(status_code=422, detail="source_text is required")
+
+    job = PdfTopicExtractionJob(
+        job_id=str(uuid.uuid4()),
+        file_name=file_name,
+        page_count=payload.page_count,
+        source_text=source_text,
+        created_by=payload.created_by,
+        status="queued",
+    )
+    db.add(job)
+    db.commit()
+    db.refresh(job)
+
+    try:
+        queue_response = await queue_service.send_batch_task({
+            "task_type": "PDF_TOPIC_EXTRACTION",
+            "job_id": job.job_id,
+        })
+        if isinstance(queue_response, dict) and queue_response.get("error"):
+            raise RuntimeError(str(queue_response["error"]))
+    except Exception as exc:
+        logger.error("Failed to queue PDF_TOPIC_EXTRACTION job %s: %s", job.job_id, exc, exc_info=True)
+        job.status = "failed"
+        job.error_message = f"Failed to queue extraction task: {str(exc)}"
+        job.completed_at = datetime.now(timezone.utc)
+        db.add(job)
+        db.commit()
+        raise HTTPException(status_code=500, detail="Failed to queue PDF topic extraction") from exc
+
+    return _serialize_pdf_topic_extraction_job(job)
+
+
+@router.get("/pdf-topic-extraction-jobs/{job_id}")
+def get_pdf_topic_extraction_job(
+    job_id: str,
+    include_source_text: bool = False,
+    db: Session = Depends(get_db),
+):
+    job = db.query(PdfTopicExtractionJob).filter(PdfTopicExtractionJob.job_id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="PDF topic extraction job not found")
+    return _serialize_pdf_topic_extraction_job(job, include_source_text=include_source_text)
+
+
+@router.patch("/pdf-topic-extraction-jobs/{job_id}")
+def update_pdf_topic_extraction_job(
+    job_id: str,
+    payload: UpdatePdfTopicExtractionJobPayload,
+    db: Session = Depends(get_db),
+):
+    job = db.query(PdfTopicExtractionJob).filter(PdfTopicExtractionJob.job_id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="PDF topic extraction job not found")
+
+    if payload.status not in {"queued", "running", "completed", "failed"}:
+        raise HTTPException(status_code=422, detail="Invalid job status")
+
+    job.status = payload.status
+    job.error_message = payload.error_message
+    if payload.sections is not None:
+        job.sections = payload.sections
+    if payload.status in {"completed", "failed"}:
+        job.completed_at = datetime.now(timezone.utc)
+    db.add(job)
+    db.commit()
+    db.refresh(job)
+    return _serialize_pdf_topic_extraction_job(job)
 
 
 # --- Analysis Data Endpoints for Brain ---

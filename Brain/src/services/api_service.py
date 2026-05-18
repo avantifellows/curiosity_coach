@@ -613,6 +613,55 @@ class APIService:
             logger.error(f"Request error checking PDF file name existence: {e}", exc_info=True)
             raise
 
+    async def create_pdf_topic_extraction_job(
+        self,
+        file_name: str,
+        page_count: int,
+        source_text: str,
+        created_by: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        url = f"{self.backend_url}/api/internal/pdf-topic-extraction-jobs"
+        payload = {
+            "file_name": file_name,
+            "page_count": page_count,
+            "source_text": source_text,
+            "created_by": created_by,
+        }
+        async with httpx.AsyncClient(timeout=httpx.Timeout(30.0, connect=10.0)) as client:
+            response = await client.post(url, json=payload)
+            response.raise_for_status()
+            return response.json()
+
+    async def get_pdf_topic_extraction_job(
+        self,
+        job_id: str,
+        include_source_text: bool = False,
+    ) -> Dict[str, Any]:
+        url = f"{self.backend_url}/api/internal/pdf-topic-extraction-jobs/{job_id}"
+        params = {"include_source_text": include_source_text}
+        async with httpx.AsyncClient(timeout=httpx.Timeout(20.0, connect=10.0)) as client:
+            response = await client.get(url, params=params)
+            response.raise_for_status()
+            return response.json()
+
+    async def update_pdf_topic_extraction_job(
+        self,
+        job_id: str,
+        status: str,
+        sections: Optional[List[Dict[str, Any]]] = None,
+        error_message: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        url = f"{self.backend_url}/api/internal/pdf-topic-extraction-jobs/{job_id}"
+        payload = {
+            "status": status,
+            "sections": sections,
+            "error_message": error_message,
+        }
+        async with httpx.AsyncClient(timeout=httpx.Timeout(30.0, connect=10.0)) as client:
+            response = await client.patch(url, json=payload)
+            response.raise_for_status()
+            return response.json()
+
 
 # Singleton instance
 api_service = APIService() 
