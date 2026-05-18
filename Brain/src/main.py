@@ -20,7 +20,6 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 import threading
 from functools import partial
-from pypdf import PdfReader
 from src.core.core_theme_config import (
     CORE_THEME_EXTRACTION_ENABLED,
     CORE_THEME_MAX_RETRIES,
@@ -2391,6 +2390,14 @@ async def pdf_topics_page(request: Request):
 async def extract_topics_from_pdf(file: UploadFile = File(...)):
     """Extract sections from uploaded PDF (preview only; DB write via save-extracted-topics)."""
     try:
+        try:
+            from pypdf import PdfReader
+        except ModuleNotFoundError as exc:
+            raise HTTPException(
+                status_code=503,
+                detail="PDF topic extraction requires the optional 'pypdf' package. Install Brain requirements to use this endpoint.",
+            ) from exc
+
         if not file.filename:
             raise HTTPException(status_code=400, detail="Uploaded file is missing a filename")
 
