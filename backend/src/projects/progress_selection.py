@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from sqlalchemy.orm import Session
 
@@ -37,13 +37,47 @@ def _trim_theme(text: str) -> str:
     return text[: CORE_CHAT_THEME_MAX_LEN - 24] + "\n...(truncated)"
 
 
-def build_core_chat_theme(section_title: str, section_focus: str) -> str:
+def _format_question_list(raw_questions: Any) -> str:
+    if not isinstance(raw_questions, list):
+        return ""
+
+    cleaned: List[str] = []
+    for question in raw_questions:
+        if isinstance(question, str):
+            text = question.strip()
+        else:
+            text = str(question).strip()
+        if text:
+            cleaned.append(text)
+
+    if not cleaned:
+        return ""
+    return "\n".join(f"- {question}" for question in cleaned)
+
+
+def build_core_chat_theme(
+    *,
+    source_title: str,
+    section_title: str,
+    section_order: int,
+    section_focus: str,
+    section_questions: Any,
+) -> str:
+    source = (source_title or "").strip()
     t = (section_title or "").strip()
     f = (section_focus or "").strip()
+    questions = _format_question_list(section_questions)
+
     parts: List[str] = []
+    if source:
+        parts.append(f"Project source:\n{source}")
     if t:
         parts.append(f"Section:\n{t}")
+    if section_order:
+        parts.append(f"Section order:\n{section_order}")
     parts.append(f"Content focus:\n{f}")
+    if questions:
+        parts.append(f"Questions and activities:\n{questions}")
     return _trim_theme("\n\n".join(parts))
 
 
@@ -98,6 +132,12 @@ def resolve_chapter_chat_intent(
     return ChapterChatIntent(
         kind=ChapterIntentKind.ACTIVE,
         foundational_unit_id=anchor.id,
-        core_chat_theme=build_core_chat_theme(anchor.section_name or "", focus),
+        core_chat_theme=build_core_chat_theme(
+            source_title=source.file_name or "",
+            section_title=anchor.section_name or "",
+            section_order=anchor.section_order or 0,
+            section_focus=focus,
+            section_questions=anchor.section_question_list,
+        ),
         kb_source_id=kb_source_id,
     )

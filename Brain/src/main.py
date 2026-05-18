@@ -79,6 +79,7 @@ ASYNC_OBSERVER_PIPELINES = {
     "intent_legacy_v3",
     "intent_legacy_v4",
     "intent_legacy_v5",
+    "tutor_flow_v1",
 }
 STORE_FULL_PIPELINE_PROMPTS = os.getenv("STORE_FULL_PIPELINE_PROMPTS", "false").lower() in {
     "1",

@@ -259,7 +259,14 @@ async def create_new_conversation(
         
         # 2. Select appropriate prompt by purpose
         prompt_purpose = models.select_prompt_purpose_for_visit(visit_number)
-        pipeline_key = models.normalize_pipeline_key(current_user.default_pipeline_key)
+        requested_pipeline_key = (
+            conversation_data.pipeline_key
+            if conversation_data and conversation_data.pipeline_key
+            else None
+        )
+        pipeline_key = models.normalize_pipeline_key(
+            requested_pipeline_key or current_user.default_pipeline_key
+        )
         logger.info(
             f"🎯 BACKEND: Visit {visit_number} → prompt_purpose={prompt_purpose}, "
             f"pipeline_key={pipeline_key}"

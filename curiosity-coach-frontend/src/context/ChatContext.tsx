@@ -121,6 +121,11 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       ? rawSelection
       : null;
   }, [location.search]);
+  const selectedPipelineKey = React.useMemo(() => {
+    const queryParams = new URLSearchParams(location.search);
+    const raw = queryParams.get('pipeline_key');
+    return raw && raw.trim() ? raw.trim() : null;
+  }, [location.search]);
   const cleanupPollingRef = useRef<(() => void) | null>(null); // Ref to hold the cleanup function
   const hasAutoCreatedConversationRef = useRef<boolean>(false); // Track if we've auto-created a conversation in this session
 
@@ -200,6 +205,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
               ? await createConversation({
                   title: 'New Chat',
                   kb_source_id: selectedProjectSourceId,
+                  ...(selectedPipelineKey ? { pipeline_key: selectedPipelineKey } : {}),
                   ...(selectedCurriculumSectionId != null
                     ? { section_id: selectedCurriculumSectionId }
                     : {}),
@@ -274,7 +280,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     } finally {
       setIsLoadingConversations(false);
     } 
-  }, [user, location.pathname, selectedProjectSourceId, selectedCurriculumSectionId]); // kb + optional section drive create
+  }, [user, location.pathname, selectedProjectSourceId, selectedCurriculumSectionId, selectedPipelineKey]); // kb + optional section/pipeline drive create
 
   // --- Fetch Messages for a Conversation --- 
   const fetchMessages = useCallback(async (conversationId: number) => {
@@ -374,6 +380,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           ? await createConversation({
               title: title || 'New Chat',
               kb_source_id: selectedProjectSourceId,
+              ...(selectedPipelineKey ? { pipeline_key: selectedPipelineKey } : {}),
               ...(selectedCurriculumSectionId != null
                 ? { section_id: selectedCurriculumSectionId }
                 : {}),
@@ -431,7 +438,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     } finally {
       setIsPreparingConversation(false);
     }
-  }, [user, selectedProjectSourceId, selectedCurriculumSectionId]);
+  }, [user, selectedProjectSourceId, selectedCurriculumSectionId, selectedPipelineKey]);
 
   // --- Poll for AI Response --- 
   const pollAiResponse = useCallback(async (userMessageId: number, currentConvId: number | null): Promise<(() => void) | undefined> => {

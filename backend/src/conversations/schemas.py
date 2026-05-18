@@ -17,6 +17,10 @@ class ConversationBase(BaseModel):
         ge=1,
         description="When set with kb_source_id, anchors theme to this sections.id (DB PK).",
     )
+    pipeline_key: Optional[str] = Field(
+        default=None,
+        description="Optional per-conversation pipeline override. Defaults to the user's default pipeline.",
+    )
 
 class ConversationTitleUpdate(BaseModel):
     title: str

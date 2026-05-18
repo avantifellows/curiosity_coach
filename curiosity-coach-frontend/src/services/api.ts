@@ -628,6 +628,8 @@ export type CreateConversationPayload = {
   kb_source_id?: number;
   /** DB primary key of rows in `sections` for this kb_source */
   section_id?: number;
+  /** Optional per-conversation pipeline override. */
+  pipeline_key?: string;
 };
 
 function formatConversationCreateError(detail: unknown): string {
@@ -651,6 +653,7 @@ export const createConversation = async (
               ? { kb_source_id: payload.kb_source_id }
               : {}),
             ...(payload?.section_id != null ? { section_id: payload.section_id } : {}),
+            ...(payload?.pipeline_key ? { pipeline_key: payload.pipeline_key } : {}),
           };
     const response = await API.post<ConversationCreateResponse>('/conversations', body);
     return response.data;
