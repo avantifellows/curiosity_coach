@@ -21,6 +21,10 @@ const glassProjects =
 const addProjectWell =
   'rounded-2xl bg-slate-50/90 p-5 ring-1 ring-slate-200/50 sm:p-6';
 
+const openInNewTab = (path: string) => {
+  window.open(path, '_blank', 'noopener,noreferrer');
+};
+
 const StudentDashboard: React.FC = () => {
   const navigate = useNavigate();
   const { user, logout } = useAuth();
@@ -168,7 +172,7 @@ const StudentDashboard: React.FC = () => {
       project_selection: selectionMode,
     });
     closeChatPicker();
-    navigate(`/chat?${params.toString()}`);
+    openInNewTab(`/chat?${params.toString()}`);
   };
 
   return (

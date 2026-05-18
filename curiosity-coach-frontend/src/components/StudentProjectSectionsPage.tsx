@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
+import { Link, useLocation, useParams } from 'react-router-dom';
 import { ArrowBack, AutoAwesome, MenuBook } from '@mui/icons-material';
 import { getProjectSections } from '../services/api';
 import { ProjectSection } from '../types';
@@ -8,7 +8,6 @@ type LocationState = { fileName?: string } | null;
 
 const StudentProjectSectionsPage: React.FC = () => {
   const { kbSourceId: rawId } = useParams<{ kbSourceId: string }>();
-  const navigate = useNavigate();
   const location = useLocation();
   const kbSourceId = Number(rawId);
   const projectTitle =
@@ -62,7 +61,7 @@ const StudentProjectSectionsPage: React.FC = () => {
       section_id: String(selectedPk),
       project_selection: 'selected',
     });
-    navigate(`/chat?${params.toString()}`);
+    window.open(`/chat?${params.toString()}`, '_blank', 'noopener,noreferrer');
   };
 
   return (
