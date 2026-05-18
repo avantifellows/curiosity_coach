@@ -163,6 +163,7 @@ const StudentDashboard: React.FC = () => {
     const params = new URLSearchParams({
       project_source_id: String(chosenProject.kb_source_id),
       project_selection: 'selected',
+      debug: 'true',
     });
     closeChatPicker();
     openInNewTab(`/chat?${params.toString()}`);

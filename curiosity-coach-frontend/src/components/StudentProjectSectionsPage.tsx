@@ -60,6 +60,7 @@ const StudentProjectSectionsPage: React.FC = () => {
       project_source_id: String(kbSourceId),
       section_id: String(selectedPk),
       project_selection: 'selected',
+      debug: 'true',
     });
     window.open(`/chat?${params.toString()}`, '_blank', 'noopener,noreferrer');
   };
