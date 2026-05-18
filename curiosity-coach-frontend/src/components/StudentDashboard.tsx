@@ -129,7 +129,7 @@ const StudentDashboard: React.FC = () => {
       if (projects.length > 0) {
         setSelectedChatOption(String(projects[0].kb_source_id));
       } else {
-        setSelectedChatOption('');
+        setSelectedChatOption('random');
       }
     } catch (err: any) {
       setSubscribedProjects([]);
@@ -146,21 +146,14 @@ const StudentDashboard: React.FC = () => {
   };
 
   const handleContinueToChat = () => {
-    if (subscribedProjects.length === 0) {
+    if (selectedChatOption === 'random') {
+      closeChatPicker();
+      openInNewTab('/chat');
       return;
     }
 
-    let chosenProject: SubscribedProject | undefined;
-    let selectionMode: 'selected' | 'random' = 'selected';
-
-    if (selectedChatOption === 'random') {
-      selectionMode = 'random';
-      const randomIndex = Math.floor(Math.random() * subscribedProjects.length);
-      chosenProject = subscribedProjects[randomIndex];
-    } else {
-      const selectedId = Number(selectedChatOption);
-      chosenProject = subscribedProjects.find((project) => project.kb_source_id === selectedId);
-    }
+    const selectedId = Number(selectedChatOption);
+    const chosenProject = subscribedProjects.find((project) => project.kb_source_id === selectedId);
 
     if (!chosenProject) {
       setChatPickerError('Please choose a valid project option');
@@ -169,7 +162,7 @@ const StudentDashboard: React.FC = () => {
 
     const params = new URLSearchParams({
       project_source_id: String(chosenProject.kb_source_id),
-      project_selection: selectionMode,
+      project_selection: 'selected',
     });
     closeChatPicker();
     openInNewTab(`/chat?${params.toString()}`);
@@ -401,9 +394,23 @@ const StudentDashboard: React.FC = () => {
               )}
 
               {!loadingSubscribedProjects && subscribedProjects.length === 0 && (
-                <div className="rounded-2xl border border-amber-200/80 bg-amber-50/90 px-4 py-3 text-sm text-amber-950">
-                  Subscribe to a project first, then come back to start a chat.
-                </div>
+                <label
+                  className={`flex cursor-pointer items-center gap-3 rounded-2xl border px-4 py-3.5 text-sm font-medium transition ${
+                    selectedChatOption === 'random'
+                      ? 'border-violet-400 bg-violet-50/90 text-slate-900 ring-2 ring-violet-200/80'
+                      : 'border-slate-200/80 bg-white/70 text-slate-800 hover:border-violet-200 hover:bg-white'
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="chat-project-option"
+                    value="random"
+                    checked={selectedChatOption === 'random'}
+                    onChange={(e) => setSelectedChatOption(e.target.value)}
+                    className="h-4 w-4 accent-violet-600"
+                  />
+                  <span>Fresh conversation</span>
+                </label>
               )}
 
               {!loadingSubscribedProjects && subscribedProjects.length > 0 && (
@@ -444,7 +451,7 @@ const StudentDashboard: React.FC = () => {
                       onChange={(e) => setSelectedChatOption(e.target.value)}
                       className="h-4 w-4 accent-violet-600"
                     />
-                    <span>Random project</span>
+                    <span>Fresh conversation</span>
                   </label>
                 </>
               )}
@@ -467,7 +474,7 @@ const StudentDashboard: React.FC = () => {
               <button
                 type="button"
                 onClick={handleContinueToChat}
-                disabled={loadingSubscribedProjects || subscribedProjects.length === 0 || !selectedChatOption}
+                disabled={loadingSubscribedProjects || !selectedChatOption}
                 className="rounded-full bg-gradient-to-r from-violet-600 to-indigo-600 px-5 py-2.5 text-sm font-semibold text-white shadow-md shadow-violet-500/25 transition hover:from-violet-500 hover:to-indigo-500 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 Continue
