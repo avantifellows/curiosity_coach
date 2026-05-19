@@ -630,6 +630,8 @@ export type CreateConversationPayload = {
   section_id?: number;
   /** Optional per-conversation pipeline override. */
   pipeline_key?: string;
+  /** Optional user pipeline slot override for testing. */
+  pipeline_slot?: 'default' | 'tutor' | 'quiz';
 };
 
 function formatConversationCreateError(detail: unknown): string {
@@ -654,6 +656,7 @@ export const createConversation = async (
               : {}),
             ...(payload?.section_id != null ? { section_id: payload.section_id } : {}),
             ...(payload?.pipeline_key ? { pipeline_key: payload.pipeline_key } : {}),
+            ...(payload?.pipeline_slot ? { pipeline_slot: payload.pipeline_slot } : {}),
           };
     const response = await API.post<ConversationCreateResponse>('/conversations', body);
     return response.data;

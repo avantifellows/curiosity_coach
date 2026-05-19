@@ -126,6 +126,11 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const raw = queryParams.get('pipeline_key');
     return raw && raw.trim() ? raw.trim() : null;
   }, [location.search]);
+  const selectedPipelineSlot = React.useMemo(() => {
+    const queryParams = new URLSearchParams(location.search);
+    const raw = queryParams.get('pipeline_slot');
+    return raw === 'tutor' || raw === 'quiz' || raw === 'default' ? raw : null;
+  }, [location.search]);
   const cleanupPollingRef = useRef<(() => void) | null>(null); // Ref to hold the cleanup function
   const hasAutoCreatedConversationRef = useRef<boolean>(false); // Track if we've auto-created a conversation in this session
 
@@ -206,6 +211,9 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
                   title: 'New Chat',
                   kb_source_id: selectedProjectSourceId,
                   ...(selectedPipelineKey ? { pipeline_key: selectedPipelineKey } : {}),
+                  ...(!selectedPipelineKey && selectedPipelineSlot
+                    ? { pipeline_slot: selectedPipelineSlot }
+                    : {}),
                   ...(selectedCurriculumSectionId != null
                     ? { section_id: selectedCurriculumSectionId }
                     : {}),
@@ -280,7 +288,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     } finally {
       setIsLoadingConversations(false);
     } 
-  }, [user, location.pathname, selectedProjectSourceId, selectedCurriculumSectionId, selectedPipelineKey]); // kb + optional section/pipeline drive create
+  }, [user, location.pathname, selectedProjectSourceId, selectedCurriculumSectionId, selectedPipelineKey, selectedPipelineSlot]); // kb + optional section/pipeline drive create
 
   // --- Fetch Messages for a Conversation --- 
   const fetchMessages = useCallback(async (conversationId: number) => {
@@ -381,6 +389,9 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
               title: title || 'New Chat',
               kb_source_id: selectedProjectSourceId,
               ...(selectedPipelineKey ? { pipeline_key: selectedPipelineKey } : {}),
+              ...(!selectedPipelineKey && selectedPipelineSlot
+                ? { pipeline_slot: selectedPipelineSlot }
+                : {}),
               ...(selectedCurriculumSectionId != null
                 ? { section_id: selectedCurriculumSectionId }
                 : {}),
@@ -438,7 +449,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     } finally {
       setIsPreparingConversation(false);
     }
-  }, [user, selectedProjectSourceId, selectedCurriculumSectionId, selectedPipelineKey]);
+  }, [user, selectedProjectSourceId, selectedCurriculumSectionId, selectedPipelineKey, selectedPipelineSlot]);
 
   // --- Poll for AI Response --- 
   const pollAiResponse = useCallback(async (userMessageId: number, currentConvId: number | null): Promise<(() => void) | undefined> => {

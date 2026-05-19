@@ -53,6 +53,10 @@ const StudentProjectSectionsPage: React.FC = () => {
     () => sections.find((s) => s.id === selectedPk) ?? null,
     [sections, selectedPk]
   );
+  const selectedPipelineSlot = useMemo<'tutor' | 'quiz'>(() => {
+    const label = `${selected?.section_name ?? ''} ${selected?.curriculum_section_key ?? ''}`.toLowerCase();
+    return label.includes('quiz') ? 'quiz' : 'tutor';
+  }, [selected]);
 
   const openChat = () => {
     if (!selectedPk) return;
@@ -60,7 +64,7 @@ const StudentProjectSectionsPage: React.FC = () => {
       project_source_id: String(kbSourceId),
       section_id: String(selectedPk),
       project_selection: 'selected',
-      pipeline_key: 'tutor_flow_v1',
+      pipeline_slot: selectedPipelineSlot,
       debug: 'true',
     });
     window.open(`/chat?${params.toString()}`, '_blank', 'noopener,noreferrer');

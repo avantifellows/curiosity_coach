@@ -2,6 +2,9 @@ export interface User {
   id: number;
   phone_number?: string;
   name?: string;
+  default_pipeline_key?: string;
+  tutor_pipeline_key?: string;
+  quiz_pipeline_key?: string;
   student?: Student;  // Include student profile if user is a student
 }
 

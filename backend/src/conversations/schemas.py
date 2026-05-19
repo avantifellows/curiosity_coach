@@ -21,6 +21,10 @@ class ConversationBase(BaseModel):
         default=None,
         description="Optional per-conversation pipeline override. Defaults to the user's default pipeline.",
     )
+    pipeline_slot: Optional[str] = Field(
+        default=None,
+        description="Optional testing slot: default, tutor, or quiz. Ignored when pipeline_key is provided.",
+    )
 
 class ConversationTitleUpdate(BaseModel):
     title: str

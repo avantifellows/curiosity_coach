@@ -83,6 +83,9 @@ async def read_users_me(current_user: User = Depends(get_current_user), db: Sess
         "id": current_user.id,
         "phone_number": current_user.phone_number,
         "name": current_user.name,
+        "default_pipeline_key": current_user.default_pipeline_key,
+        "tutor_pipeline_key": current_user.tutor_pipeline_key,
+        "quiz_pipeline_key": current_user.quiz_pipeline_key,
         "created_at": current_user.created_at,
         "student": student
     }
@@ -96,13 +99,22 @@ async def update_default_pipeline(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Update the default pipeline key used for this user's new conversations."""
-    current_user.default_pipeline_key = normalize_pipeline_key(payload.default_pipeline_key)
+    """Update testing pipeline keys used for this user's new conversations."""
+    if payload.default_pipeline_key is not None:
+        current_user.default_pipeline_key = normalize_pipeline_key(payload.default_pipeline_key)
+    if payload.tutor_pipeline_key is not None:
+        current_user.tutor_pipeline_key = normalize_pipeline_key(payload.tutor_pipeline_key)
+    if payload.quiz_pipeline_key is not None:
+        current_user.quiz_pipeline_key = normalize_pipeline_key(payload.quiz_pipeline_key)
     db.add(current_user)
     db.commit()
     db.refresh(current_user)
 
-    return {"default_pipeline_key": current_user.default_pipeline_key}
+    return {
+        "default_pipeline_key": current_user.default_pipeline_key,
+        "tutor_pipeline_key": current_user.tutor_pipeline_key,
+        "quiz_pipeline_key": current_user.quiz_pipeline_key,
+    }
 
 @router.post("/student/login", response_model=StudentLoginResponse)
 async def login_with_student(request: StudentLoginRequest, db: Session = Depends(get_db)):
