@@ -26,6 +26,8 @@ class User(Base):
     phone_number = Column(String(20), unique=True, index=True, nullable=True)
     name = Column(String(50), unique=True, index=True, nullable=True)
     default_pipeline_key = Column(String(50), nullable=False, default=DEFAULT_PIPELINE_KEY, server_default=DEFAULT_PIPELINE_KEY)
+    tutor_pipeline_key = Column(String(50), nullable=False, default=DEFAULT_TUTOR_PIPELINE_KEY, server_default=DEFAULT_TUTOR_PIPELINE_KEY)
+    quiz_pipeline_key = Column(String(50), nullable=False, default=DEFAULT_QUIZ_PIPELINE_KEY, server_default=DEFAULT_QUIZ_PIPELINE_KEY)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     conversations = relationship("Conversation", back_populates="user", cascade="all, delete-orphan")

@@ -60,6 +60,23 @@ def _normalize_tag_query(raw_tags: Optional[List[str]]) -> List[str]:
         flattened.extend(parts)
     return _normalize_tag_list(flattened)
 
+
+def _resolve_user_pipeline_key(
+    current_user: User,
+    *,
+    requested_pipeline_key: Optional[str],
+    requested_pipeline_slot: Optional[str],
+) -> str:
+    if requested_pipeline_key:
+        return models.normalize_pipeline_key(requested_pipeline_key)
+
+    slot = (requested_pipeline_slot or "default").strip().lower().replace("-", "_").replace(" ", "_")
+    if slot == "tutor":
+        return models.normalize_pipeline_key(current_user.tutor_pipeline_key)
+    if slot == "quiz":
+        return models.normalize_pipeline_key(current_user.quiz_pipeline_key)
+    return models.normalize_pipeline_key(current_user.default_pipeline_key)
+
 @router.get("", response_model=List[schemas.ConversationSummary])
 async def list_conversations_for_user(
     db: Session = Depends(get_db),

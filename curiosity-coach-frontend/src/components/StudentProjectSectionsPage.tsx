@@ -53,6 +53,10 @@ const StudentProjectSectionsPage: React.FC = () => {
     () => sections.find((s) => s.id === selectedPk) ?? null,
     [sections, selectedPk]
   );
+  const selectedPipelineSlot = useMemo<'tutor' | 'quiz'>(() => {
+    const label = `${selected?.section_name ?? ''} ${selected?.curriculum_section_key ?? ''}`.toLowerCase();
+    return label.includes('quiz') ? 'quiz' : 'tutor';
+  }, [selected]);
 
   const openChat = () => {
     if (!selectedPk) return;
