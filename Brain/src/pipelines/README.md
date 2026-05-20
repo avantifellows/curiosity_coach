@@ -213,6 +213,16 @@ The goal is to test whether the legacy prompt stack keeps the original Curiosity
 
 The goal is to preserve the prod-like prompt sequence while testing only the async observer improvement.
 
+### `tutor_mode`
+
+- turn and opening prompts both use DB prompt `tutor_mode_base` (active version during dev)
+- placeholders: `{{CONVERSATION_HISTORY}}` (prior messages from DB), `{{QUERY}}` (current user line)
+- `query_mode` on the conversation (set at create): `include`, `omit`, or `opening_only`
+  - `include`: QUERY = current user message on turns; empty on opening
+  - `omit`: QUERY always empty on turns
+  - `opening_only`: same QUERY behavior as `include` on turns; documents AI-first flows at create
+- no foreground core-theme extraction; async observers enabled like `tutor_flow_v1`
+
 ### `intent_legacy_v5`
 
 - opening prompt stays on the assigned visit / steady-state prompt

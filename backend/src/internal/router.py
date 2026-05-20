@@ -316,6 +316,7 @@ def get_conversation_prompt(
         "prompt_purpose": prompt_purpose,
         "prompt_name": prompt_name,
         "pipeline_key": conversation.pipeline_key or DEFAULT_PIPELINE_KEY,
+        "query_mode": conversation.query_mode or "include",
     }
 @router.get("/users/{user_id}/conversations")
 def get_user_conversations_internal(

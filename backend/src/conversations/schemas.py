@@ -1,6 +1,8 @@
 from pydantic import BaseModel, Field, constr, field_validator
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Literal, Optional
+
+QueryMode = Literal["include", "omit", "opening_only"]
 
 # --- Conversation Schemas ---
 
@@ -21,6 +23,10 @@ class ConversationBase(BaseModel):
         default=None,
         description="Optional per-conversation pipeline override. Defaults to the user's default pipeline.",
     )
+    query_mode: Optional[QueryMode] = Field(
+        default="include",
+        description="Controls {{QUERY}} placeholder usage: include, omit, or opening_only.",
+    )
 
 class ConversationTitleUpdate(BaseModel):
     title: str
@@ -31,6 +37,7 @@ class ConversationCreate(ConversationBase):
 class Conversation(ConversationBase):
     id: int
     user_id: int
+    query_mode: str = "include"
     visit_number: Optional[int] = None
     tags: List[str] = Field(default_factory=list)
     created_at: datetime

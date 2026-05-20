@@ -84,6 +84,13 @@ async def resolve_prompt_execution_context(
         prompt_id=prompt_id_used,
     )
 
+def _resolve_render_query(user_query: str, query_mode: str) -> str:
+    """Map conversation query_mode to the value injected for {{QUERY}}."""
+    if query_mode == "omit":
+        return ""
+    return user_query
+
+
 async def generate_simplified_response(
     query: str,
     conversation_history: Optional[str] = None,
@@ -99,6 +106,7 @@ async def generate_simplified_response(
     core_theme: Optional[str] = None,
     previous_memories: Optional[List[Dict[str, Any]]] = None,
     generation_call_type: str = "simplified_conversation",
+    query_mode: str = "include",
 ) -> Tuple[str, str, str, Dict[str, Any], str, Optional[int]]:
     """
     Generate a simplified response using a single prompt approach.
@@ -145,10 +153,11 @@ async def generate_simplified_response(
             except Exception as e:
                 logger.warning(f"Could not fetch previous memories: {e}")
 
+        render_query = _resolve_render_query(query, query_mode)
         formatted_prompt = render_prompt_template(
             prompt_template,
             context=RenderContext(
-                query=query,
+                query=render_query,
                 conversation_history=conversation_history,
                 current_curiosity_score=current_curiosity_score,
                 previous_memories=resolved_previous_memories,
@@ -292,6 +301,7 @@ async def process_query(
     core_theme: Optional[str] = None,
     previous_memories: Optional[List[Dict[str, Any]]] = None,
     generation_call_type: str = "simplified_conversation",
+    query_mode: str = "include",
 ) -> ProcessQueryResponse:
     """
     Process a user query through the intent identification and response generation pipeline.
@@ -355,6 +365,7 @@ async def process_query(
                 core_theme=core_theme,
                 previous_memories=previous_memories,
                 generation_call_type=generation_call_type,
+                query_mode=query_mode,
             )
             
             # Check if we need clarification
@@ -409,6 +420,7 @@ async def process_follow_up(
     core_theme: Optional[str] = None,
     previous_memories: Optional[List[Dict[str, Any]]] = None,
     generation_call_type: str = "simplified_conversation",
+    query_mode: str = "include",
 ) -> ProcessQueryResponse:
     """
     Process a follow-up response from the student to determine intent and generate a final response.
@@ -478,6 +490,7 @@ async def process_follow_up(
                 core_theme=core_theme,
                 previous_memories=previous_memories,
                 generation_call_type=generation_call_type,
+                query_mode=query_mode,
             )
             
             # Check if we need clarification (again)

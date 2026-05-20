@@ -12,6 +12,7 @@ class ConversationWithVisit(BaseModel):
     title: str
     visit_number: Optional[int] = None
     prompt_version_id: Optional[int] = None
+    query_mode: Optional[str] = "include"
     core_chat_theme: Optional[str] = None
     tags: List[str] = Field(default_factory=list)
     created_at: datetime

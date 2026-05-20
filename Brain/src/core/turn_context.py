@@ -32,6 +32,7 @@ class TurnExecutionContext:
     user_created_at: Optional[str] = None
     user_name: Optional[str] = None
     pipeline_key: str = "legacy"
+    query_mode: str = "include"
     conversation_history: Optional[str] = None
     prefetched_history: List[Dict[str, Any]] = field(default_factory=list)
     user_persona: Optional[Dict[str, Any]] = None

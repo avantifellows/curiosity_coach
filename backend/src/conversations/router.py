@@ -267,9 +267,18 @@ async def create_new_conversation(
         pipeline_key = models.normalize_pipeline_key(
             requested_pipeline_key or current_user.default_pipeline_key
         )
+        try:
+            query_mode = models.normalize_query_mode(
+                conversation_data.query_mode if conversation_data else None
+            )
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=400,
+                detail={"code": "invalid_query_mode", "message": str(exc)},
+            ) from exc
         logger.info(
             f"🎯 BACKEND: Visit {visit_number} → prompt_purpose={prompt_purpose}, "
-            f"pipeline_key={pipeline_key}"
+            f"pipeline_key={pipeline_key}, query_mode={query_mode}"
         )
         
         prompt_version = models.get_prompt_for_pipeline_by_purpose(
@@ -292,12 +301,13 @@ async def create_new_conversation(
             core_chat_theme=core_chat_theme,
             prompt_version_id=prompt_version.id if prompt_version else None,
             pipeline_key=pipeline_key,
+            query_mode=query_mode,
         )
 
         logger.info(
             f"📝 BACKEND: Created conversation id={conversation.id} "
             f"with prompt_version_id={conversation.prompt_version_id} "
-            f"and pipeline_key={conversation.pipeline_key}"
+            f"and pipeline_key={conversation.pipeline_key}, query_mode={conversation.query_mode}"
         )
         
         # Record visit number with unique constraint protection

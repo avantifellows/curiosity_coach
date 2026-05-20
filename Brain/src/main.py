@@ -80,6 +80,7 @@ ASYNC_OBSERVER_PIPELINES = {
     "intent_legacy_v4",
     "intent_legacy_v5",
     "tutor_flow_v1",
+    "tutor_mode",
 }
 STORE_FULL_PIPELINE_PROMPTS = os.getenv("STORE_FULL_PIPELINE_PROMPTS", "false").lower() in {
     "1",
@@ -638,6 +639,8 @@ async def _build_turn_execution_context(
         prompt_context=prompt_context,
     )
 
+    query_mode = (prompt_response or {}).get("query_mode") or "include"
+
     context = TurnExecutionContext(
         user_input=user_input,
         purpose=purpose,
@@ -646,6 +649,7 @@ async def _build_turn_execution_context(
         user_created_at=(user_record or {}).get("created_at"),
         user_name=(user_record or {}).get("name"),
         pipeline_key=pipeline_key,
+        query_mode=query_mode,
         conversation_history=effective_conversation_history,
         prefetched_history=list(prefetched_history or []),
         user_persona=user_persona,
@@ -1118,6 +1122,7 @@ async def dequeue(message: MessagePayload, background_tasks: Optional[Background
                     prompt_context=turn_context.prompt_context,
                     core_theme=turn_context.core_theme,
                     previous_memories=turn_context.previous_memories,
+                    query_mode=turn_context.query_mode,
                     generation_call_type=(
                         "simplified_conversation_intent_legacy_v2"
                         if turn_context.pipeline_key == "intent_legacy_v2"
@@ -1142,6 +1147,7 @@ async def dequeue(message: MessagePayload, background_tasks: Optional[Background
                     prompt_context=turn_context.prompt_context,
                     core_theme=turn_context.core_theme,
                     previous_memories=turn_context.previous_memories,
+                    query_mode=turn_context.query_mode,
                     generation_call_type=(
                         "simplified_conversation_intent_legacy_v2"
                         if turn_context.pipeline_key == "intent_legacy_v2"

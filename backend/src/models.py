@@ -9,6 +9,8 @@ import time
 from src.config.settings import settings
 
 DEFAULT_PIPELINE_KEY = "legacy"
+DEFAULT_QUERY_MODE = "include"
+VALID_QUERY_MODES = frozenset({"include", "omit", "opening_only"})
 INTENT_LEGACY_V2_PROMPT_VERSION_IDS = {
     "visit_1": 258,
     "visit_2": 259,
@@ -130,6 +132,7 @@ class Conversation(Base):
     title = Column(String, nullable=True, default="New Chat")
     prompt_version_id = Column(Integer, ForeignKey("prompt_versions.id", ondelete="SET NULL"), nullable=True)
     pipeline_key = Column(String(50), nullable=False, default=DEFAULT_PIPELINE_KEY, server_default=DEFAULT_PIPELINE_KEY)
+    query_mode = Column(String(20), nullable=False, default=DEFAULT_QUERY_MODE, server_default=DEFAULT_QUERY_MODE)
     core_chat_theme = Column(String, nullable=True, default=None)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
@@ -141,6 +144,14 @@ class Conversation(Base):
     visit = relationship("ConversationVisit", back_populates="conversation", uselist=False, cascade="all, delete-orphan")
     evaluation = relationship("ConversationEvaluation", back_populates="conversation", uselist=False, cascade="all, delete-orphan")
     tags = relationship("Tag", secondary=conversation_tags, back_populates="conversations")
+
+    __table_args__ = (
+        CheckConstraint(
+            "query_mode IN ('include', 'omit', 'opening_only')",
+            name="ck_conversations_query_mode_valid",
+        ),
+    )
+
 
 class ConversationVisit(Base):
     __tablename__ = "conversation_visits"
@@ -680,6 +691,20 @@ def normalize_pipeline_key(pipeline_key: Optional[str]) -> str:
     return normalized or DEFAULT_PIPELINE_KEY
 
 
+def normalize_query_mode(query_mode: Optional[str]) -> str:
+    """Normalize and validate conversation query_mode."""
+    if not query_mode:
+        return DEFAULT_QUERY_MODE
+
+    normalized = query_mode.strip().lower().replace("-", "_").replace(" ", "_")
+    if normalized not in VALID_QUERY_MODES:
+        raise ValueError(
+            f"Invalid query_mode '{query_mode}'. "
+            f"Allowed: {', '.join(sorted(VALID_QUERY_MODES))}"
+        )
+    return normalized
+
+
 def create_conversation(
     db: Session,
     user_id: int,
@@ -687,6 +712,7 @@ def create_conversation(
     prompt_version_id: Optional[int] = None,
     core_chat_theme: Optional[str] = None,
     pipeline_key: Optional[str] = None,
+    query_mode: Optional[str] = None,
 ) -> Conversation:
     """Creates a new conversation for a user."""
     conversation = Conversation(
@@ -695,6 +721,7 @@ def create_conversation(
         prompt_version_id=prompt_version_id,
         core_chat_theme=core_chat_theme,
         pipeline_key=normalize_pipeline_key(pipeline_key),
+        query_mode=normalize_query_mode(query_mode),
     )
     db.add(conversation)
     db.commit()
