@@ -9,6 +9,8 @@ import time
 from src.config.settings import settings
 
 DEFAULT_PIPELINE_KEY = "legacy"
+DEFAULT_TUTOR_PIPELINE_KEY = "tutor_flow_v1"
+DEFAULT_QUIZ_PIPELINE_KEY = "quiz_flow_v1"
 DEFAULT_QUERY_MODE = "include"
 VALID_QUERY_MODES = frozenset({"include", "omit", "opening_only"})
 INTENT_LEGACY_V2_PROMPT_VERSION_IDS = {

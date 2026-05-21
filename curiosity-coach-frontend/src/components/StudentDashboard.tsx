@@ -163,7 +163,7 @@ const StudentDashboard: React.FC = () => {
     const params = new URLSearchParams({
       project_source_id: String(chosenProject.kb_source_id),
       project_selection: 'selected',
-      pipeline_key: 'tutor_mode',
+      pipeline_slot: 'tutor',
       query_mode: 'opening_only',
       debug: 'true',
     });

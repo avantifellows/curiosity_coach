@@ -1,7 +1,7 @@
 """add conversation query_mode
 
 Revision ID: h1a2b3c4d5e6
-Revises: c8d9e0f1a2b3
+Revises: d9e0f1a2b3c4
 Create Date: 2026-05-19
 
 """
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 
 revision: str = "h1a2b3c4d5e6"
-down_revision: Union[str, None] = "c8d9e0f1a2b3"
+down_revision: Union[str, None] = "d9e0f1a2b3c4"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

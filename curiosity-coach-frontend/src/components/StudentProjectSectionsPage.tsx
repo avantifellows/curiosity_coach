@@ -64,7 +64,7 @@ const StudentProjectSectionsPage: React.FC = () => {
       project_source_id: String(kbSourceId),
       section_id: String(selectedPk),
       project_selection: 'selected',
-      pipeline_key: 'tutor_mode',
+      pipeline_slot: selectedPipelineSlot,
       query_mode: 'opening_only',
       debug: 'true',
     });

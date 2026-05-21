@@ -281,8 +281,15 @@ async def create_new_conversation(
             if conversation_data and conversation_data.pipeline_key
             else None
         )
-        pipeline_key = models.normalize_pipeline_key(
-            requested_pipeline_key or current_user.default_pipeline_key
+        requested_pipeline_slot = (
+            conversation_data.pipeline_slot
+            if conversation_data and conversation_data.pipeline_slot
+            else None
+        )
+        pipeline_key = _resolve_user_pipeline_key(
+            current_user,
+            requested_pipeline_key=requested_pipeline_key,
+            requested_pipeline_slot=requested_pipeline_slot,
         )
         try:
             query_mode = models.normalize_query_mode(
@@ -295,7 +302,8 @@ async def create_new_conversation(
             ) from exc
         logger.info(
             f"🎯 BACKEND: Visit {visit_number} → prompt_purpose={prompt_purpose}, "
-            f"pipeline_key={pipeline_key}, query_mode={query_mode}"
+            f"pipeline_key={pipeline_key}, pipeline_slot={requested_pipeline_slot or 'default'}, "
+            f"query_mode={query_mode}"
         )
         
         prompt_version = models.get_prompt_for_pipeline_by_purpose(

@@ -5,6 +5,9 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "Brain"))
+for module_name in list(sys.modules):
+    if module_name == "src" or module_name.startswith("src."):
+        sys.modules.pop(module_name)
 
 fake_openai = types.ModuleType("openai")
 fake_openai.OpenAI = object

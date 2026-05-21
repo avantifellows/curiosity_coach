@@ -23,6 +23,10 @@ class ConversationBase(BaseModel):
         default=None,
         description="Optional per-conversation pipeline override. Defaults to the user's default pipeline.",
     )
+    pipeline_slot: Optional[str] = Field(
+        default=None,
+        description="Optional testing slot: default, tutor, or quiz. Ignored when pipeline_key is provided.",
+    )
     query_mode: Optional[QueryMode] = Field(
         default="include",
         description="Controls {{QUERY}} placeholder usage: include, omit, or opening_only.",
