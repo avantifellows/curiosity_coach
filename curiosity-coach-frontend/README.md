@@ -25,8 +25,8 @@ The application follows a layered architecture:
 
 ### Prerequisites
 
-- Node.js 14+ and npm
-- Python 3.8+ (for the backend)
+- Node.js 18+ and npm
+- Python 3.9+ (for the backend)
 - PostgreSQL database
 
 ### Installation
@@ -36,11 +36,12 @@ The application follows a layered architecture:
    npm install
    ```
 
-2. Install backend dependencies:
+2. Prepare the backend:
    ```
    cd ../backend
-   pip install -r requirements.txt
+   ./run.sh
    ```
+   Stop the backend after the first successful startup if you only wanted dependency setup. Run migrations separately with `uv run alembic upgrade head`.
 
 ### Configuration
 
@@ -50,7 +51,7 @@ The application follows a layered architecture:
 
 2. Set up the database:
    - Create a PostgreSQL database
-   - The backend will initialize the schema on first run
+   - Run backend migrations with `cd ../backend && uv run alembic upgrade head`
 
 ### Running the Application
 
@@ -60,7 +61,7 @@ The application follows a layered architecture:
 npm run dev
 ```
 
-This will start both the React frontend and Python backend servers.
+This script is stale for the current backend entrypoint. Prefer running the backend with `cd ../backend && ./run.sh`, the Brain with `cd ../Brain && ./run.sh`, and the frontend with `npm start` in this directory.
 
 #### Frontend only
 
@@ -71,7 +72,8 @@ npm start
 #### Backend only
 
 ```
-npm run start:backend
+cd ../backend
+./run.sh
 ```
 
 ## API Integration
