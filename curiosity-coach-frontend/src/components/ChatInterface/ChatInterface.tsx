@@ -169,16 +169,21 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ mode }) => {
     }
   };
 
-  // Calculate total processing time from steps (sum of all time_taken values)
-  const totalProcessingTime = React.useMemo(() => {
+  const pipelineTiming = React.useMemo(() => {
     if (!pipelineSteps || pipelineSteps.length === 0) return null;
-    const total = pipelineSteps.reduce((sum, step) => {
+
+    const totals = pipelineSteps.reduce((sum, step) => {
       if (step.time_taken !== null && step.time_taken !== undefined) {
-        return sum + step.time_taken;
+        const isAsyncStep = step.async_step === true || step.foreground_blocking === false;
+        if (isAsyncStep) {
+          return { ...sum, async: sum.async + step.time_taken, total: sum.total + step.time_taken };
+        }
+        return { ...sum, response: sum.response + step.time_taken, total: sum.total + step.time_taken };
       }
       return sum;
-    }, 0);
-    return total > 0 ? total : null;
+    }, { response: 0, async: 0, total: 0 });
+
+    return totals.total > 0 ? totals : null;
   }, [pipelineSteps]);
 
   const handleViewMemory = async () => {
@@ -346,7 +351,9 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ mode }) => {
         pipelineError={pipelineError}
         pipelineSteps={pipelineSteps}
         isDebugMode={isDebugMode}
-        totalProcessingTime={totalProcessingTime}
+        responseProcessingTime={pipelineTiming?.response ?? null}
+        asyncProcessingTime={pipelineTiming?.async ?? null}
+        totalPipelineWorkTime={pipelineTiming?.total ?? null}
         showMemoryModal={showMemoryModal}
         onCloseMemoryModal={() => {
           setShowMemoryModal(false);

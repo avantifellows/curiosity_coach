@@ -49,6 +49,8 @@ export interface PipelineStep {
   confidence?: number | null;
   // Add timing fields
   time_taken?: number | null; // Time taken in seconds
+  async_step?: boolean;
+  foreground_blocking?: boolean;
 }
 
 interface PipelineStepsModalProps {
@@ -58,7 +60,9 @@ interface PipelineStepsModalProps {
   error: string | null;
   steps: PipelineStep[];
   isDebugMode?: boolean; // Optional debug mode flag
-  totalProcessingTime?: number | null; // Optional total processing time
+  responseProcessingTime?: number | null;
+  asyncProcessingTime?: number | null;
+  totalPipelineWorkTime?: number | null;
 }
 
 const PipelineStepsModal: React.FC<PipelineStepsModalProps> = ({
@@ -68,7 +72,9 @@ const PipelineStepsModal: React.FC<PipelineStepsModalProps> = ({
   error,
   steps,
   isDebugMode = false,
-  totalProcessingTime = null,
+  responseProcessingTime = null,
+  asyncProcessingTime = null,
+  totalPipelineWorkTime = null,
 }) => {
   const [collapsedSteps, setCollapsedSteps] = useState<{ [key: number]: boolean }>({});
   const [showPromptDetails, setShowPromptDetails] = useState(false);
@@ -135,12 +141,38 @@ const PipelineStepsModal: React.FC<PipelineStepsModalProps> = ({
 
           {!isLoading && !error && steps.length > 0 && (
             <div className="text-sm sm:text-base text-gray-700">
-              {/* Debug Mode: Show Total Processing Time */}
-              {isDebugMode && totalProcessingTime !== null && (
-                <div className="mb-4 p-3 bg-blue-50 border-l-4 border-blue-400 rounded">
-                  <p className="font-semibold text-blue-800">
-                    Total Processing Time: <span className="font-mono">{totalProcessingTime.toFixed(3)}s</span>
-                  </p>
+              {isDebugMode && (
+                <div className="mb-4 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                  {responseProcessingTime !== null && (
+                    <div className="rounded border-l-4 border-emerald-400 bg-emerald-50 p-3">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">
+                        Response Time
+                      </p>
+                      <p className="font-mono text-lg font-semibold text-emerald-900">
+                        {responseProcessingTime.toFixed(3)}s
+                      </p>
+                    </div>
+                  )}
+                  {asyncProcessingTime !== null && asyncProcessingTime > 0 && (
+                    <div className="rounded border-l-4 border-violet-400 bg-violet-50 p-3">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-violet-700">
+                        Async Observer Time
+                      </p>
+                      <p className="font-mono text-lg font-semibold text-violet-900">
+                        {asyncProcessingTime.toFixed(3)}s
+                      </p>
+                    </div>
+                  )}
+                  {totalPipelineWorkTime !== null && (
+                    <div className="rounded border-l-4 border-slate-300 bg-slate-50 p-3">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">
+                        Total Pipeline Work
+                      </p>
+                      <p className="font-mono text-lg font-semibold text-slate-800">
+                        {totalPipelineWorkTime.toFixed(3)}s
+                      </p>
+                    </div>
+                  )}
                 </div>
               )}
               {isDebugMode && (
@@ -154,8 +186,10 @@ const PipelineStepsModal: React.FC<PipelineStepsModalProps> = ({
                 </div>
               )}
               <ul className="space-y-3 sm:space-y-4">
-                {steps.map((step, idx) => (
-                  <li key={idx} className="p-3 sm:p-4 bg-gray-50 rounded-md shadow-sm">
+                {steps.map((step, idx) => {
+                  const isAsyncStep = step.async_step === true || step.foreground_blocking === false;
+                  return (
+                  <li key={idx} className={`p-3 sm:p-4 rounded-md shadow-sm ${isAsyncStep ? 'bg-violet-50' : 'bg-gray-50'}`}>
                     <div 
                       className="flex justify-between items-center cursor-pointer py-2 touch-manipulation"
                       onClick={() => toggleStepCollapse(idx)}
@@ -167,8 +201,13 @@ const PipelineStepsModal: React.FC<PipelineStepsModalProps> = ({
                           </p>
                           {/* Debug Mode: Show timing in header */}
                           {isDebugMode && step.time_taken !== null && step.time_taken !== undefined && (
-                            <span className="text-xs sm:text-sm font-mono bg-blue-100 text-blue-800 px-2 py-1 rounded">
+                            <span className={`text-xs sm:text-sm font-mono px-2 py-1 rounded ${isAsyncStep ? 'bg-violet-100 text-violet-800' : 'bg-blue-100 text-blue-800'}`}>
                               {step.time_taken.toFixed(3)}s
+                            </span>
+                          )}
+                          {isDebugMode && isAsyncStep && (
+                            <span className="rounded bg-violet-100 px-2 py-1 text-xs font-medium text-violet-800">
+                              async observer
                             </span>
                           )}
                         </div>
@@ -187,10 +226,12 @@ const PipelineStepsModal: React.FC<PipelineStepsModalProps> = ({
                       <div className="mt-2 space-y-2 sm:space-y-3">
                         {/* Debug Mode: Show timing information */}
                         {isDebugMode && step.time_taken !== null && step.time_taken !== undefined && (
-                          <div className="bg-blue-50 p-2 rounded border-l-4 border-blue-400">
+                          <div className={`p-2 rounded border-l-4 ${isAsyncStep ? 'bg-violet-50 border-violet-400' : 'bg-blue-50 border-blue-400'}`}>
                             <p className="text-sm sm:text-base">
-                              <strong className="text-blue-800">Time Taken:</strong>{' '}
-                              <span className="font-mono text-blue-900">{step.time_taken.toFixed(3)}s</span>
+                              <strong className={isAsyncStep ? 'text-violet-800' : 'text-blue-800'}>
+                                {isAsyncStep ? 'Async Observer Time:' : 'Response Path Time:'}
+                              </strong>{' '}
+                              <span className={`font-mono ${isAsyncStep ? 'text-violet-900' : 'text-blue-900'}`}>{step.time_taken.toFixed(3)}s</span>
                             </p>
                           </div>
                         )}
@@ -464,7 +505,8 @@ const PipelineStepsModal: React.FC<PipelineStepsModalProps> = ({
                       </div>
                     )}
                   </li>
-                ))}
+                );
+                })}
               </ul>
             </div>
           )}
