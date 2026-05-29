@@ -80,6 +80,7 @@ def test_intent_legacy_v6_injects_previous_async_interest_guidance():
             "guidance_intensity": "light",
             "coach_note": "Build on the partial idea.",
             "reason_short": "Student is answering the ATP recharge question.",
+            "confidence": 0.9,
         },
     )
 
@@ -94,6 +95,42 @@ def test_intent_legacy_v6_injects_previous_async_interest_guidance():
     assert "Previous-turn async interest signal" in updated_context.prompt_context.prompt_template
     assert "Base response prompt" in updated_context.prompt_context.prompt_template
     assert updated_context.pipeline_state["previous_interest_guidance"]["guidance_injected"] is True
+
+
+def test_intent_legacy_v6_skips_bad_previous_async_interest_guidance():
+    turn_context = TurnExecutionContext(
+        user_input="what about atp",
+        purpose="chat",
+        prompt_context=types.SimpleNamespace(
+            prompt_template="Base response prompt",
+            prompt_name="visit_2",
+            prompt_version=7,
+            prompt_purpose="visit_2",
+            prompt_id=172,
+        ),
+        previous_interest_router={
+            "timed_out": True,
+            "confidence": 0.0,
+            "interest_signal": "medium",
+            "interest_change": "unclear",
+            "student_intent": "deepen_current",
+            "topic_action": "stay",
+            "guidance_intensity": "none",
+            "coach_note": "Use normal flow.",
+            "reason_short": "Fallback state.",
+        },
+    )
+
+    updated_context = asyncio.run(
+        intent_legacy_v6.prepare_turn(
+            message=types.SimpleNamespace(),
+            turn_context=turn_context,
+            user_input="what about atp",
+        )
+    )
+
+    assert updated_context.prompt_context.prompt_template == "Base response prompt"
+    assert "previous_interest_guidance" not in updated_context.pipeline_state
 
 
 async def _fake_v4_execute_turn(**kwargs):

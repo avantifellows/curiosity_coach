@@ -74,6 +74,42 @@ def inject_previous_interest_guidance(prompt_template: str, router_state: Dict[s
     return f"{guidance}\n\n{prompt_template}"
 
 
+def should_use_previous_interest_guidance(router_state: Dict[str, Any]) -> bool:
+    if router_state.get("timed_out") or router_state.get("error"):
+        return False
+
+    confidence = router_state.get("confidence")
+    if not isinstance(confidence, (int, float)) or confidence < 0.5:
+        return False
+
+    coach_note = router_state.get("coach_note")
+    reason_short = router_state.get("reason_short")
+    if not isinstance(coach_note, str) or not coach_note.strip():
+        return False
+    if not isinstance(reason_short, str) or not reason_short.strip():
+        return False
+
+    guidance_intensity = router_state.get("guidance_intensity")
+    student_intent = router_state.get("student_intent")
+    interest_change = router_state.get("interest_change")
+    topic_action = router_state.get("topic_action")
+    useful_intents = {
+        "attempted_answer",
+        "repair_confusion",
+        "switch_topic",
+        "closure",
+        "deepen_current",
+        "broaden_current",
+    }
+
+    return (
+        guidance_intensity in {"light", "strong"}
+        or student_intent in useful_intents
+        or interest_change in {"rising", "strong_dip"}
+        or topic_action in {"branch", "switch"}
+    )
+
+
 async def prepare_turn(
     *,
     message: Any,
@@ -81,7 +117,11 @@ async def prepare_turn(
     user_input: str,
 ) -> TurnExecutionContext:
     router_state = turn_context.previous_interest_router
-    if not router_state or not turn_context.prompt_context:
+    if (
+        not router_state
+        or not turn_context.prompt_context
+        or not should_use_previous_interest_guidance(router_state)
+    ):
         return turn_context
 
     guided_prompt_template = inject_previous_interest_guidance(

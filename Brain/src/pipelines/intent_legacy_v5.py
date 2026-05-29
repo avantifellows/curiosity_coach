@@ -160,6 +160,26 @@ async def run_light_interest_router(
             }
         )
         return state
+    except Exception as exc:
+        time_taken = time.monotonic() - started
+        logger.warning(
+            "%s failed for conversation_id=%s; using fallback router state: %s",
+            ROUTER_PROMPT_NAME,
+            turn_context.conversation_id,
+            exc,
+            exc_info=True,
+        )
+        state = _default_router_state("Light router failed; used normal legacy flow.")
+        state.update(
+            {
+                "prompt_template": prompt_template,
+                "formatted_prompt": formatted_prompt,
+                "time_taken": time_taken,
+                "timed_out": False,
+                "error": str(exc),
+            }
+        )
+        return state
 
     try:
         parsed = json.loads(raw_output)
