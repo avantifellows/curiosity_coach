@@ -40,7 +40,6 @@ def test_tutor_mode_pipeline_prompt_policy():
 
 
 def test_intent_legacy_v6_keeps_interest_router_async():
-    assert not hasattr(intent_legacy_v6, "prepare_turn")
     assert intent_legacy_v6.TURN_PROMPT_POLICY == intent_legacy_v6.ASSIGNED_PROMPT
 
 
@@ -60,6 +59,41 @@ def test_async_prior_history_excludes_latest_user_and_saved_ai():
     assert "old answer" in history
     assert "latest question" not in history
     assert "new saved answer" not in history
+
+
+def test_intent_legacy_v6_injects_previous_async_interest_guidance():
+    turn_context = TurnExecutionContext(
+        user_input="what about atp",
+        purpose="chat",
+        prompt_context=types.SimpleNamespace(
+            prompt_template="Base response prompt",
+            prompt_name="visit_2",
+            prompt_version=7,
+            prompt_purpose="visit_2",
+            prompt_id=172,
+        ),
+        previous_interest_router={
+            "interest_signal": "high",
+            "interest_change": "rising",
+            "student_intent": "attempted_answer",
+            "topic_action": "stay",
+            "guidance_intensity": "light",
+            "coach_note": "Build on the partial idea.",
+            "reason_short": "Student is answering the ATP recharge question.",
+        },
+    )
+
+    updated_context = asyncio.run(
+        intent_legacy_v6.prepare_turn(
+            message=types.SimpleNamespace(),
+            turn_context=turn_context,
+            user_input="what about atp",
+        )
+    )
+
+    assert "Previous-turn async interest signal" in updated_context.prompt_context.prompt_template
+    assert "Base response prompt" in updated_context.prompt_context.prompt_template
+    assert updated_context.pipeline_state["previous_interest_guidance"]["guidance_injected"] is True
 
 
 async def _fake_v4_execute_turn(**kwargs):

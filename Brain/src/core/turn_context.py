@@ -42,4 +42,5 @@ class TurnExecutionContext:
     previous_memories: Optional[List[Dict[str, Any]]] = None
     core_theme: Optional[str] = None
     previous_exploration_directions: Optional[List[str]] = None
+    previous_interest_router: Optional[Dict[str, Any]] = None
     pipeline_state: Dict[str, Any] = field(default_factory=dict)

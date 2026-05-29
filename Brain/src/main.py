@@ -556,6 +556,26 @@ def _extract_previous_exploration_directions(source_messages: List[Dict[str, Any
     return None
 
 
+def _extract_previous_interest_router(source_messages: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    try:
+        for message in reversed(source_messages):
+            if message.get("is_user") is True:
+                continue
+
+            pipeline_data = message.get("pipeline_data") or message.get("llm_pipeline_data") or {}
+            router_state = pipeline_data.get("interest_intent_router_light")
+            if isinstance(router_state, dict):
+                return router_state
+
+            for step in reversed(pipeline_data.get("steps") or []):
+                if isinstance(step, dict) and step.get("name") == "interest_intent_router_light":
+                    return step
+    except Exception as exc:
+        logger.error(f"Error retrieving previous interest router state: {exc}", exc_info=True)
+
+    return None
+
+
 def _build_history_with_latest_turn(
     prefetched_history: List[Dict[str, Any]],
     user_input: str,
@@ -698,8 +718,15 @@ async def _build_turn_execution_context(
     context.previous_exploration_directions = _extract_previous_exploration_directions(
         context.prefetched_history
     )
+    context.previous_interest_router = _extract_previous_interest_router(
+        context.prefetched_history
+    )
     logger.info(
         f"Final previous_exploration_directions: {context.previous_exploration_directions}"
+    )
+    logger.info(
+        "Final previous_interest_router: %s",
+        context.previous_interest_router,
     )
     return context
 
