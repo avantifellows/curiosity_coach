@@ -1,5 +1,5 @@
 import React from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation, useParams } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { ChatProvider } from './context/ChatContext';
 import Login from './components/Login';
@@ -11,6 +11,8 @@ import ClassSummary from './components/ClassSummary';
 import TeacherDashboard from './components/TeacherDashboard';
 import TeacherConversationView from './components/TeacherConversationView';
 import StudentAnalysis from './components/StudentAnalysis';
+import StudentDashboard from './components/StudentDashboard';
+import StudentProjectSectionsPage from './components/StudentProjectSectionsPage';
 
 // Protected route component
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -30,6 +32,20 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
   return <>{children}</>;
 };
 
+const StudentProjectRedirect: React.FC = () => {
+  const { kbSourceId } = useParams();
+  return <Navigate to={`/projects/${kbSourceId || ''}`} replace />;
+};
+
+const PdfTopicsRedirect: React.FC = () => {
+  React.useEffect(() => {
+    const brainUrl = process.env.REACT_APP_BRAIN_API_URL;
+    window.location.replace(brainUrl ? `${brainUrl}/pdf-topics` : '/');
+  }, []);
+
+  return <div className="flex min-h-screen items-center justify-center">Opening PDF topics...</div>;
+};
+
 const App: React.FC = () => {
   return (
     <AuthProvider>
@@ -39,6 +55,27 @@ const App: React.FC = () => {
             <Routes>
               <Route path="/" element={<Login />} />
               <Route path="/try" element={<Login />} />
+              <Route
+                path="/student-dashboard"
+                element={
+                  <ProtectedRoute>
+                    <StudentDashboard />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/projects/:kbSourceId"
+                element={
+                  <ProtectedRoute>
+                    <StudentProjectSectionsPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/student-project/:kbSourceId"
+                element={<StudentProjectRedirect />}
+              />
+              <Route path="/pdf-topics" element={<PdfTopicsRedirect />} />
               <Route
                 path="/chat"
                 element={

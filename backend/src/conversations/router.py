@@ -9,7 +9,11 @@ from src.models import User, Conversation, Tag # Assuming User model is needed f
 # TODO: Verify the correct import path and function name for auth dependency
 from src.auth.dependencies import get_current_user # Use the new dependency that returns the User object
 from src.conversations import schemas # Use the schemas we just created
-from src import models # Import CRUD functions from models.py
+from src import models  # Import CRUD functions from models.py
+from src.projects.progress_selection import (
+    ChapterIntentKind,
+    resolve_chapter_chat_intent,
+)
 
 # Set up logger for this module
 logger = logging.getLogger(__name__)
@@ -55,6 +59,23 @@ def _normalize_tag_query(raw_tags: Optional[List[str]]) -> List[str]:
         parts = [part for part in item.split(",") if part.strip()]
         flattened.extend(parts)
     return _normalize_tag_list(flattened)
+
+
+def _resolve_user_pipeline_key(
+    current_user: User,
+    *,
+    requested_pipeline_key: Optional[str],
+    requested_pipeline_slot: Optional[str],
+) -> str:
+    if requested_pipeline_key:
+        return models.normalize_pipeline_key(requested_pipeline_key)
+
+    slot = (requested_pipeline_slot or "default").strip().lower().replace("-", "_").replace(" ", "_")
+    if slot == "tutor":
+        return models.normalize_pipeline_key(current_user.tutor_pipeline_key)
+    if slot == "quiz":
+        return models.normalize_pipeline_key(current_user.quiz_pipeline_key)
+    return models.normalize_pipeline_key(current_user.default_pipeline_key)
 
 @router.get("", response_model=List[schemas.ConversationSummary])
 async def list_conversations_for_user(
@@ -174,6 +195,65 @@ async def create_new_conversation(
     start_time = time.time()
     title = conversation_data.title if conversation_data else "New Chat"
     core_chat_theme = conversation_data.core_chat_theme if conversation_data else None
+
+    if conversation_data and conversation_data.section_id is not None:
+        if conversation_data.kb_source_id is None:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "code": "invalid_request",
+                    "message": "section_id must be sent together with kb_source_id.",
+                },
+            )
+
+    if conversation_data and conversation_data.kb_source_id is not None:
+        intent = resolve_chapter_chat_intent(
+            db,
+            current_user.id,
+            conversation_data.kb_source_id,
+            section_pk=conversation_data.section_id,
+        )
+        if intent.kind == ChapterIntentKind.SOURCE_NOT_FOUND:
+            raise HTTPException(
+                status_code=404,
+                detail={"code": "source_not_found", "message": "Project source not found"},
+            )
+        if intent.kind == ChapterIntentKind.SECTION_NOT_FOUND:
+            raise HTTPException(
+                status_code=404,
+                detail={"code": "section_not_found", "message": "That section was not found for this project."},
+            )
+        if intent.kind == ChapterIntentKind.CHAPTER_COMPLETE:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "code": "chapter_complete",
+                    "message": "You have finished this chapter.",
+                },
+            )
+        if intent.kind == ChapterIntentKind.NOT_SUBSCRIBED:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "not_subscribed",
+                    "message": "Subscribe to this project before starting chat.",
+                },
+            )
+        if intent.kind == ChapterIntentKind.NO_UNITS:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "no_units",
+                    "message": "This project has no sections yet.",
+                },
+            )
+        if intent.kind != ChapterIntentKind.ACTIVE or intent.foundational_unit_id is None:
+            raise HTTPException(
+                status_code=500,
+                detail={"code": "intent_error", "message": "Unable to resolve chapter chat intent."},
+            )
+        core_chat_theme = intent.core_chat_theme
+
     preparation_status = "ready"
     ai_opening_message = None
     conversation = None
@@ -196,9 +276,41 @@ async def create_new_conversation(
         
         # 2. Select appropriate prompt by purpose
         prompt_purpose = models.select_prompt_purpose_for_visit(visit_number)
-        logger.info(f"🎯 BACKEND: Visit {visit_number} → prompt_purpose={prompt_purpose}")
+        requested_pipeline_key = (
+            conversation_data.pipeline_key
+            if conversation_data and conversation_data.pipeline_key
+            else None
+        )
+        requested_pipeline_slot = (
+            conversation_data.pipeline_slot
+            if conversation_data and conversation_data.pipeline_slot
+            else None
+        )
+        pipeline_key = _resolve_user_pipeline_key(
+            current_user,
+            requested_pipeline_key=requested_pipeline_key,
+            requested_pipeline_slot=requested_pipeline_slot,
+        )
+        try:
+            query_mode = models.normalize_query_mode(
+                conversation_data.query_mode if conversation_data else None
+            )
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=400,
+                detail={"code": "invalid_query_mode", "message": str(exc)},
+            ) from exc
+        logger.info(
+            f"🎯 BACKEND: Visit {visit_number} → prompt_purpose={prompt_purpose}, "
+            f"pipeline_key={pipeline_key}, pipeline_slot={requested_pipeline_slot or 'default'}, "
+            f"query_mode={query_mode}"
+        )
         
-        prompt_version = models.get_production_prompt_by_purpose(db, prompt_purpose)
+        prompt_version = models.get_prompt_for_pipeline_by_purpose(
+            db,
+            prompt_purpose,
+            pipeline_key,
+        )
         
         if prompt_version:
             prompt = db.query(models.Prompt).get(prompt_version.prompt_id)
@@ -212,10 +324,16 @@ async def create_new_conversation(
             user_id=current_user.id,
             title=title,
             core_chat_theme=core_chat_theme,
-            prompt_version_id=prompt_version.id if prompt_version else None
+            prompt_version_id=prompt_version.id if prompt_version else None,
+            pipeline_key=pipeline_key,
+            query_mode=query_mode,
         )
-        
-        logger.info(f"📝 BACKEND: Created conversation id={conversation.id} with prompt_version_id={conversation.prompt_version_id}")
+
+        logger.info(
+            f"📝 BACKEND: Created conversation id={conversation.id} "
+            f"with prompt_version_id={conversation.prompt_version_id} "
+            f"and pipeline_key={conversation.pipeline_key}, query_mode={conversation.query_mode}"
+        )
         
         # Record visit number with unique constraint protection
         try:
@@ -298,7 +416,7 @@ async def create_new_conversation(
             visit_number=visit_number,
             db=db
         )
-        
+
         logger.info(f"Opening message generated successfully")
         
         # 7. Return conversation with visit info
@@ -318,12 +436,13 @@ async def create_new_conversation(
         conversation_with_visit = ConversationWithVisit(
             id=conversation.id,
             user_id=conversation.user_id,
-            title=conversation.title,
+            title=conversation.title or "New Chat",
             visit_number=visit_number,
             prompt_version_id=conversation.prompt_version_id,
+            core_chat_theme=conversation.core_chat_theme,
             tags=[],
             created_at=conversation.created_at,
-            updated_at=conversation.updated_at
+            updated_at=conversation.updated_at,
         )
         
         response = ConversationCreateResponse(
@@ -622,7 +741,7 @@ async def get_conversation_memory_endpoint(
         f"get_conversation_memory_endpoint completed successfully - "
         f"conversation_id: {conversation_id}"
     )
-    return memory.memory_data 
+    return memory.memory_data
 
 
 @router.put("/{conversation_id}/core-chat-theme", response_model=schemas.Conversation)

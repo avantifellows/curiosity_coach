@@ -111,19 +111,29 @@ curiosity-coach-frontend/.env.prod
     cd curiosity-coach
     ```
 
-2.  **Backend Service:**
+2.  **Backend database and migrations:**
+    Ensure PostgreSQL is running and `backend/.env.local` points at your local database. Then apply migrations before starting the services:
+    ```bash
+    cd backend
+    uv run alembic heads
+    uv run alembic upgrade head
+    cd ..
+    ```
+    `uv run alembic heads` should normally print one head. If it prints more than one, stop and resolve the migration graph before applying migrations.
+
+3.  **Backend Service:**
     ```bash
     cd backend
     ./run.sh
     ```
 
-3.  **Brain Service:**
+4.  **Brain Service:**
     ```bash
     cd Brain
     ./run.sh
     ```
 
-4.  **Frontend Service:**
+5.  **Frontend Service:**
     ```bash
     cd curiosity-coach-frontend
     npm install
@@ -139,7 +149,7 @@ cd backend
 python scripts/sync_prod_to_local.py
 ```
 
-**Note:** This will completely wipe your local database and replace it with production data. Make sure you have the required environment files (`.env.local` and `.env.prod`) configured before running this script.
+**Note:** This will completely wipe your local database and replace it with production data. Do not use it as the normal install path. Make sure you have the required environment files (`.env.local` and `.env.prod`) configured before running this script.
 
 ### Production Deployment
 
@@ -158,4 +168,3 @@ Please refer to contributing guidelines if available (e.g., `CONTRIBUTING.md`). 
 -   Follow coding standards.
 -   Write tests for new features.
 -   Ensure documentation is updated. 
-

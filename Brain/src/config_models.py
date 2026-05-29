@@ -2,9 +2,13 @@ from pydantic import BaseModel, Field
 from typing import Optional, Dict, Any, List
 import os
 import json
+import time
 import boto3
 from botocore.exceptions import NoCredentialsError, PartialCredentialsError, ClientError
 from src.utils.logger import logger # Assuming logger is appropriately accessible
+
+_FLOW_CONFIG_CACHE: Optional[Dict[str, Any]] = None
+_FLOW_CONFIG_CACHE_FETCHED_AT = 0.0
 
 class StepConfig(BaseModel):
     """Configuration for an individual step in the query processing flow."""
@@ -65,12 +69,22 @@ class FlowConfig(BaseModel):
 
     @classmethod
     def get_config_from_s3(cls) -> Optional[Dict[str, Any]]:
+        global _FLOW_CONFIG_CACHE, _FLOW_CONFIG_CACHE_FETCHED_AT
         bucket_name = os.getenv("FLOW_CONFIG_S3_BUCKET_NAME")
         object_key = os.getenv("FLOW_CONFIG_S3_KEY", "flow_config.json") # Default to flow_config.json
+        cache_ttl = float(os.getenv("FLOW_CONFIG_CACHE_TTL_SECONDS", "60"))
 
         if not bucket_name:
             logger.info("FLOW_CONFIG_S3_BUCKET_NAME not set. Skipping S3 config load.")
             return None
+
+        if cache_ttl > 0 and _FLOW_CONFIG_CACHE is not None:
+            age = time.time() - _FLOW_CONFIG_CACHE_FETCHED_AT
+            if age < cache_ttl:
+                logger.info(
+                    f"Using cached FlowConfig from S3: s3://{bucket_name}/{object_key}"
+                )
+                return _FLOW_CONFIG_CACHE
 
         s3_client = boto3.client('s3')
         try:
@@ -79,7 +93,11 @@ class FlowConfig(BaseModel):
             # Validate with Pydantic model
             parsed_config = cls(**config_data)
             logger.info(f"Successfully loaded and validated config from S3: s3://{bucket_name}/{object_key}")
-            return parsed_config.model_dump(exclude_none=True)
+            parsed_config_dict = parsed_config.model_dump(exclude_none=True)
+            if cache_ttl > 0:
+                _FLOW_CONFIG_CACHE = parsed_config_dict
+                _FLOW_CONFIG_CACHE_FETCHED_AT = time.time()
+            return parsed_config_dict
         except ClientError as e:
             if e.response['Error']['Code'] == 'NoSuchKey':
                 logger.warning(f"Config file s3://{bucket_name}/{object_key} not found. Attempting to initialize.")

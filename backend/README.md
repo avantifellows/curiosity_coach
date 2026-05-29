@@ -80,31 +80,44 @@ You should see output indicating the server is running, typically:
 
 Alembic is used for managing database schema migrations. The configuration is in `alembic.ini` and migration scripts are in `alembic/versions/`.
 
-**To initialize a freshly created database with up to date migrations or even an existing db, we'll use an alembic command (after setting up `.env.local` and ensuring the database exists):**
-First, ensure your virtual environment is active:
+**To initialize a freshly created database or update an existing local database, use Alembic after setting up `.env.local` and ensuring the database exists:**
+
 ```bash
-source venv/bin/activate
+uv run alembic heads
+uv run alembic upgrade head
+uv run alembic current -v
 ```
 
-Then make sure in `backend/src/config/settings.py` file, the env file being used in the local one. Look for this line
-```
-env_file = '.env.local'
+`uv run alembic heads` should normally print exactly one head. If it prints more than one, stop and resolve the migration graph before applying migrations.
+
+For the current topic-data and multi-pipeline work, the important schema pieces are:
+
+```bash
+psql postgresql://postgres:password@localhost:5432/curiosity_coach -c "
+select
+  (select version_num from alembic_version) as alembic_version,
+  exists (select 1 from information_schema.columns where table_name='users' and column_name='default_pipeline_key') as users_default_pipeline_key,
+  exists (select 1 from information_schema.columns where table_name='users' and column_name='tutor_pipeline_key') as users_tutor_pipeline_key,
+  exists (select 1 from information_schema.columns where table_name='users' and column_name='quiz_pipeline_key') as users_quiz_pipeline_key,
+  exists (select 1 from information_schema.columns where table_name='conversations' and column_name='pipeline_key') as conversations_pipeline_key,
+  exists (select 1 from information_schema.columns where table_name='conversations' and column_name='query_mode') as conversations_query_mode,
+  exists (select 1 from information_schema.tables where table_name='pdf_topic_extraction_jobs') as pdf_topic_extraction_jobs,
+  exists (select 1 from information_schema.tables where table_name='sections') as sections;
+"
 ```
 
-This means the db we'll run migrations on is the local db.
-Apply migrations:
-```bash
-alembic upgrade head
-```
+If `uv run alembic current -v` says the database is at the latest revision but one of these checks is false, the database was likely stamped or manually altered out of sync. Do not fix that by stamping again, dropping the database, or resetting Git. First inspect the missing schema item, then either run the exact missing migration against a disposable/local copy or add the missing column/table explicitly after confirming it matches the migration file.
+
+`uv run alembic check` can be useful, but this repo currently has some older SQLAlchemy model/schema drift that makes it noisy as a clean install gate. Prefer `heads`, `upgrade head`, `current -v`, and the targeted schema checklist above when debugging local setup.
 
 **To create a new migration:**
 After making changes to SQLAlchemy models in `src/models.py`:
 ```bash
-alembic revision -m "your_migration_message" --autogenerate
+uv run alembic revision -m "your_migration_message" --autogenerate
 ```
 Review the generated script in `alembic/versions/` and then apply it:
 ```bash
-alembic upgrade head
+uv run alembic upgrade head
 ```
 
 ## Dependencies

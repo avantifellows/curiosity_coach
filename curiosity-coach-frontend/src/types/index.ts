@@ -2,6 +2,9 @@ export interface User {
   id: number;
   phone_number?: string;
   name?: string;
+  default_pipeline_key?: string;
+  tutor_pipeline_key?: string;
+  quiz_pipeline_key?: string;
   student?: Student;  // Include student profile if user is a student
 }
 
@@ -51,6 +54,7 @@ export interface ConversationSummary {
   updated_at: string; // ISO date string
   visit_number?: number; // Visit number at creation time (1, 2, 3, 4+)
   tags?: string[];
+  core_chat_theme?: string | null;
 }
 
 /**
@@ -78,6 +82,7 @@ export interface ConversationTagsResponse {
   id: number;
   tags: string[];
 }
+
 
 // --- End Conversation Types ---
 
@@ -155,6 +160,46 @@ export interface StudentOptions {
   schools: string[];
   grades: number[];
   sections: string[];
+}
+
+export interface ProjectSource {
+  id: number;
+  file_name: string;
+  details?: string | null;
+}
+
+export interface ProjectSubscriptionResponse {
+  kb_source_id: number;
+  total_units: number;
+  created_count: number;
+  existing_count: number;
+}
+
+export interface SubscribedProject {
+  kb_source_id: number;
+  file_name: string;
+}
+
+export interface ProjectSection {
+  id: number;
+  section_order: number;
+  section_name: string;
+  curriculum_section_key: string;
+  description_preview: string;
+}
+
+export type ChapterChatIntentOutcome =
+  | 'active'
+  | 'chapter_complete'
+  | 'not_subscribed'
+  | 'no_units'
+  | 'section_not_found';
+
+export interface ChapterChatIntentResponse {
+  outcome: ChapterChatIntentOutcome;
+  kb_source_id: number;
+  foundational_unit_id?: number | null;
+  core_chat_theme?: string | null;
 }
 
 export interface DashboardClassSummary {

@@ -1,12 +1,36 @@
 from pydantic import BaseModel, Field, constr, field_validator
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Literal, Optional
+
+QueryMode = Literal["include", "omit", "opening_only"]
 
 # --- Conversation Schemas ---
 
 class ConversationBase(BaseModel):
     title: Optional[str] = "New Chat"
     core_chat_theme: Optional[str] = None
+    kb_source_id: Optional[int] = Field(
+        default=None,
+        ge=1,
+        description="When set, server resolves CORE_THEME and foundational unit from progress for this project.",
+    )
+    section_id: Optional[int] = Field(
+        default=None,
+        ge=1,
+        description="When set with kb_source_id, anchors theme to this sections.id (DB PK).",
+    )
+    pipeline_key: Optional[str] = Field(
+        default=None,
+        description="Optional per-conversation pipeline override. Defaults to the user's default pipeline.",
+    )
+    pipeline_slot: Optional[str] = Field(
+        default=None,
+        description="Optional testing slot: default, tutor, or quiz. Ignored when pipeline_key is provided.",
+    )
+    query_mode: Optional[QueryMode] = Field(
+        default="include",
+        description="Controls {{QUERY}} placeholder usage: include, omit, or opening_only.",
+    )
 
 class ConversationTitleUpdate(BaseModel):
     title: str
@@ -17,6 +41,7 @@ class ConversationCreate(ConversationBase):
 class Conversation(ConversationBase):
     id: int
     user_id: int
+    query_mode: str = "include"
     visit_number: Optional[int] = None
     tags: List[str] = Field(default_factory=list)
     created_at: datetime

@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from src.database import get_db
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 from src.internal import crud
 from src.memories.schemas import MemoryInDB
 from src.memories import crud as memories_crud
@@ -11,12 +11,15 @@ from src.models import (
     Prompt, PromptVersion, get_conversation, save_message,
     save_message_pipeline_data, update_conversation_core_chat_theme,
     Message, MessagePipelineData, LMHomework,
-    ClassAnalysis, StudentAnalysis, AnalysisJob, Student, ConversationEvaluation,
+    ClassAnalysis, StudentAnalysis, AnalysisJob, Student, ConversationEvaluation, User,
+    PdfTopicExtractionJob, DEFAULT_PIPELINE_KEY,
 )
 from src.onboarding.schemas import OpeningMessageCallbackPayload
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from datetime import datetime, timezone
+import uuid
 import logging
+from src.queue.service import QueueService, get_queue_service
 from src.analytics_agent.schemas import HomeworkItemsPayload, AnalyticsTriggerPayload
 from src.analytics_agent.registry import MEMORY_GENERATION_EVENT, flows_for_event
 from src.analytics_agent.scheduler import enqueue_flows
@@ -31,6 +34,136 @@ router = APIRouter(
     # These endpoints should not be exposed in public docs
     include_in_schema=False,
 )
+
+
+class PipelineDataPatchPayload(BaseModel):
+    pipeline_data: Optional[Dict[str, Any]] = None
+    append_steps: List[Dict[str, Any]] = Field(default_factory=list)
+    curiosity_score: Optional[int] = None
+
+
+class ExtractedSectionItem(BaseModel):
+    section_id: str
+    section_order: int = 0
+    section_name: str = ""
+    section_description: str = ""
+    section_content: str = ""
+    section_question_list: List[Any] = Field(default_factory=list)
+
+
+class SaveExtractedTopicsPayload(BaseModel):
+    file_name: str
+    details: Optional[str] = None
+    created_by: Optional[int] = None
+    force_proceed: bool = False
+    sections: List[ExtractedSectionItem]
+
+
+class CreatePdfTopicExtractionJobPayload(BaseModel):
+    file_name: str
+    page_count: int
+    source_text: str
+    created_by: Optional[int] = None
+
+
+class UpdatePdfTopicExtractionJobPayload(BaseModel):
+    status: str
+    sections: Optional[List[Dict[str, Any]]] = None
+    error_message: Optional[str] = None
+
+
+def _serialize_pdf_topic_extraction_job(
+    job: PdfTopicExtractionJob,
+    include_source_text: bool = False,
+) -> Dict[str, Any]:
+    payload = {
+        "job_id": job.job_id,
+        "file_name": job.file_name,
+        "status": job.status,
+        "page_count": job.page_count,
+        "sections": job.sections,
+        "error_message": job.error_message,
+        "created_at": job.created_at,
+        "updated_at": job.updated_at,
+        "completed_at": job.completed_at,
+    }
+    if include_source_text:
+        payload["source_text"] = job.source_text
+    return payload
+
+
+def _normalize_extracted_topics_payload(payload: SaveExtractedTopicsPayload) -> dict:
+    file_name = (payload.file_name or "").strip()
+    if not file_name:
+        raise HTTPException(status_code=422, detail="file_name must be a non-empty string")
+
+    details = payload.details.strip() if payload.details else None
+
+    normalized_sections: List[dict] = []
+    for idx, s in enumerate(payload.sections):
+        sid = (s.section_id or "").strip()
+        if not sid:
+            raise HTTPException(
+                status_code=422,
+                detail=f"sections[{idx}].section_id must be a non-empty string",
+            )
+        if not isinstance(s.section_question_list, list):
+            raise HTTPException(
+                status_code=422,
+                detail=f"sections[{idx}].section_question_list must be a list",
+            )
+        try:
+            order = int(s.section_order)
+        except (TypeError, ValueError):
+            raise HTTPException(
+                status_code=422,
+                detail=f"sections[{idx}].section_order must be an integer",
+            ) from None
+
+        normalized_sections.append(
+            {
+                "section_id": sid,
+                "section_order": order,
+                "section_name": (s.section_name or "").strip(),
+                "section_description": (s.section_description or "").strip(),
+                "section_content": (s.section_content or "").strip(),
+                "section_question_list": s.section_question_list,
+            }
+        )
+
+    if not normalized_sections:
+        raise HTTPException(status_code=422, detail="sections must contain at least one item")
+
+    normalized_sections.sort(key=lambda x: (x["section_order"], x["section_id"]))
+
+    return {
+        "file_name": file_name,
+        "details": details,
+        "created_by": payload.created_by,
+        "force_proceed": payload.force_proceed,
+        "sections": normalized_sections,
+    }
+
+
+class FileNameExistsPayload(BaseModel):
+    file_name: str
+
+
+@router.post("/pdf-topics/file-name-exists")
+def check_pdf_topics_file_name_exists(
+    payload: FileNameExistsPayload,
+    db: Session = Depends(get_db),
+):
+    file_name = (payload.file_name or "").strip()
+    if not file_name:
+        raise HTTPException(status_code=422, detail="file_name must be a non-empty string")
+
+    existing_count = crud.get_kb_source_count_by_file_name(db, file_name)
+    return {
+        "file_name": file_name,
+        "exists": existing_count > 0,
+        "existing_count": existing_count,
+    }
 
 @router.get("/users/{user_id}/memories", response_model=List[MemoryInDB])
 def get_user_conversation_memories(user_id: int, db: Session = Depends(get_db)):
@@ -90,6 +223,24 @@ def get_student_by_user_id(user_id: int, db: Session = Depends(get_db)):
         "created_at": student.created_at.isoformat() if student.created_at else None
     }
 
+
+@router.get("/users/{user_id}")
+def get_user_by_id(user_id: int, db: Session = Depends(get_db)):
+    """
+    Get user record by user_id for internal Brain context building.
+    Returns 404 if user not found.
+    """
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    return {
+        "id": user.id,
+        "phone_number": user.phone_number,
+        "name": user.name,
+        "created_at": user.created_at.isoformat() if user.created_at else None,
+    }
+
 @router.get("/users/{user_id}/previous-memories")
 def get_user_previous_memories(
     user_id: int,
@@ -133,16 +284,11 @@ def get_conversation_prompt(
     Internal endpoint: Return prompt text for a conversation's assigned prompt version.
     Used by Brain for opening message generation.
     """
-    logger.info(f"🔍 get_conversation_prompt called for conversation_id={conversation_id}")
-    
     conversation = get_conversation(db, conversation_id)
     if not conversation:
         raise HTTPException(status_code=404, detail="Conversation not found")
-    
-    logger.info(f"📋 Conversation {conversation_id} has prompt_version_id={conversation.prompt_version_id}")
-    
+
     if not conversation.prompt_version_id:
-        logger.warning(f"⚠️ Conversation {conversation_id} has NO prompt_version_id assigned! Falling back to simplified_conversation")
         # Fallback to simplified_conversation if no prompt assigned
         prompt = db.query(Prompt).filter(Prompt.name == "simplified_conversation").first()
         if not prompt:
@@ -163,15 +309,15 @@ def get_conversation_prompt(
     prompt_purpose = prompt.prompt_purpose if prompt else None
     prompt_name = prompt.name if prompt else None
     
-    logger.info(f"🎯 Returning prompt: name={prompt_name}, purpose={prompt_purpose}, version={prompt_version.version_number}, prompt_id={prompt_version.prompt_id}, text_length={len(prompt_version.prompt_text)}")
-    
     return {
         "prompt_text": prompt_version.prompt_text,
         "version_number": prompt_version.version_number,
         "prompt_id": prompt_version.prompt_id,
-        "prompt_purpose": prompt_purpose  # Include the prompt purpose (visit_1, visit_2, etc.)
+        "prompt_purpose": prompt_purpose,
+        "prompt_name": prompt_name,
+        "pipeline_key": conversation.pipeline_key or DEFAULT_PIPELINE_KEY,
+        "query_mode": conversation.query_mode or "include",
     }
-
 @router.get("/users/{user_id}/conversations")
 def get_user_conversations_internal(
     user_id: int,
@@ -336,6 +482,62 @@ def get_conversation_messages_with_pipeline(
     return {"success": True, "messages": result}
 
 
+@router.patch("/messages/{message_id}/pipeline-data")
+def patch_message_pipeline_data(
+    message_id: int,
+    payload: PipelineDataPatchPayload,
+    db: Session = Depends(get_db),
+):
+    """
+    Merge async Brain pipeline data into an already-saved AI message.
+    Used by fast foreground pipelines that save the reply before analytics finish.
+    """
+    message = db.query(Message).filter(Message.id == message_id).first()
+    if not message:
+        raise HTTPException(status_code=404, detail="Message not found")
+
+    pipeline_entry = (
+        db.query(MessagePipelineData)
+        .filter(MessagePipelineData.message_id == message_id)
+        .first()
+    )
+    if not pipeline_entry:
+        pipeline_entry = MessagePipelineData(message_id=message_id, pipeline_data={})
+        db.add(pipeline_entry)
+
+    existing = dict(pipeline_entry.pipeline_data or {})
+
+    if payload.pipeline_data:
+        for key, value in payload.pipeline_data.items():
+            if key == "steps":
+                continue
+            existing[key] = value
+
+    if payload.append_steps:
+        existing_steps = existing.get("steps")
+        if not isinstance(existing_steps, list):
+            existing_steps = []
+        existing_steps.extend(payload.append_steps)
+        existing["steps"] = existing_steps
+
+    if payload.curiosity_score is not None:
+        message.curiosity_score = payload.curiosity_score
+        existing["curiosity_score"] = payload.curiosity_score
+
+    pipeline_entry.pipeline_data = existing
+    db.add(message)
+    db.add(pipeline_entry)
+    db.commit()
+    db.refresh(pipeline_entry)
+
+    return {
+        "success": True,
+        "message_id": message_id,
+        "steps_count": len(existing.get("steps") or []),
+        "curiosity_score": message.curiosity_score,
+    }
+
+
 @router.post("/analytics/homework/{conversation_id}", status_code=204)
 def save_homework_items(conversation_id: int, payload: HomeworkItemsPayload, db: Session = Depends(get_db)):
     conv = db.query(Conversation).get(conversation_id)
@@ -386,6 +588,138 @@ def save_knowledge_updates(conversation_id: int, payload: KnowledgeItemsPayload,
     except Exception as e:
         logger.error(f"Error saving knowledge updates for conversation {conversation_id}: {e}")
         raise HTTPException(status_code=500, detail=f"Error saving knowledge updates: {str(e)}")
+
+
+@router.post("/pdf-topics/ingest")
+def ingest_pdf_topics(
+    payload: SaveExtractedTopicsPayload,
+    db: Session = Depends(get_db),
+):
+    """
+    Internal endpoint to persist extracted PDF topics into kb_source + sections.
+    """
+    normalized = _normalize_extracted_topics_payload(payload)
+    logger.info(
+        "Ingesting extracted PDF topics",
+        extra={
+            "file_name": normalized["file_name"],
+            "section_count": len(normalized["sections"]),
+            "has_details": bool(normalized["details"]),
+            "created_by": normalized["created_by"],
+            "force_proceed": normalized["force_proceed"],
+        },
+    )
+
+    try:
+        existing_count = crud.get_kb_source_count_by_file_name(db, normalized["file_name"])
+        if existing_count > 0 and not normalized["force_proceed"]:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "file_name_exists",
+                    "message": "File name already exists. Confirm if you want to proceed.",
+                    "file_name": normalized["file_name"],
+                    "existing_count": existing_count,
+                },
+            )
+
+        result = crud.save_extracted_topics_payload(
+            db=db,
+            file_name=normalized["file_name"],
+            details=normalized["details"],
+            created_by=normalized["created_by"],
+            sections_payload=normalized["sections"],
+        )
+        db.commit()
+        return {"status": "success", **result}
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error("Error ingesting extracted PDF topics: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error ingesting extracted PDF topics: {str(e)}")
+
+
+@router.post("/pdf-topic-extraction-jobs", status_code=status.HTTP_202_ACCEPTED)
+async def create_pdf_topic_extraction_job(
+    payload: CreatePdfTopicExtractionJobPayload,
+    db: Session = Depends(get_db),
+    queue_service: QueueService = Depends(get_queue_service),
+):
+    file_name = (payload.file_name or "").strip()
+    source_text = (payload.source_text or "").strip()
+    if not file_name:
+        raise HTTPException(status_code=422, detail="file_name is required")
+    if not source_text:
+        raise HTTPException(status_code=422, detail="source_text is required")
+
+    job = PdfTopicExtractionJob(
+        job_id=str(uuid.uuid4()),
+        file_name=file_name,
+        page_count=payload.page_count,
+        source_text=source_text,
+        created_by=payload.created_by,
+        status="queued",
+    )
+    db.add(job)
+    db.commit()
+    db.refresh(job)
+
+    try:
+        queue_response = await queue_service.send_batch_task({
+            "task_type": "PDF_TOPIC_EXTRACTION",
+            "job_id": job.job_id,
+        })
+        if isinstance(queue_response, dict) and queue_response.get("error"):
+            raise RuntimeError(str(queue_response["error"]))
+    except Exception as exc:
+        logger.error("Failed to queue PDF_TOPIC_EXTRACTION job %s: %s", job.job_id, exc, exc_info=True)
+        job.status = "failed"
+        job.error_message = f"Failed to queue extraction task: {str(exc)}"
+        job.completed_at = datetime.now(timezone.utc)
+        db.add(job)
+        db.commit()
+        raise HTTPException(status_code=500, detail="Failed to queue PDF topic extraction") from exc
+
+    return _serialize_pdf_topic_extraction_job(job)
+
+
+@router.get("/pdf-topic-extraction-jobs/{job_id}")
+def get_pdf_topic_extraction_job(
+    job_id: str,
+    include_source_text: bool = False,
+    db: Session = Depends(get_db),
+):
+    job = db.query(PdfTopicExtractionJob).filter(PdfTopicExtractionJob.job_id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="PDF topic extraction job not found")
+    return _serialize_pdf_topic_extraction_job(job, include_source_text=include_source_text)
+
+
+@router.patch("/pdf-topic-extraction-jobs/{job_id}")
+def update_pdf_topic_extraction_job(
+    job_id: str,
+    payload: UpdatePdfTopicExtractionJobPayload,
+    db: Session = Depends(get_db),
+):
+    job = db.query(PdfTopicExtractionJob).filter(PdfTopicExtractionJob.job_id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="PDF topic extraction job not found")
+
+    if payload.status not in {"queued", "running", "completed", "failed"}:
+        raise HTTPException(status_code=422, detail="Invalid job status")
+
+    job.status = payload.status
+    job.error_message = payload.error_message
+    if payload.sections is not None:
+        job.sections = payload.sections
+    if payload.status in {"completed", "failed"}:
+        job.completed_at = datetime.now(timezone.utc)
+    db.add(job)
+    db.commit()
+    db.refresh(job)
+    return _serialize_pdf_topic_extraction_job(job)
 
 
 # --- Analysis Data Endpoints for Brain ---

@@ -31,6 +31,16 @@
                 "verbosity": "low"
             }
         },
+        "fu_completion_checker": {
+            "provider": "openai",
+            "model": "gpt-5.4-mini",
+            "reasoning": {
+                "effort": "low"
+            },
+            "text": {
+                "verbosity": "low"
+            }
+        },
         "exploration_directions_evaluation": {
             "provider": "openai",
             "model": "gpt-5.4-mini",
@@ -42,6 +52,16 @@
             }
         },
         "chat_controller": {
+            "provider": "openai",
+            "model": "gpt-5.4-mini",
+            "reasoning": {
+                "effort": "low"
+            },
+            "text": {
+                "verbosity": "low"
+            }
+        },
+        "chat_controller_13yo": {
             "provider": "openai",
             "model": "gpt-5.4-mini",
             "reasoning": {
@@ -78,6 +98,36 @@
             "temperature": 0.3,
             "max_tokens": 500
         },
+        "intent_router": {
+            "provider": "openai",
+            "model": "gpt-5.4-mini",
+            "reasoning": {
+                "effort": "low"
+            },
+            "text": {
+                "verbosity": "low"
+            }
+        },
+        "interest_intent_router_v2": {
+            "provider": "openai",
+            "model": "gpt-5.4-mini",
+            "reasoning": {
+                "effort": "low"
+            },
+            "text": {
+                "verbosity": "low"
+            }
+        },
+        "interest_intent_router_light": {
+            "provider": "openai",
+            "model": "gpt-5.4-mini",
+            "reasoning": {
+                "effort": "low"
+            },
+            "text": {
+                "verbosity": "low"
+            }
+        },
         "response_generation": {
             "provider": "openai",
             "model": "gpt-5.4",
@@ -89,6 +139,16 @@
             }
         },
         "simplified_conversation": {
+            "provider": "openai",
+            "model": "gpt-5.4-mini",
+            "reasoning": {
+                "effort": "medium"
+            },
+            "text": {
+                "verbosity": "low"
+            }
+        },
+        "simplified_conversation_intent_legacy_v2": {
             "provider": "openai",
             "model": "gpt-5.4-mini",
             "reasoning": {
@@ -173,6 +233,16 @@
             "model": "gpt-5.4",
             "reasoning": {
                 "effort": "medium"
+            },
+            "text": {
+                "verbosity": "low"
+            }
+        },
+        "pdf_topic_extraction": {
+            "provider": "openai",
+            "model": "gpt-5.5",
+            "reasoning": {
+                "effort": "high"
             },
             "text": {
                 "verbosity": "low"

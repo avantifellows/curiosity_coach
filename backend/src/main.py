@@ -15,6 +15,7 @@ from src.internal import router as internal_router
 from src.feedback import router as feedback_router
 from src.config import router as config_router
 from src.students import router as students_router
+from src.projects import router as projects_router
 from src.config.settings import settings
 from mangum import Mangum
 
@@ -111,6 +112,7 @@ def create_app() -> FastAPI:
     app.include_router(feedback_router.router)
     app.include_router(config_router.router)
     app.include_router(students_router.router)
+    app.include_router(projects_router.router)
     app.include_router(analytics_router)
     
     logger.info("FastAPI app created successfully")

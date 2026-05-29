@@ -12,6 +12,11 @@ import {
   StudentLoginResponse,
   StudentLoginRequest,
   StudentOptions,
+  ProjectSource,
+  ProjectSubscriptionResponse,
+  SubscribedProject,
+  ProjectSection,
+  ChapterChatIntentResponse,
   StudentWithConversation,
   PaginatedStudentConversations,
   ConversationWithMessages,
@@ -69,6 +74,96 @@ export const getStudentOptions = async (): Promise<StudentOptions> => {
   } catch (error: any) {
     console.error("Error fetching student options:", error.response?.data || error.message);
     throw new Error(error.response?.data?.detail || 'Failed to get student options');
+  }
+};
+
+export const getProjectSources = async (options?: {
+  availableOnly?: boolean;
+}): Promise<ProjectSource[]> => {
+  try {
+    const params =
+      options?.availableOnly === true ? { available_only: true } : undefined;
+    const response = await API.get<ProjectSource[]>('/projects/sources', { params });
+    return response.data;
+  } catch (error: any) {
+    console.error("Error fetching project sources:", error.response?.data || error.message);
+    const detail = error.response?.data?.detail;
+    const msg =
+      typeof detail === 'string'
+        ? detail
+        : detail?.message || 'Failed to fetch project sources';
+    throw new Error(msg);
+  }
+};
+
+export const subscribeToProject = async (kbSourceId: number): Promise<ProjectSubscriptionResponse> => {
+  try {
+    const response = await API.post<ProjectSubscriptionResponse>('/projects/subscribe', {
+      kb_source_id: kbSourceId,
+    });
+    return response.data;
+  } catch (error: any) {
+    console.error("Error subscribing to project:", error.response?.data || error.message);
+    const detail = error.response?.data?.detail;
+    const msg =
+      typeof detail === 'string'
+        ? detail
+        : detail?.message || 'Failed to subscribe to project';
+    throw new Error(msg);
+  }
+};
+
+export const getChapterChatIntent = async (
+  kbSourceId: number,
+  options?: { sectionId?: number }
+): Promise<ChapterChatIntentResponse> => {
+  try {
+    const params: Record<string, number> = { kb_source_id: kbSourceId };
+    if (options?.sectionId != null) {
+      params.section_id = options.sectionId;
+    }
+    const response = await API.get<ChapterChatIntentResponse>(
+      '/projects/chapter-chat-intent',
+      { params }
+    );
+    return response.data;
+  } catch (error: any) {
+    console.error('Error fetching chapter chat intent:', error.response?.data || error.message);
+    const d = error.response?.data?.detail;
+    throw new Error(
+      (typeof d === 'object' && d?.message) || (typeof d === 'string' ? d : null) ||
+        'Failed to resolve chapter chat'
+    );
+  }
+};
+
+export const getProjectSections = async (kbSourceId: number): Promise<ProjectSection[]> => {
+  try {
+    const response = await API.get<ProjectSection[]>(`/projects/${kbSourceId}/sections`);
+    return response.data;
+  } catch (error: any) {
+    console.error('Error fetching project sections:', error.response?.data || error.message);
+    const detail = error.response?.data?.detail;
+    const msg =
+      typeof detail === 'string'
+        ? detail
+        : detail?.message || 'Failed to fetch project sections';
+    throw new Error(msg);
+  }
+};
+
+export const getSubscribedProjects = async (): Promise<SubscribedProject[]> => {
+  try {
+    const response = await API.get<SubscribedProject[]>('/projects/subscribed');
+    return response.data;
+  } catch (error: any) {
+    console.error("Error fetching subscribed projects:", error.response?.data || error.message);
+    const detail = error.response?.data?.detail;
+    const msg =
+      typeof detail === 'string'
+        ? detail
+        : detail?.message || 'Failed to fetch subscribed projects';
+    throw new Error(msg);
   }
 };
 
@@ -528,16 +623,54 @@ export const listConversations = async (
   }
 };
 
-export const createConversation = async (title?: string): Promise<ConversationCreateResponse> => {
+export type CreateConversationPayload = {
+  title?: string;
+  kb_source_id?: number;
+  /** DB primary key of rows in `sections` for this kb_source */
+  section_id?: number;
+  /** Optional per-conversation pipeline override. */
+  pipeline_key?: string;
+  /** Optional user pipeline slot override for testing. */
+  pipeline_slot?: 'default' | 'tutor' | 'quiz';
+  /** Controls {{QUERY}} placeholder: include, omit, or opening_only. */
+  query_mode?: 'include' | 'omit' | 'opening_only';
+};
+
+function formatConversationCreateError(detail: unknown): string {
+  if (typeof detail === 'string') return detail;
+  if (detail && typeof detail === 'object' && 'message' in detail) {
+    return String((detail as { message: string }).message);
+  }
+  return 'Failed to create conversation';
+}
+
+export const createConversation = async (
+  payload?: string | CreateConversationPayload
+): Promise<ConversationCreateResponse> => {
   try {
-    const payload = title ? { title } : {};
-    const response = await API.post<ConversationCreateResponse>('/conversations', payload);
+    const body: Record<string, unknown> =
+      typeof payload === 'string'
+        ? { title: payload }
+        : {
+            title: payload?.title ?? 'New Chat',
+            ...(payload?.kb_source_id != null
+              ? { kb_source_id: payload.kb_source_id }
+              : {}),
+            ...(payload?.section_id != null ? { section_id: payload.section_id } : {}),
+            ...(payload?.pipeline_key ? { pipeline_key: payload.pipeline_key } : {}),
+            ...(payload?.pipeline_slot ? { pipeline_slot: payload.pipeline_slot } : {}),
+            ...(payload?.query_mode ? { query_mode: payload.query_mode } : {}),
+          };
+    const response = await API.post<ConversationCreateResponse>('/conversations', body);
     return response.data;
   } catch (error: any) {
     console.error("Error creating conversation:", error.response?.data || error.message);
-    // Preserve status code for 503 errors (preparation timeout)
-    const err: any = new Error(error.response?.data?.detail || 'Failed to create conversation');
+    const detail = error.response?.data?.detail;
+    const err: any = new Error(formatConversationCreateError(detail));
     err.status = error.response?.status;
+    if (detail && typeof detail === 'object' && 'code' in detail) {
+      err.code = (detail as { code: string }).code;
+    }
     throw err;
   }
 };

@@ -8,6 +8,18 @@ import random
 import time
 from src.config.settings import settings
 
+DEFAULT_PIPELINE_KEY = "legacy"
+DEFAULT_TUTOR_PIPELINE_KEY = "tutor_flow_v1"
+DEFAULT_QUIZ_PIPELINE_KEY = "quiz_flow_v1"
+DEFAULT_QUERY_MODE = "include"
+VALID_QUERY_MODES = frozenset({"include", "omit", "opening_only"})
+INTENT_LEGACY_V2_PROMPT_VERSION_IDS = {
+    "visit_1": 258,
+    "visit_2": 259,
+    "visit_3": 260,
+    "steady_state": 261,
+}
+
 # SQLAlchemy Models
 class User(Base):
     __tablename__ = "users"
@@ -15,12 +27,20 @@ class User(Base):
     id = Column(Integer, primary_key=True, index=True)
     phone_number = Column(String(20), unique=True, index=True, nullable=True)
     name = Column(String(50), unique=True, index=True, nullable=True)
+    default_pipeline_key = Column(String(50), nullable=False, default=DEFAULT_PIPELINE_KEY, server_default=DEFAULT_PIPELINE_KEY)
+    tutor_pipeline_key = Column(String(50), nullable=False, default=DEFAULT_TUTOR_PIPELINE_KEY, server_default=DEFAULT_TUTOR_PIPELINE_KEY)
+    quiz_pipeline_key = Column(String(50), nullable=False, default=DEFAULT_QUIZ_PIPELINE_KEY, server_default=DEFAULT_QUIZ_PIPELINE_KEY)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     conversations = relationship("Conversation", back_populates="user", cascade="all, delete-orphan")
     persona = relationship("UserPersona", back_populates="user", uselist=False, cascade="all, delete-orphan")
     feedbacks = relationship("UserFeedback", back_populates="user", cascade="all, delete-orphan")
     student_profile = relationship("Student", back_populates="user", uselist=False, cascade="all, delete-orphan")
+    kb_source_subscriptions = relationship(
+        "UserKbSourceSubscription",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
 
 
 student_tags = Table(
@@ -115,6 +135,8 @@ class Conversation(Base):
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     title = Column(String, nullable=True, default="New Chat")
     prompt_version_id = Column(Integer, ForeignKey("prompt_versions.id", ondelete="SET NULL"), nullable=True)
+    pipeline_key = Column(String(50), nullable=False, default=DEFAULT_PIPELINE_KEY, server_default=DEFAULT_PIPELINE_KEY)
+    query_mode = Column(String(20), nullable=False, default=DEFAULT_QUERY_MODE, server_default=DEFAULT_QUERY_MODE)
     core_chat_theme = Column(String, nullable=True, default=None)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
@@ -126,6 +148,14 @@ class Conversation(Base):
     visit = relationship("ConversationVisit", back_populates="conversation", uselist=False, cascade="all, delete-orphan")
     evaluation = relationship("ConversationEvaluation", back_populates="conversation", uselist=False, cascade="all, delete-orphan")
     tags = relationship("Tag", secondary=conversation_tags, back_populates="conversations")
+
+    __table_args__ = (
+        CheckConstraint(
+            "query_mode IN ('include', 'omit', 'opening_only')",
+            name="ck_conversations_query_mode_valid",
+        ),
+    )
+
 
 class ConversationVisit(Base):
     __tablename__ = "conversation_visits"
@@ -456,6 +486,25 @@ class AnalysisJob(Base):
     conversation_evaluation = relationship("ConversationEvaluation", back_populates="jobs")
 
 
+class PdfTopicExtractionJob(Base):
+    __tablename__ = "pdf_topic_extraction_jobs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    job_id = Column(String(36), nullable=False, unique=True, index=True)
+    file_name = Column(String(255), nullable=False)
+    status = Column(String(20), nullable=False, default="queued", index=True)
+    page_count = Column(Integer, nullable=True)
+    source_text = Column(Text, nullable=False)
+    sections = Column(JSON, nullable=True)
+    error_message = Column(Text, nullable=True)
+    created_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    completed_at = Column(DateTime(timezone=True), nullable=True)
+
+    user = relationship("User")
+
+
 # --- Prompt Versioning Models ---
 
 class Prompt(Base):
@@ -507,6 +556,68 @@ class PromptVersion(Base):
 
     def __repr__(self):
         return f"<PromptVersion(id={self.id}, prompt_id={self.prompt_id}, version={self.version_number}, active={self.is_active}, production={self.is_production}, user_id={self.user_id})>"
+
+# --- Ingestion (KB + sections) ---
+
+class KBSource(Base):
+    __tablename__ = "kb_source"
+
+    id = Column(Integer, primary_key=True, index=True)
+    file_name = Column(String(255), nullable=False, index=True)
+    details = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    created_by = Column(Integer, nullable=True)
+
+    sections = relationship("Section", back_populates="kb_source", cascade="all, delete-orphan")
+    user_subscriptions = relationship(
+        "UserKbSourceSubscription",
+        back_populates="kb_source",
+        cascade="all, delete-orphan",
+    )
+
+
+class UserKbSourceSubscription(Base):
+    __tablename__ = "user_kb_source_subscription"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    kb_source_id = Column(Integer, ForeignKey("kb_source.id", ondelete="CASCADE"), nullable=False, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    user = relationship("User", back_populates="kb_source_subscriptions")
+    kb_source = relationship("KBSource", back_populates="user_subscriptions")
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "kb_source_id", name="uq_user_kb_source_subscription"),
+    )
+
+
+class Section(Base):
+    __tablename__ = "sections"
+
+    id = Column(Integer, primary_key=True, index=True)
+    kb_source_id = Column(Integer, ForeignKey("kb_source.id", ondelete="CASCADE"), nullable=False, index=True)
+    section_id = Column(String(255), nullable=False)
+    section_name = Column(Text, nullable=False, default="")
+    section_description = Column(Text, nullable=False, default="")
+    section_content = Column(Text, nullable=False, default="")
+    section_question_list = Column(JSON, nullable=False)
+    section_order = Column(Integer, nullable=False, default=0, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    kb_source = relationship("KBSource", back_populates="sections")
+
+    __table_args__ = (
+        UniqueConstraint("kb_source_id", "section_id", name="uq_sections_kb_section_id"),
+    )
+
+
+class StudentProgressTracker(Base):
+    __tablename__ = "student_progress_tracker"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, nullable=False, unique=True, index=True)
+    context = Column(Text, nullable=False)
 
 # --- CRUD Helper Functions ---
 
@@ -575,9 +686,47 @@ def get_or_create_user(db: Session, phone_number: str) -> User:
     """Get a user by phone number or create if not exists. (Backward compatibility)"""
     return get_or_create_user_by_phone(db, phone_number)
 
-def create_conversation(db: Session, user_id: int, title: Optional[str] = "New Chat", prompt_version_id: Optional[int] = None, core_chat_theme: Optional[str] = None) -> Conversation:
+def normalize_pipeline_key(pipeline_key: Optional[str]) -> str:
+    """Normalize a developer-supplied pipeline key."""
+    if not pipeline_key:
+        return DEFAULT_PIPELINE_KEY
+
+    normalized = pipeline_key.strip().lower().replace("-", "_").replace(" ", "_")
+    return normalized or DEFAULT_PIPELINE_KEY
+
+
+def normalize_query_mode(query_mode: Optional[str]) -> str:
+    """Normalize and validate conversation query_mode."""
+    if not query_mode:
+        return DEFAULT_QUERY_MODE
+
+    normalized = query_mode.strip().lower().replace("-", "_").replace(" ", "_")
+    if normalized not in VALID_QUERY_MODES:
+        raise ValueError(
+            f"Invalid query_mode '{query_mode}'. "
+            f"Allowed: {', '.join(sorted(VALID_QUERY_MODES))}"
+        )
+    return normalized
+
+
+def create_conversation(
+    db: Session,
+    user_id: int,
+    title: Optional[str] = "New Chat",
+    prompt_version_id: Optional[int] = None,
+    core_chat_theme: Optional[str] = None,
+    pipeline_key: Optional[str] = None,
+    query_mode: Optional[str] = None,
+) -> Conversation:
     """Creates a new conversation for a user."""
-    conversation = Conversation(user_id=user_id, title=title, prompt_version_id=prompt_version_id, core_chat_theme=core_chat_theme)
+    conversation = Conversation(
+        user_id=user_id,
+        title=title,
+        prompt_version_id=prompt_version_id,
+        core_chat_theme=core_chat_theme,
+        pipeline_key=normalize_pipeline_key(pipeline_key),
+        query_mode=normalize_query_mode(query_mode),
+    )
     db.add(conversation)
     db.commit()
     db.refresh(conversation)
@@ -877,6 +1026,30 @@ def get_production_prompt_by_purpose(db: Session, prompt_purpose: str) -> Option
         ).order_by(PromptVersion.version_number.desc()).first()
     
     return production_version
+
+
+def get_prompt_for_pipeline_by_purpose(
+    db: Session,
+    prompt_purpose: str,
+    pipeline_key: Optional[str],
+) -> Optional['PromptVersion']:
+    """
+    Select the prompt version for a conversation's pipeline.
+    Default behavior remains production prompt selection. intent_legacy_v2 uses
+    explicit non-production prompt versions for local/pilot testing.
+    """
+    normalized_pipeline_key = normalize_pipeline_key(pipeline_key)
+
+    if normalized_pipeline_key == "intent_legacy_v2":
+        version_id = INTENT_LEGACY_V2_PROMPT_VERSION_IDS.get(prompt_purpose)
+        if version_id:
+            prompt_version = db.query(PromptVersion).filter(
+                PromptVersion.id == version_id
+            ).first()
+            if prompt_version:
+                return prompt_version
+
+    return get_production_prompt_by_purpose(db, prompt_purpose)
 
 def has_messages(db: Session, conversation_id: int) -> bool:
     """

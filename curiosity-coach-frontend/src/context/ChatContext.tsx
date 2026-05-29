@@ -7,7 +7,8 @@ import {
   sendMessage,
   getAiResponseForUserMessage,
   updateConversationTitleApi,
-  updateConversationTags
+  updateConversationTags,
+  getChapterChatIntent,
 } from '../services/api';
 import { ConversationSummary, Message, ChatHistory, ConversationCreateResponse } from '../types';
 import { useAuth } from './AuthContext'; // Assuming AuthContext provides user info
@@ -24,6 +25,10 @@ interface ChatContextState {
   currentConversationId: number | null;
   currentVisitNumber: number | null;
   currentPromptVersionId: number | undefined;
+  selectedProjectSourceId: number | null;
+  /** `sections.id` from URL when opening chapter chat for a specific unit */
+  selectedCurriculumSectionId: number | null;
+  projectSelection: 'selected' | 'random' | null;
   messages: Message[];
   isLoadingConversations: boolean;
   isLoadingMessages: boolean;
@@ -50,6 +55,9 @@ interface ChatContextState {
   preparationStatus: string | null;
   isPreparingConversation: boolean;
   isInitializingForNewUser: boolean; // New state for initial onboarding setup
+
+  /** When set, user opened chat from a finished chapter (kb-scoped); no new conversation was created */
+  chapterCompleteInfo: { kbSourceId: number; message: string } | null;
 }
 
 const ChatContext = createContext<ChatContextState | undefined>(undefined);
@@ -70,6 +78,10 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [preparationStatus, setPreparationStatus] = useState<string | null>(null);
   const [isPreparingConversation, setIsPreparingConversation] = useState(false);
   const [isInitializingForNewUser, setIsInitializingForNewUser] = useState(false);
+  const [chapterCompleteInfo, setChapterCompleteInfo] = useState<{
+    kbSourceId: number;
+    message: string;
+  } | null>(null);
 
   // New state for Brain Config
   const [isConfigViewActive, setIsConfigViewActive] = useState(false);
@@ -84,8 +96,60 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const queryParams = new URLSearchParams(location.search);
     return queryParams.get('mode') === 'try' ? 'try' : undefined;
   }, [location.search]);
+  const selectedProjectSourceId = React.useMemo(() => {
+    const queryParams = new URLSearchParams(location.search);
+    const rawProjectId = queryParams.get('project_source_id');
+    if (!rawProjectId) {
+      return null;
+    }
+    const parsed = Number(rawProjectId);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+  }, [location.search]);
+  const selectedCurriculumSectionId = React.useMemo(() => {
+    const queryParams = new URLSearchParams(location.search);
+    const raw = queryParams.get('section_id');
+    if (!raw) {
+      return null;
+    }
+    const parsed = Number(raw);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+  }, [location.search]);
+  const projectSelection = React.useMemo(() => {
+    const queryParams = new URLSearchParams(location.search);
+    const rawSelection = queryParams.get('project_selection');
+    return rawSelection === 'selected' || rawSelection === 'random'
+      ? rawSelection
+      : null;
+  }, [location.search]);
+  const selectedPipelineKey = React.useMemo(() => {
+    const queryParams = new URLSearchParams(location.search);
+    const raw = queryParams.get('pipeline_key');
+    return raw && raw.trim() ? raw.trim() : null;
+  }, [location.search]);
+  const selectedPipelineSlot = React.useMemo(() => {
+    const queryParams = new URLSearchParams(location.search);
+    const raw = queryParams.get('pipeline_slot');
+    return raw === 'tutor' || raw === 'quiz' || raw === 'default' ? raw : null;
+  }, [location.search]);
+  const selectedQueryMode = React.useMemo((): 'include' | 'omit' | 'opening_only' | null => {
+    const queryParams = new URLSearchParams(location.search);
+    const raw = queryParams.get('query_mode');
+    if (raw === 'include' || raw === 'omit' || raw === 'opening_only') {
+      return raw;
+    }
+    return null;
+  }, [location.search]);
   const cleanupPollingRef = useRef<(() => void) | null>(null); // Ref to hold the cleanup function
   const hasAutoCreatedConversationRef = useRef<boolean>(false); // Track if we've auto-created a conversation in this session
+
+  useEffect(() => {
+    if (selectedProjectSourceId === null) {
+      return;
+    }
+    console.log(
+      `[ProjectSelection] project_source_id=${selectedProjectSourceId}, project_selection=${projectSelection ?? 'selected'}`
+    );
+  }, [selectedProjectSourceId, projectSelection]);
 
   // --- Function to update title based on first message ---
   const updateTitleFromFirstMessage = useCallback((conversationId: number, content: string, currentMessagesLength: number) => {
@@ -126,8 +190,44 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             setIsInitializingForNewUser(true);
           }
           setIsPreparingConversation(true);
-          
-          const response: ConversationCreateResponse = await createConversation("New Chat");
+          setChapterCompleteInfo(null);
+
+          if (selectedProjectSourceId != null) {
+            const intent = await getChapterChatIntent(selectedProjectSourceId, {
+              sectionId: selectedCurriculumSectionId ?? undefined,
+            });
+            if (intent.outcome === 'chapter_complete') {
+              setChapterCompleteInfo({
+                kbSourceId: intent.kb_source_id,
+                message: 'You have finished this chapter.',
+              });
+              return;
+            }
+            if (intent.outcome === 'not_subscribed') {
+              setError('Subscribe to this project before starting chat.');
+              return;
+            }
+            if (intent.outcome === 'no_units') {
+              setError('This project has no lesson units yet.');
+              return;
+            }
+          }
+
+          const response: ConversationCreateResponse =
+            selectedProjectSourceId != null
+              ? await createConversation({
+                  title: 'New Chat',
+                  kb_source_id: selectedProjectSourceId,
+                  ...(selectedPipelineKey ? { pipeline_key: selectedPipelineKey } : {}),
+                  ...(!selectedPipelineKey && selectedPipelineSlot
+                    ? { pipeline_slot: selectedPipelineSlot }
+                    : {}),
+                  ...(selectedQueryMode ? { query_mode: selectedQueryMode } : {}),
+                  ...(selectedCurriculumSectionId != null
+                    ? { section_id: selectedCurriculumSectionId }
+                    : {}),
+                })
+              : await createConversation('New Chat');
           const newConversation = response.conversation;
           
           console.log(`[OnboardingDebug] Conversation created with visit_number=${response.visit_number}, prompt_version_id=${newConversation.prompt_version_id}`);
@@ -168,8 +268,12 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           console.log(`[OnboardingDebug] Conversation created successfully for Visit ${response.visit_number}:`, newConversation.id);
         } catch (createErr: any) {
           console.error('[OnboardingDebug] Failed to auto-create conversation:', createErr);
-          // Handle 503 errors specially (preparation timeout)
-          if (createErr.status === 503) {
+          if (createErr.code === 'chapter_complete') {
+            setChapterCompleteInfo({
+              kbSourceId: selectedProjectSourceId ?? 0,
+              message: 'You have finished this chapter.',
+            });
+          } else if (createErr.status === 503) {
             setError('Unable to prepare your conversation at this time. Please try again in a moment.');
           } else {
             setError(createErr.message || 'Failed to create conversation');
@@ -193,7 +297,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     } finally {
       setIsLoadingConversations(false);
     } 
-  }, [user, location.pathname]); // Depend on user and current route
+  }, [user, location.pathname, selectedProjectSourceId, selectedCurriculumSectionId, selectedPipelineKey, selectedPipelineSlot, selectedQueryMode]);
 
   // --- Fetch Messages for a Conversation --- 
   const fetchMessages = useCallback(async (conversationId: number) => {
@@ -288,7 +392,21 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setError(null);
     setIsPreparingConversation(true);
     try {
-      const response: ConversationCreateResponse = await createConversation(title);
+      const response: ConversationCreateResponse =
+        selectedProjectSourceId != null
+          ? await createConversation({
+              title: title || 'New Chat',
+              kb_source_id: selectedProjectSourceId,
+              ...(selectedPipelineKey ? { pipeline_key: selectedPipelineKey } : {}),
+              ...(!selectedPipelineKey && selectedPipelineSlot
+                ? { pipeline_slot: selectedPipelineSlot }
+                : {}),
+              ...(selectedQueryMode ? { query_mode: selectedQueryMode } : {}),
+              ...(selectedCurriculumSectionId != null
+                ? { section_id: selectedCurriculumSectionId }
+                : {}),
+            })
+          : await createConversation(title || 'New Chat');
       const newConversation = response.conversation;
       
       // Set preparation status for loading UI
@@ -327,8 +445,12 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       setIsConfigViewActive(false); // Ensure config view is not active
       return newConversation.id;
     } catch (err: any) {
-      // Handle 503 errors specially (preparation timeout)
-      if (err.status === 503) {
+      if (err.code === 'chapter_complete') {
+        setChapterCompleteInfo({
+          kbSourceId: selectedProjectSourceId ?? 0,
+          message: 'You have finished this chapter.',
+        });
+      } else if (err.status === 503) {
         setError('Unable to prepare your conversation at this time. Please try again in a moment.');
       } else {
         setError(err.message || 'Failed to create conversation');
@@ -337,7 +459,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     } finally {
       setIsPreparingConversation(false);
     }
-  }, [user]);
+  }, [user, selectedProjectSourceId, selectedCurriculumSectionId, selectedPipelineKey, selectedPipelineSlot, selectedQueryMode]);
 
   // --- Poll for AI Response --- 
   const pollAiResponse = useCallback(async (userMessageId: number, currentConvId: number | null): Promise<(() => void) | undefined> => {
@@ -586,6 +708,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
        setError(null);
        setIsBrainProcessing(false);
        hasAutoCreatedConversationRef.current = false; // Reset flag on logout
+       setChapterCompleteInfo(null);
        if (cleanupPollingRef.current) cleanupPollingRef.current(); // Use ref for cleanup
     }
     // Cleanup polling on component unmount or when user changes
@@ -594,8 +717,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           cleanupPollingRef.current();
       }
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user]); // Only depend on user - fetchConversations causes double-trigger bug
+  }, [user, location.pathname, location.search, fetchConversations]);
 
   // --- Value Provided by Context ---
   const value: ChatContextState = {
@@ -603,6 +725,9 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     currentConversationId,
     currentVisitNumber,
     currentPromptVersionId,
+    selectedProjectSourceId,
+    selectedCurriculumSectionId,
+    projectSelection,
     messages,
     isLoadingConversations,
     isLoadingMessages,
@@ -626,6 +751,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     preparationStatus,
     isPreparingConversation,
     isInitializingForNewUser,
+    chapterCompleteInfo,
   };
 
   return <ChatContext.Provider value={value}>{children}</ChatContext.Provider>;

@@ -36,10 +36,25 @@ class UserResponse(BaseModel):
     id: int
     phone_number: Optional[str] = None
     name: Optional[str] = None
+    default_pipeline_key: str
+    tutor_pipeline_key: str
+    quiz_pipeline_key: str
     created_at: datetime
     student: Optional['StudentResponse'] = None  # Forward reference, defined below
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class UserPipelineUpdateRequest(BaseModel):
+    default_pipeline_key: Optional[str] = None
+    tutor_pipeline_key: Optional[str] = None
+    quiz_pipeline_key: Optional[str] = None
+
+
+class UserPipelineResponse(BaseModel):
+    default_pipeline_key: str
+    tutor_pipeline_key: str
+    quiz_pipeline_key: str
 
 class LoginResponse(BaseModel):
     success: bool

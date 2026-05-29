@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useLocation } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { CircularProgress } from '@mui/material';
 import { AutoAwesomeRounded } from '@mui/icons-material';
 import { useAuth } from '../../context/AuthContext';
@@ -36,6 +36,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ mode }) => {
     preparationStatus,
     isPreparingConversation,
     isInitializingForNewUser,
+    chapterCompleteInfo,
   } = useChat();
 
   const [newMessage, setNewMessage] = useState('');
@@ -168,16 +169,21 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ mode }) => {
     }
   };
 
-  // Calculate total processing time from steps (sum of all time_taken values)
-  const totalProcessingTime = React.useMemo(() => {
+  const pipelineTiming = React.useMemo(() => {
     if (!pipelineSteps || pipelineSteps.length === 0) return null;
-    const total = pipelineSteps.reduce((sum, step) => {
+
+    const totals = pipelineSteps.reduce((sum, step) => {
       if (step.time_taken !== null && step.time_taken !== undefined) {
-        return sum + step.time_taken;
+        const isAsyncStep = step.async_step === true || step.foreground_blocking === false;
+        if (isAsyncStep) {
+          return { ...sum, async: sum.async + step.time_taken, total: sum.total + step.time_taken };
+        }
+        return { ...sum, response: sum.response + step.time_taken, total: sum.total + step.time_taken };
       }
       return sum;
-    }, 0);
-    return total > 0 ? total : null;
+    }, { response: 0, async: 0, total: 0 });
+
+    return totals.total > 0 ? totals : null;
   }, [pipelineSteps]);
 
   const handleViewMemory = async () => {
@@ -199,6 +205,27 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ mode }) => {
 
   // Sidebar disabled for all visits
   const shouldShowSidebar = false;
+
+  if (chapterCompleteInfo) {
+    return (
+      <div className="flex h-screen-mobile main-gradient-bg items-center justify-center px-6">
+        <div className="w-full max-w-md rounded-3xl border border-emerald-200 bg-white/95 p-8 text-center shadow-sm">
+          <h2 className="mb-3 text-2xl font-semibold text-slate-900">
+            {chapterCompleteInfo.message}
+          </h2>
+          <p className="mb-6 text-slate-600">
+            Great work on this chapter. You can pick another project from your dashboard when you are ready.
+          </p>
+          <Link
+            to="/student-dashboard"
+            className="inline-flex rounded-xl bg-violet-600 px-5 py-3 text-sm font-medium text-white hover:bg-violet-700"
+          >
+            Back to dashboard
+          </Link>
+        </div>
+      </div>
+    );
+  }
 
   // Show onboarding loading screen during conversation preparation (all visits)
   if (isInitializingForNewUser || isPreparingConversation) {
@@ -324,7 +351,9 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ mode }) => {
         pipelineError={pipelineError}
         pipelineSteps={pipelineSteps}
         isDebugMode={isDebugMode}
-        totalProcessingTime={totalProcessingTime}
+        responseProcessingTime={pipelineTiming?.response ?? null}
+        asyncProcessingTime={pipelineTiming?.async ?? null}
+        totalPipelineWorkTime={pipelineTiming?.total ?? null}
         showMemoryModal={showMemoryModal}
         onCloseMemoryModal={() => {
           setShowMemoryModal(false);

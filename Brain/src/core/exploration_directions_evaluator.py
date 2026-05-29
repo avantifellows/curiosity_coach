@@ -1,6 +1,7 @@
 import json
 import httpx
 import os
+import asyncio
 from typing import Optional, List, Dict, Any
 from src.services.llm_service import LLMService
 from src.services.api_service import api_service
@@ -90,10 +91,11 @@ async def evaluate_exploration_directions(
         llm_service = LLMService()
         logger.debug(f"Calling LLM for exploration directions evaluation")
 
-        response = llm_service.generate_response(
+        response = await asyncio.to_thread(
+            llm_service.generate_response,
             final_prompt=formatted_prompt,
             call_type="exploration_directions_evaluation",
-            json_mode=False
+            json_mode=False,
         )
 
         raw_response = (response.get("raw_response", "") or "").strip()

@@ -9,6 +9,8 @@ class APIService:
         self.backend_url = os.getenv("BACKEND_CALLBACK_BASE_URL", "http://localhost:5000")
         self._prompt_cache: Dict[str, Dict[str, Any]] = {}
         self._prompt_cache_ttl = float(os.getenv("PROMPT_CACHE_TTL_SECONDS", "300"))
+        self._persona_cache: Dict[int, Dict[str, Any]] = {}
+        self._persona_cache_ttl = float(os.getenv("PERSONA_CACHE_TTL_SECONDS", "300"))
         logger.info(f"APIService initialized with backend_url: {self.backend_url}")
 
     async def save_memory(self, conversation_id: int, memory_data: Dict[str, Any]) -> bool:
@@ -123,6 +125,15 @@ class APIService:
         Fetches the user persona for a specific user from the backend.
         Also augments it with student metadata (name) for use in prompts.
         """
+        if self._persona_cache_ttl > 0:
+            cached = self._persona_cache.get(user_id)
+            if cached:
+                age = time.time() - cached["fetched_at"]
+                if age < self._persona_cache_ttl:
+                    logger.info(f"Using cached persona lookup for user {user_id}.")
+                    return cached["persona_data"]
+                self._persona_cache.pop(user_id, None)
+
         # Note: This endpoint is hypothetical and needs to be implemented in the backend.
         url = f"{self.backend_url}/api/internal/users/{user_id}/persona"
         try:
@@ -130,6 +141,11 @@ class APIService:
                 response = await client.get(url)
                 if response.status_code == 404:
                     logger.info(f"No persona found for user {user_id}.")
+                    if self._persona_cache_ttl > 0:
+                        self._persona_cache[user_id] = {
+                            "persona_data": None,
+                            "fetched_at": time.time(),
+                        }
                     return None
                 response.raise_for_status()
                 # Assuming the endpoint returns the persona data directly
@@ -142,6 +158,11 @@ class APIService:
                         persona_data["_student_name"] = student.get("first_name")
                         logger.info(f"Augmented persona with student name: {student.get('first_name')}")
                 
+                if self._persona_cache_ttl > 0:
+                    self._persona_cache[user_id] = {
+                        "persona_data": persona_data,
+                        "fetched_at": time.time(),
+                    }
                 return persona_data
         except httpx.RequestError as e:
             logger.error(f"Error fetching user persona for user {user_id}: {e}")
@@ -250,6 +271,29 @@ class APIService:
             return None
         except httpx.HTTPStatusError as e:
             logger.error(f"Error response {e.response.status_code} while fetching student for user {user_id}: {e.response.text}")
+            return None
+
+    async def get_user_by_id(self, user_id: int) -> Optional[Dict[str, Any]]:
+        """
+        Fetch user record by user_id.
+
+        Returns:
+            User dict with id, phone_number, name, created_at or None if not found
+        """
+        url = f"{self.backend_url}/api/internal/users/{user_id}"
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(url)
+                if response.status_code == 404:
+                    logger.warning(f"No user record found for user_id {user_id}")
+                    return None
+                response.raise_for_status()
+                return response.json()
+        except httpx.RequestError as e:
+            logger.error(f"Error fetching user for user_id {user_id}: {e}")
+            return None
+        except httpx.HTTPStatusError as e:
+            logger.error(f"Error response {e.response.status_code} while fetching user for user_id {user_id}: {e.response.text}")
             return None
 
     async def get_student_conversation_transcript(self, student_id: int) -> Optional[Dict[str, Any]]:
@@ -495,6 +539,128 @@ class APIService:
         except Exception as e:
             logger.error(f"Error posting items for flow {flow_slug} (conversation {conversation_id}): {e}")
             return False 
+
+    async def ingest_pdf_topics(
+        self,
+        file_name: str,
+        details: Optional[str],
+        created_by: Optional[int],
+        force_proceed: bool,
+        sections: List[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        """
+        Persist extracted PDF topics via backend internal endpoint.
+        """
+        url = f"{self.backend_url}/api/internal/pdf-topics/ingest"
+        payload = {
+            "file_name": file_name,
+            "details": details,
+            "created_by": created_by,
+            "force_proceed": force_proceed,
+            "sections": sections,
+        }
+        timeout = httpx.Timeout(30.0, connect=10.0)
+        try:
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                logger.info("Posting extracted PDF topics to backend ingestion endpoint")
+                response = await client.post(url, json=payload)
+                response.raise_for_status()
+                data = response.json()
+                logger.info(
+                    "Successfully ingested PDF topics",
+                    extra={
+                        "kb_source_id": data.get("kb_source_id"),
+                        "section_count": data.get("section_count"),
+                    },
+                )
+                return data
+        except httpx.TimeoutException as e:
+            logger.error(f"Timeout ingesting PDF topics: {e}", exc_info=True)
+            raise
+        except httpx.HTTPStatusError as e:
+            logger.error(
+                "HTTP error ingesting PDF topics: %s - %s",
+                e.response.status_code,
+                e.response.text,
+                exc_info=True,
+            )
+            raise
+        except httpx.RequestError as e:
+            logger.error(f"Request error ingesting PDF topics: {e}", exc_info=True)
+            raise
+
+    async def check_pdf_topics_file_name_exists(self, file_name: str) -> Dict[str, Any]:
+        url = f"{self.backend_url}/api/internal/pdf-topics/file-name-exists"
+        payload = {"file_name": file_name}
+        timeout = httpx.Timeout(15.0, connect=10.0)
+        try:
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                response = await client.post(url, json=payload)
+                response.raise_for_status()
+                return response.json()
+        except httpx.TimeoutException as e:
+            logger.error(f"Timeout checking PDF file name existence: {e}", exc_info=True)
+            raise
+        except httpx.HTTPStatusError as e:
+            logger.error(
+                "HTTP error checking PDF file name existence: %s - %s",
+                e.response.status_code,
+                e.response.text,
+                exc_info=True,
+            )
+            raise
+        except httpx.RequestError as e:
+            logger.error(f"Request error checking PDF file name existence: {e}", exc_info=True)
+            raise
+
+    async def create_pdf_topic_extraction_job(
+        self,
+        file_name: str,
+        page_count: int,
+        source_text: str,
+        created_by: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        url = f"{self.backend_url}/api/internal/pdf-topic-extraction-jobs"
+        payload = {
+            "file_name": file_name,
+            "page_count": page_count,
+            "source_text": source_text,
+            "created_by": created_by,
+        }
+        async with httpx.AsyncClient(timeout=httpx.Timeout(30.0, connect=10.0)) as client:
+            response = await client.post(url, json=payload)
+            response.raise_for_status()
+            return response.json()
+
+    async def get_pdf_topic_extraction_job(
+        self,
+        job_id: str,
+        include_source_text: bool = False,
+    ) -> Dict[str, Any]:
+        url = f"{self.backend_url}/api/internal/pdf-topic-extraction-jobs/{job_id}"
+        params = {"include_source_text": include_source_text}
+        async with httpx.AsyncClient(timeout=httpx.Timeout(20.0, connect=10.0)) as client:
+            response = await client.get(url, params=params)
+            response.raise_for_status()
+            return response.json()
+
+    async def update_pdf_topic_extraction_job(
+        self,
+        job_id: str,
+        status: str,
+        sections: Optional[List[Dict[str, Any]]] = None,
+        error_message: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        url = f"{self.backend_url}/api/internal/pdf-topic-extraction-jobs/{job_id}"
+        payload = {
+            "status": status,
+            "sections": sections,
+            "error_message": error_message,
+        }
+        async with httpx.AsyncClient(timeout=httpx.Timeout(30.0, connect=10.0)) as client:
+            response = await client.patch(url, json=payload)
+            response.raise_for_status()
+            return response.json()
 
 
 # Singleton instance

@@ -1,5 +1,6 @@
 from typing import Optional, List, Dict, Any, Tuple
 import os
+import asyncio
 import httpx
 from src.services.llm_service import LLMService
 from src.services.api_service import api_service
@@ -64,10 +65,11 @@ async def extract_core_theme_from_conversation(
         
         # 7. Call LLM to extract theme
         llm_service = LLMService()
-        response = llm_service.generate_response(
+        response = await asyncio.to_thread(
+            llm_service.generate_response,
             final_prompt=final_prompt,
             call_type="core_theme_extraction",
-            json_mode=False
+            json_mode=False,
         )
         
         core_theme = response.get("raw_response", "").strip()
