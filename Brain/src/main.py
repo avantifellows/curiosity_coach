@@ -79,9 +79,13 @@ ASYNC_OBSERVER_PIPELINES = {
     "intent_legacy_v3",
     "intent_legacy_v4",
     "intent_legacy_v5",
+    "intent_legacy_v6",
     "tutor_flow_v1",
     "quiz_flow_v1",
     "tutor_mode",
+}
+ASYNC_INTEREST_ROUTER_PIPELINES = {
+    "intent_legacy_v6",
 }
 STORE_FULL_PIPELINE_PROMPTS = os.getenv("STORE_FULL_PIPELINE_PROMPTS", "false").lower() in {
     "1",
@@ -1245,7 +1249,74 @@ def _callback_v2_router_state(payload: Dict[str, Any]) -> Dict[str, Any]:
     return {}
 
 
-def _should_run_v2_exploration_refresh(
+async def _run_async_light_interest_router(
+    *,
+    pipeline_key: str,
+    conversation_id: int,
+    user_id: Optional[Any],
+    messages: List[Dict[str, Any]],
+    original_message_id: Optional[Any],
+    saved_message_id: int,
+    user_input: str,
+    current_score: int,
+    core_theme: Optional[str],
+) -> Tuple[Dict[str, Any], Optional[Dict[str, Any]]]:
+    if pipeline_key not in ASYNC_INTEREST_ROUTER_PIPELINES:
+        return {}, None
+
+    from src.pipelines.intent_legacy_v5 import (
+        ROUTER_PROMPT_NAME,
+        build_light_interest_step,
+        run_light_interest_router,
+    )
+    from src.pipelines.intent_legacy_v6 import format_async_prior_history
+
+    try:
+        user_id_int = int(user_id) if user_id is not None else None
+    except (TypeError, ValueError):
+        user_id_int = None
+
+    turn_context = TurnExecutionContext(
+        user_input=user_input,
+        purpose="chat",
+        conversation_id=conversation_id,
+        user_id=user_id_int,
+        pipeline_key=pipeline_key,
+        conversation_history=format_async_prior_history(
+            messages,
+            original_message_id=original_message_id,
+            saved_message_id=saved_message_id,
+        ),
+        prefetched_history=list(messages),
+        current_curiosity_score=current_score,
+        core_theme=core_theme,
+        previous_exploration_directions=_extract_previous_exploration_directions(messages),
+    )
+
+    router_state = await run_light_interest_router(
+        turn_context=turn_context,
+        user_input=user_input,
+    )
+    router_state = {
+        **router_state,
+        "guidance_injected": False,
+        "async_step": True,
+        "foreground_blocking": False,
+        "async_pipeline_key": pipeline_key,
+    }
+
+    router_step = build_light_interest_step(router_state)
+    router_step.update(
+        {
+            "name": ROUTER_PROMPT_NAME,
+            "async_step": True,
+            "foreground_blocking": False,
+        }
+    )
+    return router_state, router_step
+
+
+def _should_run_interest_guided_exploration_refresh(
     *,
     user_message_count: int,
     router_state: Dict[str, Any],
@@ -1272,7 +1343,7 @@ def _should_run_v2_exploration_refresh(
     return False, "cadence_skip_odd_stable_turn"
 
 
-def _apply_v2_router_curiosity_guardrail(
+def _apply_interest_router_curiosity_guardrail(
     *,
     exploration_data: Dict[str, Any],
     router_state: Dict[str, Any],
@@ -1280,8 +1351,9 @@ def _apply_v2_router_curiosity_guardrail(
 ) -> Dict[str, Any]:
     """
     The legacy curiosity prompt judges only relation to the last AI question.
-    V2 treats interest as the stronger control signal, so prevent obviously
-    positive engagement from being scored as "off topic".
+    Interest-aware pipelines treat broad engagement as the stronger control
+    signal, so prevent obviously positive engagement from being scored as
+    "off topic".
     """
     adjusted = dict(exploration_data)
     interest_signal = router_state.get("interest_signal")
@@ -1303,7 +1375,7 @@ def _apply_v2_router_curiosity_guardrail(
         adjusted["curiosity_score"] = min(100, current_score + 1)
         adjusted["curiosity_tip"] = "Good Job! stay focused on the current topic"
         adjusted["curiosity_reason"] = (
-            "Router guardrail: the student showed positive interest "
+            "Interest router guardrail: the student showed positive interest "
             f"({interest_signal}/{interest_change}, intent={student_intent}), "
             "so the score was nudged up despite the legacy scorer treating the reply narrowly."
         )
@@ -1425,12 +1497,25 @@ async def _run_async_observer_pipeline_steps(
             if message.get("content") is not None
         ]
 
-        router_state = (
-            _callback_v2_router_state(callback_payload)
-            if pipeline_key == "intent_legacy_v2"
-            else {}
+        async_router_state, async_router_step = await _run_async_light_interest_router(
+            pipeline_key=pipeline_key,
+            conversation_id=conversation_id_int,
+            user_id=callback_payload.get("user_id"),
+            messages=messages,
+            original_message_id=original_message_id,
+            saved_message_id=saved_message_id,
+            user_input=user_input,
+            current_score=current_score,
+            core_theme=core_theme,
         )
-        should_refresh, refresh_reason = _should_run_v2_exploration_refresh(
+        if async_router_step:
+            async_steps.append(async_router_step)
+
+        router_state = async_router_state
+        if pipeline_key == "intent_legacy_v2":
+            router_state = _callback_v2_router_state(callback_payload)
+
+        should_refresh, refresh_reason = _should_run_interest_guided_exploration_refresh(
             user_message_count=user_message_count,
             router_state=router_state,
             core_theme_was_missing=core_theme_was_missing,
@@ -1442,13 +1527,18 @@ async def _run_async_observer_pipeline_steps(
                 "core_theme_when_missing; exploration_score_every_2_user_turns"
                 + (
                     "_or_on_branch_switch_rising_strong_dip"
-                    if pipeline_key == "intent_legacy_v2"
+                    if pipeline_key in {"intent_legacy_v2", "intent_legacy_v6"}
                     else ""
                 )
             ),
             "async_refresh_reason": refresh_reason,
             "async_user_message_count": user_message_count,
         }
+        async_interest_payload = (
+            {"interest_intent_router_light": async_router_state}
+            if async_router_state
+            else {}
+        )
 
         if not should_refresh:
             await _patch_async_pipeline_data(
@@ -1457,6 +1547,7 @@ async def _run_async_observer_pipeline_steps(
                 pipeline_data={
                     **async_metadata,
                     "async_exploration_skipped": True,
+                    **async_interest_payload,
                 },
                 curiosity_score=None,
             )
@@ -1470,10 +1561,21 @@ async def _run_async_observer_pipeline_steps(
             current_curiosity_score=current_score,
         )
         if not exploration_data:
+            await _patch_async_pipeline_data(
+                message_id=saved_message_id,
+                append_steps=async_steps,
+                pipeline_data={
+                    **async_metadata,
+                    "async_exploration_skipped": True,
+                    "async_exploration_skip_reason": "exploration_evaluator_returned_empty",
+                    **async_interest_payload,
+                },
+                curiosity_score=None,
+            )
             return
 
-        if pipeline_key == "intent_legacy_v2":
-            exploration_data = _apply_v2_router_curiosity_guardrail(
+        if pipeline_key in {"intent_legacy_v2", "intent_legacy_v6"}:
+            exploration_data = _apply_interest_router_curiosity_guardrail(
                 exploration_data=exploration_data,
                 router_state=router_state,
                 current_score=current_score,
@@ -1515,6 +1617,7 @@ async def _run_async_observer_pipeline_steps(
                 "exploration_directions_evaluation": exploration_data,
                 "curiosity_score_evaluation": curiosity_score_step,
                 **async_metadata,
+                **async_interest_payload,
                 "async_exploration_skipped": False,
             },
             curiosity_score=patched_curiosity_score,

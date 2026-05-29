@@ -292,11 +292,8 @@ async def prepare_turn(
     return turn_context
 
 
-def prepend_light_interest_step(
-    response_data: ProcessQueryResponse,
-    router_state: Dict[str, Any],
-) -> None:
-    router_step = {
+def build_light_interest_step(router_state: Dict[str, Any]) -> Dict[str, Any]:
+    return {
         "name": ROUTER_PROMPT_NAME,
         "enabled": True,
         "prompt_name": router_state.get("prompt_name"),
@@ -329,6 +326,13 @@ def prepend_light_interest_step(
         "timed_out": router_state.get("timed_out", False),
         "timeout_seconds": router_state.get("timeout_seconds"),
     }
+
+
+def prepend_light_interest_step(
+    response_data: ProcessQueryResponse,
+    router_state: Dict[str, Any],
+) -> None:
+    router_step = build_light_interest_step(router_state)
     prepend_pipeline_step(
         response_data,
         router_step,
