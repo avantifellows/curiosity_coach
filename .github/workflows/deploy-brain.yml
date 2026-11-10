@@ -62,7 +62,9 @@ jobs:
           # Use the dynamically found function name from the previous step
           LAMBDA_FUNCTION_NAME: ${{ steps.find_lambda.outputs.function_name }}
         run: |
-          aws lambda update-function-code --function-name $LAMBDA_FUNCTION_NAME --image-uri ${{ steps.build-image.outputs.image }}
+          # Discard the CLI output: it includes the function's environment variables,
+          # and this repo's Actions logs are public.
+          aws lambda update-function-code --function-name $LAMBDA_FUNCTION_NAME --image-uri ${{ steps.build-image.outputs.image }} > /dev/null
 
       - name: Wait for Lambda function update to complete
         env:
@@ -109,14 +111,12 @@ jobs:
             UPDATED_ENV_VARS=$(echo $CURRENT_ENV_VARS | jq --arg url "$BACKEND_URL" --arg app_env "$APP_ENVIRONMENT" '. + {BACKEND_CALLBACK_BASE_URL: $url, APP_ENV: $app_env}')
           fi
 
-          echo "New environment variables JSON: $UPDATED_ENV_VARS"
-
           # Construct the JSON payload for the --environment argument
           # Ensure the UPDATED_ENV_VARS JSON is correctly embedded within the {"Variables": ...} structure
           ENV_PAYLOAD=$(jq -n --argjson vars "$UPDATED_ENV_VARS" '{"Variables": $vars}')
-          echo "Environment payload for AWS CLI: $ENV_PAYLOAD"
-
           # Update the function configuration with the merged environment variables
-          aws lambda update-function-configuration --function-name $BRAIN_LAMBDA_FUNCTION_NAME --region ap-south-1 --environment "$ENV_PAYLOAD"
+          # Discard the CLI output (it echoes every environment variable); never print
+          # the variables themselves: this repo's Actions logs are public.
+          aws lambda update-function-configuration --function-name $BRAIN_LAMBDA_FUNCTION_NAME --region ap-south-1 --environment "$ENV_PAYLOAD" > /dev/null
 
           echo "Lambda environment variables updated successfully." 
