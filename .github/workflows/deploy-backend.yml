@@ -62,7 +62,9 @@ jobs:
           # Use the dynamically found function name from the previous step
           LAMBDA_FUNCTION_NAME: ${{ steps.find_lambda.outputs.function_name }}
         run: |
-          aws lambda update-function-code --function-name $LAMBDA_FUNCTION_NAME --image-uri ${{ steps.build-image.outputs.image }}
+          # Discard the CLI output: it includes the function's environment variables,
+          # and this repo's Actions logs are public.
+          aws lambda update-function-code --function-name $LAMBDA_FUNCTION_NAME --image-uri ${{ steps.build-image.outputs.image }} > /dev/null
 
       - name: Wait for Lambda update to complete
         env:
@@ -124,4 +126,6 @@ jobs:
             EXISTING_VARS='{}'
           fi
           UPDATED_VARS=$(echo $EXISTING_VARS | jq --arg db_name "$DB_NAME" --arg backend_url "$BACKEND_URL" --arg brain_url "$BRAIN_URL" '. + {"DB_NAME": $db_name, "APP_ENV": "production", "BACKEND_CALLBACK_BASE_URL": $backend_url, "BRAIN_ENDPOINT_URL": $brain_url}')
-          aws lambda update-function-configuration --function-name $LAMBDA_FUNCTION_NAME --environment "{\"Variables\":$UPDATED_VARS}"
+          # Discard the CLI output: it includes the function's environment variables,
+          # and this repo's Actions logs are public.
+          aws lambda update-function-configuration --function-name $LAMBDA_FUNCTION_NAME --environment "{\"Variables\":$UPDATED_VARS}" > /dev/null
